@@ -347,6 +347,8 @@ fn builtin_real(args: Vec<Value>) -> Result<Value, ScriptError> {
             );
             Ok(Value::Vector(result))
         }
+        Value::Matrix(m) if m.nrows() == 1 && m.ncols() == 1 => Ok(Value::Scalar(m[[0, 0]].re)),
+        Value::Matrix(m) => Ok(Value::Matrix(m.mapv(|c| Complex::new(c.re, 0.0)))),
         other => Err(ScriptError::Type(format!("real: unsupported type {}", other))),
     }
 }
@@ -362,6 +364,8 @@ fn builtin_imag(args: Vec<Value>) -> Result<Value, ScriptError> {
             );
             Ok(Value::Vector(result))
         }
+        Value::Matrix(m) if m.nrows() == 1 && m.ncols() == 1 => Ok(Value::Scalar(m[[0, 0]].im)),
+        Value::Matrix(m) => Ok(Value::Matrix(m.mapv(|c| Complex::new(c.im, 0.0)))),
         other => Err(ScriptError::Type(format!("imag: unsupported type {}", other))),
     }
 }
@@ -391,6 +395,7 @@ fn apply_scalar_fn_to_value(
             let result: CVector = Array1::from_iter(v.iter().map(|&c| fc(c)));
             Ok(Value::Vector(result))
         }
+        Value::Matrix(m) => Ok(Value::Matrix(m.mapv(|c| fc(c)))),
         other => Err(ScriptError::Type(format!("{}: unsupported type {}", name, other))),
     }
 }
@@ -1460,7 +1465,10 @@ fn to_real_vector(val: &Value) -> Result<rustlab_core::RVector, ScriptError> {
     match val {
         Value::Vector(v) => Ok(ndarray::Array1::from_iter(v.iter().map(|c| c.re))),
         Value::Scalar(n) => Ok(ndarray::Array1::from_vec(vec![*n])),
-        other => Err(ScriptError::Type(format!("savefig: cannot plot {other}"))),
+        Value::Matrix(m) if m.ncols() == 1 => {
+            Ok(ndarray::Array1::from_iter(m.column(0).iter().map(|c| c.re)))
+        }
+        other => Err(ScriptError::Type(format!("cannot plot value of type {other}"))),
     }
 }
 

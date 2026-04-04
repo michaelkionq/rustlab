@@ -29,10 +29,10 @@ Phase angle in radians (`atan2(im, re)`).
 - Vector: element-wise
 
 ### `real(x)`
-Real part of a scalar, complex number, or vector.
+Real part of a scalar, complex number, vector, or matrix. A 1×1 matrix returns a scalar.
 
 ### `imag(x)`
-Imaginary part of a scalar, complex number, or vector.
+Imaginary part of a scalar, complex number, vector, or matrix. A 1×1 matrix returns a scalar.
 
 ### `conj(x)`
 Complex conjugate — negates the imaginary part. Accepts scalar, complex, vector, or matrix.
@@ -45,25 +45,25 @@ conj(5.0)              # → 5.0  (real input unchanged)
 - Real scalars and real-valued inputs are returned unchanged.
 
 ### `cos(x)`
-Cosine, element-wise. Accepts real or complex values.
+Cosine, element-wise. Accepts scalar, complex, vector, or matrix.
 
 ### `sin(x)`
-Sine, element-wise. Accepts real or complex values.
+Sine, element-wise. Accepts scalar, complex, vector, or matrix.
 
 ### `sqrt(x)`
-Square root, element-wise. Accepts real or complex values.
+Square root, element-wise. Accepts scalar, complex, vector, or matrix.
 
 ### `exp(x)`
-Natural exponential `eˣ`, element-wise. Accepts real or complex values.
+Natural exponential `eˣ`, element-wise. Accepts scalar, complex, vector, or matrix.
 ```
 exp(j * pi)   # → -1 + 0i  (Euler's identity)
 ```
 
 ### `log(x)`
-Natural logarithm (base e), element-wise. Accepts real or complex values.
+Natural logarithm (base e), element-wise. Accepts scalar, complex, vector, or matrix.
 
 ### `log10(x)`
-Base-10 logarithm, element-wise. Accepts real or complex values.
+Base-10 logarithm, element-wise. Accepts scalar, complex, vector, or matrix.
 ```
 log10(1000.0)   # → 3.0
 ```
@@ -73,7 +73,7 @@ db = 20.0 * log10(abs(X) + 1e-12)
 ```
 
 ### `log2(x)`
-Base-2 logarithm, element-wise. Accepts real or complex values.
+Base-2 logarithm, element-wise. Accepts scalar, complex, vector, or matrix.
 ```
 log2(8.0)    # → 3.0
 log2(1024)   # → 10.0
@@ -679,13 +679,14 @@ File format is detected from the extension (`.svg` or `.png`).
 
 ### `savefig(v, filename [, title])`
 Save a line chart to file. Renders the current figure state — call `plot()` first or use figure state functions to set up multi-series plots.
+`v` may be a vector or an n×1 column matrix.
 ```
 savefig(real(signal), "signal.svg", "440 Hz Sinusoid")
 savefig(mag, "magnitude.png")
 ```
 
 ### `savestem(v, filename [, title])`
-Save a stem chart to file.
+Save a stem chart to file. `v` may be a vector or an n×1 column matrix.
 ```
 savestem(real(h), "impulse.svg", "Filter Impulse Response")
 ```
