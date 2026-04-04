@@ -466,6 +466,33 @@ h = butterworth_highpass(4, 3000.0, 44100.0)
 
 ## Linear Algebra
 
+### `trace(M)`
+Sum of the main diagonal elements of a square (or rectangular) matrix `M`.
+```
+M = [1,2;3,4]
+trace(M)    # → 5.0  (1 + 4)
+
+A = [1+j,0;0,2]
+trace(A)    # → complex 3+1i
+```
+- Works on non-square matrices: sums `min(rows, cols)` diagonal elements.
+- Returns a scalar if the imaginary part is negligible, otherwise complex.
+- `trace(scalar)` returns the scalar unchanged.
+
+### `det(M)`
+Determinant of a square matrix `M`, computed via LU decomposition with partial pivoting.
+```
+M = [1,2;3,4]
+det(M)      # → -2.0
+
+I = eye(3)
+det(I)      # → 1.0
+```
+- `M` must be square; non-square input is a type error.
+- `det([])` (0×0) returns `1.0` by convention.
+- Returns a scalar if the imaginary part is negligible, otherwise complex.
+- `det(scalar)` returns the scalar unchanged.
+
 ### `eig(M)`
 Eigenvalues of a square matrix `M`. Returns a complex vector of length `n`.
 Uses Hessenberg reduction followed by single-shift QR iteration with Wilkinson shifts.
