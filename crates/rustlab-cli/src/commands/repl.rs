@@ -20,6 +20,8 @@ const HELP: &[HelpEntry] = &[
         detail: "real(x)  — scalar, complex, or vector" },
     HelpEntry { name: "imag",   brief: "Imaginary part",
         detail: "imag(x)  — scalar, complex, or vector" },
+    HelpEntry { name: "conj",   brief: "Complex conjugate",
+        detail: "conj(x)  — scalar, complex, vector, or matrix\n  Negates the imaginary part. Real inputs are returned unchanged." },
     HelpEntry { name: "cos",    brief: "Cosine",        detail: "cos(x)  — element-wise, accepts complex" },
     HelpEntry { name: "sin",    brief: "Sine",          detail: "sin(x)  — element-wise, accepts complex" },
     HelpEntry { name: "sqrt",   brief: "Square root",   detail: "sqrt(x)  — element-wise, accepts complex" },
@@ -434,7 +436,7 @@ fn print_help_list() {
     println!("  {}", "-".repeat(60));
 
     let categories = [
-        ("Math",             &["abs","angle","real","imag","cos","sin","sqrt","exp","log","log10","log2"][..]),
+        ("Math",             &["abs","angle","real","imag","conj","cos","sin","sqrt","exp","log","log10","log2"][..]),
         ("Array / Stats",    &["zeros","ones","linspace","rand","randn","randi",
                                "min","max","mean","std","histogram","savehist",
                                "len","length","numel","size"]),

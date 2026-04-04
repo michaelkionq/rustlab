@@ -75,6 +75,7 @@ impl BuiltinRegistry {
         r.register("angle", builtin_angle);
         r.register("real",  builtin_real);
         r.register("imag",  builtin_imag);
+        r.register("conj",  builtin_conj);
         r.register("cos",   builtin_cos);
         r.register("sin",   builtin_sin);
         r.register("sqrt",  builtin_sqrt);
@@ -362,6 +363,17 @@ fn builtin_imag(args: Vec<Value>) -> Result<Value, ScriptError> {
             Ok(Value::Vector(result))
         }
         other => Err(ScriptError::Type(format!("imag: unsupported type {}", other))),
+    }
+}
+
+fn builtin_conj(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("conj", &args, 1)?;
+    match &args[0] {
+        Value::Scalar(n)  => Ok(Value::Scalar(*n)),
+        Value::Complex(c) => Ok(Value::Complex(c.conj())),
+        Value::Vector(v)  => Ok(Value::Vector(v.mapv(|c| c.conj()))),
+        Value::Matrix(m)  => Ok(Value::Matrix(m.mapv(|c| c.conj()))),
+        other => Err(ScriptError::Type(format!("conj: unsupported type {}", other.type_name()))),
     }
 }
 

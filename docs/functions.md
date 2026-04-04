@@ -34,6 +34,16 @@ Real part of a scalar, complex number, or vector.
 ### `imag(x)`
 Imaginary part of a scalar, complex number, or vector.
 
+### `conj(x)`
+Complex conjugate — negates the imaginary part. Accepts scalar, complex, vector, or matrix.
+```
+conj(3 + j*4)          # → 3 - 4i
+conj([1+j, 2-j*3])     # → [1-1i, 2+3i]
+conj(5.0)              # → 5.0  (real input unchanged)
+```
+- Element-wise for vectors and matrices.
+- Real scalars and real-valued inputs are returned unchanged.
+
 ### `cos(x)`
 Cosine, element-wise. Accepts real or complex values.
 
