@@ -8,7 +8,13 @@ pub struct RunArgs {
 }
 
 pub fn execute(args: RunArgs) -> Result<()> {
-    let source = std::fs::read_to_string(&args.script)
-        .with_context(|| format!("failed to read {:?}", args.script))?;
+    let script = args.script.canonicalize()
+        .with_context(|| format!("failed to resolve path {:?}", args.script))?;
+    let source = std::fs::read_to_string(&script)
+        .with_context(|| format!("failed to read {:?}", script))?;
+    if let Some(dir) = script.parent() {
+        std::env::set_current_dir(dir)
+            .with_context(|| format!("failed to chdir to {:?}", dir))?;
+    }
     rustlab_script::run(&source).map_err(|e| anyhow::anyhow!("{}", e))
 }

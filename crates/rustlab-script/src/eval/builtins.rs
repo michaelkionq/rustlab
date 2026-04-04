@@ -78,6 +78,9 @@ impl BuiltinRegistry {
         r.register("conj",  builtin_conj);
         r.register("cos",   builtin_cos);
         r.register("sin",   builtin_sin);
+        r.register("acos",  builtin_acos);
+        r.register("asin",  builtin_asin);
+        r.register("atan",  builtin_atan);
         r.register("sqrt",  builtin_sqrt);
         r.register("exp",   builtin_exp);
         r.register("log",    builtin_log);
@@ -145,11 +148,17 @@ impl BuiltinRegistry {
         // Linear algebra
         r.register("dot",       builtin_dot);
         r.register("cross",     builtin_cross);
+        r.register("outer",     builtin_outer);
+        r.register("kron",      builtin_kron);
         r.register("norm",      builtin_norm);
         r.register("det",       builtin_det);
         r.register("inv",       builtin_inv);
+        r.register("expm",      builtin_expm);
         r.register("linsolve",  builtin_linsolve);
         r.register("eig",       builtin_eig);
+        // Special functions
+        r.register("laguerre",  builtin_laguerre);
+        r.register("legendre",  builtin_legendre);
         // Number theory
         r.register("factor",    builtin_factor);
         // Output
@@ -411,6 +420,18 @@ fn builtin_cos(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 fn builtin_sin(args: Vec<Value>) -> Result<Value, ScriptError> {
     apply_scalar_fn_to_value("sin", args, f64::sin, |c: Complex<f64>| c.sin())
+}
+
+fn builtin_acos(args: Vec<Value>) -> Result<Value, ScriptError> {
+    apply_scalar_fn_to_value("acos", args, f64::acos, |c: Complex<f64>| c.acos())
+}
+
+fn builtin_asin(args: Vec<Value>) -> Result<Value, ScriptError> {
+    apply_scalar_fn_to_value("asin", args, f64::asin, |c: Complex<f64>| c.asin())
+}
+
+fn builtin_atan(args: Vec<Value>) -> Result<Value, ScriptError> {
+    apply_scalar_fn_to_value("atan", args, f64::atan, |c: Complex<f64>| c.atan())
 }
 
 fn builtin_sqrt(args: Vec<Value>) -> Result<Value, ScriptError> {
@@ -1565,6 +1586,22 @@ fn extract_freq_response(val: &Value) -> Result<(rustlab_core::RVector, CVector)
 }
 
 /// Extract the real part of any numeric Value as an RVector.
+/// Coerce a Value to CMatrix: Matrix passes through, Scalar becomes 1×1, Vector becomes n×1.
+fn to_cmatrix_arg(val: &Value, fn_name: &str, arg_name: &str) -> Result<CMatrix, ScriptError> {
+    match val {
+        Value::Matrix(m)  => Ok(m.clone()),
+        Value::Scalar(n)  => Ok(Array2::from_elem((1, 1), Complex::new(*n, 0.0))),
+        Value::Complex(c) => Ok(Array2::from_elem((1, 1), *c)),
+        Value::Vector(v)  => {
+            let m = Array2::from_shape_fn((v.len(), 1), |(i, _)| v[i]);
+            Ok(m)
+        }
+        other => Err(ScriptError::Type(format!(
+            "{}: {} must be a matrix or vector, got {}", fn_name, arg_name, other.type_name()
+        ))),
+    }
+}
+
 fn to_real_vector(val: &Value) -> Result<rustlab_core::RVector, ScriptError> {
     match val {
         Value::Vector(v) => Ok(ndarray::Array1::from_iter(v.iter().map(|c| c.re))),
@@ -2132,6 +2169,31 @@ fn builtin_cross(args: Vec<Value>) -> Result<Value, ScriptError> {
     Ok(Value::Vector(result))
 }
 
+/// outer(a, b) — outer product of two vectors, returning an N×M matrix.
+/// outer(a, b)[i, j] = a[i] * b[j]
+fn builtin_outer(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("outer", &args, 2)?;
+    let a = args[0].to_cvector().map_err(|e| ScriptError::Type(format!("outer: a: {}", e)))?;
+    let b = args[1].to_cvector().map_err(|e| ScriptError::Type(format!("outer: b: {}", e)))?;
+    let m = Array2::from_shape_fn((a.len(), b.len()), |(i, j)| a[i] * b[j]);
+    Ok(Value::Matrix(m))
+}
+
+/// kron(A, B) — Kronecker tensor product.
+/// For A (m×n) and B (p×q), returns an mp×nq matrix where block (i,j) = A[i,j]*B.
+fn builtin_kron(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("kron", &args, 2)?;
+    // Accept matrix or scalar (treat scalar as 1×1)
+    let a = to_cmatrix_arg(&args[0], "kron", "A")?;
+    let b = to_cmatrix_arg(&args[1], "kron", "B")?;
+    let (ma, na) = (a.nrows(), a.ncols());
+    let (mb, nb) = (b.nrows(), b.ncols());
+    let result = Array2::from_shape_fn((ma * mb, na * nb), |(r, c)| {
+        a[[r / mb, c / nb]] * b[[r % mb, c % nb]]
+    });
+    Ok(Value::Matrix(result))
+}
+
 /// norm(v)    — Euclidean (L2) norm of a vector, or Frobenius norm of a matrix
 /// norm(v, p) — p-norm (p=1 or p=2 supported; p="fro" for Frobenius)
 fn builtin_norm(args: Vec<Value>) -> Result<Value, ScriptError> {
@@ -2282,6 +2344,86 @@ fn builtin_inv(args: Vec<Value>) -> Result<Value, ScriptError> {
     }
 }
 
+/// expm(M) — matrix exponential e^M via scaling-and-squaring with a degree-6 Padé approximant.
+fn builtin_expm(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("expm", &args, 1)?;
+    let m = match &args[0] {
+        Value::Matrix(m) => m.clone(),
+        Value::Scalar(n) => {
+            return Ok(Value::Scalar(n.exp()));
+        }
+        other => return Err(ScriptError::Type(format!("expm: expected matrix, got {}", other.type_name()))),
+    };
+    let n = m.nrows();
+    if n != m.ncols() {
+        return Err(ScriptError::Type(format!("expm: matrix must be square (got {}×{})", n, m.ncols())));
+    }
+    Ok(Value::Matrix(matrix_expm(&m)))
+}
+
+/// Compute e^A for a square complex matrix.
+/// Uses scaling-and-squaring with a [6/6] Padé approximant.
+/// Coefficients: c_k = m!(2m-k)! / ((2m)! k! (m-k)!) for m=6 — exact rational values.
+/// Threshold theta_6 from Higham 2008, Table A.1.
+fn matrix_expm(a: &CMatrix) -> CMatrix {
+    let n = a.nrows();
+
+    // 1-norm (largest column sum of absolute values)
+    let norm1: f64 = (0..n)
+        .map(|j| (0..n).map(|i| a[[i, j]].norm()).sum::<f64>())
+        .fold(0.0_f64, f64::max);
+
+    // Scale so ||A/2^s||_1 <= theta_6 (Higham 2008, Table A.1)
+    let theta_6: f64 = 0.537_192_035_114_815_2;
+    let s = if norm1 > theta_6 {
+        ((norm1 / theta_6).log2().ceil() as i32).max(0)
+    } else {
+        0
+    };
+    let a_s: CMatrix = a.mapv(|c| c / (2.0_f64).powi(s));
+
+    // [6/6] Padé coefficients c_k = 6!(12-k)! / (12! k! (6-k)!)
+    let c0: f64 = 1.0;            // 1
+    let c1: f64 = 0.5;            // 1/2
+    let c2: f64 = 5.0 / 44.0;    // 5/44
+    let c3: f64 = 1.0 / 66.0;    // 1/66
+    let c4: f64 = 1.0 / 792.0;   // 1/792
+    let c5: f64 = 1.0 / 15840.0; // 1/15840
+    let c6: f64 = 1.0 / 665280.0;// 1/665280
+
+    let eye: CMatrix = Array2::eye(n);
+    let a2 = a_s.dot(&a_s);
+    let a4 = a2.dot(&a2);
+    let a6 = a4.dot(&a2);
+
+    // V = c0*I + c2*A² + c4*A⁴ + c6*A⁶  (even)
+    let v = eye.mapv(|x: C64| x * c0)
+        + a2.mapv(|x| x * c2)
+        + a4.mapv(|x| x * c4)
+        + a6.mapv(|x| x * c6);
+
+    // U = A·(c1*I + c3*A² + c5*A⁴)  (odd, A factored out)
+    let inner = eye.mapv(|x: C64| x * c1)
+        + a2.mapv(|x| x * c3)
+        + a4.mapv(|x| x * c5);
+    let u = a_s.dot(&inner);
+
+    // expm_s = (V - U)⁻¹ · (U + V)
+    let num: CMatrix = &u + &v;
+    let den: CMatrix = &v - &u;
+    let den_inv = match matrix_inv(&den) {
+        Ok(m)  => m,
+        Err(_) => return Array2::eye(n),
+    };
+    let mut result = den_inv.dot(&num);
+
+    // Undo scaling by repeated squaring
+    for _ in 0..s {
+        result = result.dot(&result.clone());
+    }
+    result
+}
+
 /// linsolve(A, b) — solve the linear system A*x = b via Gaussian elimination
 fn builtin_linsolve(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("linsolve", &args, 2)?;
@@ -2350,6 +2492,131 @@ fn builtin_linsolve(args: Vec<Value>) -> Result<Value, ScriptError> {
 }
 
 // ─── factor(n) ────────────────────────────────────────────────────────────────
+
+// ─── Special functions ────────────────────────────────────────────────────────
+
+/// laguerre(n, alpha, x) — associated Laguerre polynomial L_n^alpha(x).
+/// n must be a non-negative integer scalar; alpha is a real scalar.
+/// x may be a scalar, vector, or matrix (element-wise).
+/// Uses the 3-term recurrence:
+///   L_0 = 1,  L_1 = 1 + alpha - x
+///   L_{k+1} = ((2k+1+alpha-x)*L_k - (k+alpha)*L_{k-1}) / (k+1)
+fn builtin_laguerre(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("laguerre", &args, 3)?;
+    let n = args[0].to_scalar()
+        .map_err(|_| ScriptError::Type("laguerre: n must be a non-negative integer scalar".to_string()))?;
+    let n = n.round() as i64;
+    if n < 0 {
+        return Err(ScriptError::Type("laguerre: n must be non-negative".to_string()));
+    }
+    let alpha = args[1].to_scalar()
+        .map_err(|_| ScriptError::Type("laguerre: alpha must be a real scalar".to_string()))?;
+
+    fn laguerre_scalar(n: i64, alpha: f64, x: f64) -> f64 {
+        if n == 0 { return 1.0; }
+        if n == 1 { return 1.0 + alpha - x; }
+        let (mut lk_1, mut lk) = (1.0_f64, 1.0 + alpha - x);
+        for k in 1..n {
+            let next = ((2*k + 1) as f64 + alpha - x) * lk - (k as f64 + alpha) * lk_1;
+            let next = next / (k + 1) as f64;
+            lk_1 = lk;
+            lk = next;
+        }
+        lk
+    }
+
+    match &args[2] {
+        Value::Scalar(x) => Ok(Value::Scalar(laguerre_scalar(n, alpha, *x))),
+        Value::Complex(c) => Ok(Value::Scalar(laguerre_scalar(n, alpha, c.re))),
+        Value::Vector(v) => {
+            let result: CVector = v.mapv(|c| Complex::new(laguerre_scalar(n, alpha, c.re), 0.0));
+            Ok(Value::Vector(result))
+        }
+        Value::Matrix(m) => {
+            let result: CMatrix = m.mapv(|c| Complex::new(laguerre_scalar(n, alpha, c.re), 0.0));
+            Ok(Value::Matrix(result))
+        }
+        other => Err(ScriptError::Type(format!("laguerre: x must be scalar/vector/matrix, got {}", other.type_name()))),
+    }
+}
+
+/// legendre(l, m, x) — associated Legendre polynomial P_l^m(x).
+/// l, m must be non-negative integer scalars with 0 <= m <= l.
+/// x may be a scalar, vector, or matrix (element-wise); typically |x| <= 1.
+/// Uses Condon-Shortley phase convention. Recurrence:
+///   P_m^m(x) = (-1)^m (2m-1)!! (1-x²)^(m/2)
+///   P_{m+1}^m(x) = x (2m+1) P_m^m(x)
+///   P_l^m(x) = ((2l-1) x P_{l-1}^m - (l+m-1) P_{l-2}^m) / (l-m)
+fn builtin_legendre(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("legendre", &args, 3)?;
+    let l = args[0].to_scalar()
+        .map_err(|_| ScriptError::Type("legendre: l must be a non-negative integer scalar".to_string()))?
+        .round() as i64;
+    let m = args[1].to_scalar()
+        .map_err(|_| ScriptError::Type("legendre: m must be an integer scalar".to_string()))?
+        .round() as i64;
+    if l < 0 || m.abs() > l {
+        return Err(ScriptError::Type(format!(
+            "legendre: require 0 <= l and |m| <= l (got l={}, m={})", l, m
+        )));
+    }
+
+    fn legendre_scalar(l: i64, m: i64, x: f64) -> f64 {
+        // Handle negative m via symmetry: P_l^{-m} = (-1)^m (l-m)!/(l+m)! P_l^m
+        let (l_use, m_use, negate) = if m < 0 {
+            let sign = if m % 2 == 0 { 1.0_f64 } else { -1.0_f64 };
+            let m_pos = m.unsigned_abs() as i64;
+            // factorial ratio (l-m_pos)!/(l+m_pos)!
+            let mut ratio = 1.0_f64;
+            for k in (l - m_pos + 1)..=(l + m_pos) { ratio /= k as f64; }
+            (l, m_pos, sign * ratio)
+        } else {
+            (l, m, 1.0_f64)
+        };
+
+        // Seed: P_{m_use}^{m_use}
+        let sin_th = (1.0 - x * x).max(0.0).sqrt();
+        let mut pmm = 1.0_f64;
+        // (2k-1)!! * sin^m: build iteratively
+        for k in 1..=m_use {
+            pmm *= -(2 * k - 1) as f64 * sin_th;
+        }
+
+        if l_use == m_use {
+            return negate * pmm;
+        }
+
+        // P_{m_use+1}^{m_use}
+        let mut pmm1 = x * (2 * m_use + 1) as f64 * pmm;
+        if l_use == m_use + 1 {
+            return negate * pmm1;
+        }
+
+        // Recurrence up to l
+        let mut pll = 0.0_f64;
+        for ll in (m_use + 2)..=l_use {
+            pll = ((2 * ll - 1) as f64 * x * pmm1 - (ll + m_use - 1) as f64 * pmm)
+                / (ll - m_use) as f64;
+            pmm  = pmm1;
+            pmm1 = pll;
+        }
+        negate * pll
+    }
+
+    match &args[2] {
+        Value::Scalar(x) => Ok(Value::Scalar(legendre_scalar(l, m, *x))),
+        Value::Complex(c) => Ok(Value::Scalar(legendre_scalar(l, m, c.re))),
+        Value::Vector(v) => {
+            let result: CVector = v.mapv(|c| Complex::new(legendre_scalar(l, m, c.re), 0.0));
+            Ok(Value::Vector(result))
+        }
+        Value::Matrix(mx) => {
+            let result: CMatrix = mx.mapv(|c| Complex::new(legendre_scalar(l, m, c.re), 0.0));
+            Ok(Value::Matrix(result))
+        }
+        other => Err(ScriptError::Type(format!("legendre: x must be scalar/vector/matrix, got {}", other.type_name()))),
+    }
+}
 
 /// factor(n) — prime factorization of a positive integer.
 /// Returns a real Vector of prime factors in ascending order (with repetition).

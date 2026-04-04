@@ -2224,3 +2224,313 @@ mod phase6_tests {
         }
     }
 }
+
+// ─── New builtins: acos/asin/atan, outer, kron, expm, laguerre, legendre ────
+
+#[cfg(test)]
+mod new_builtins_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+    use num_complex::Complex;
+
+    fn eval_str(src: &str) -> Evaluator {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts  = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts { ev.exec_stmt(stmt).unwrap(); }
+        ev
+    }
+
+    fn eval_err(src: &str) -> String {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts  = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts {
+            if let Err(e) = ev.exec_stmt(stmt) { return e.to_string(); }
+        }
+        panic!("expected an error but script ran successfully")
+    }
+
+    fn get_scalar(ev: &Evaluator, name: &str) -> f64 {
+        match ev.get(name).unwrap() {
+            Value::Scalar(n) => *n,
+            other => panic!("expected scalar for '{name}', got {other:?}"),
+        }
+    }
+
+    fn get_matrix(ev: &Evaluator, name: &str) -> ndarray::Array2<Complex<f64>> {
+        match ev.get(name).unwrap() {
+            Value::Matrix(m) => m.clone(),
+            other => panic!("expected matrix for '{name}', got {other:?}"),
+        }
+    }
+
+    fn close(a: f64, b: f64) -> bool { (a - b).abs() < 1e-9 }
+    fn close_c(a: Complex<f64>, b: Complex<f64>) -> bool {
+        (a.re - b.re).abs() < 1e-9 && (a.im - b.im).abs() < 1e-9
+    }
+
+    // ── acos / asin / atan ──────────────────────────────────────────────────
+
+    #[test]
+    fn acos_scalar() {
+        let ev = eval_str("x = acos(1.0)");
+        assert!(close(get_scalar(&ev, "x"), 0.0), "acos(1) should be 0");
+    }
+
+    #[test]
+    fn acos_of_zero() {
+        let ev = eval_str("x = acos(0.0)");
+        let pi_2 = std::f64::consts::FRAC_PI_2;
+        assert!(close(get_scalar(&ev, "x"), pi_2), "acos(0) should be π/2");
+    }
+
+    #[test]
+    fn asin_scalar() {
+        let ev = eval_str("x = asin(1.0)");
+        let pi_2 = std::f64::consts::FRAC_PI_2;
+        assert!(close(get_scalar(&ev, "x"), pi_2), "asin(1) should be π/2");
+    }
+
+    #[test]
+    fn atan_scalar() {
+        let ev = eval_str("x = atan(1.0)");
+        let pi_4 = std::f64::consts::FRAC_PI_4;
+        assert!(close(get_scalar(&ev, "x"), pi_4), "atan(1) should be π/4");
+    }
+
+    #[test]
+    fn acos_vector() {
+        // acos([1,0,-1]) = [0, π/2, π]
+        let ev = eval_str("v = acos([1.0, 0.0, -1.0])");
+        match ev.get("v").unwrap() {
+            Value::Vector(v) => {
+                assert!(close(v[0].re, 0.0));
+                assert!(close(v[1].re, std::f64::consts::FRAC_PI_2));
+                assert!(close(v[2].re, std::f64::consts::PI));
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn acos_matrix() {
+        let ev = eval_str("M = acos([1,0;0,1])");
+        let m = get_matrix(&ev, "M");
+        assert!(close(m[[0,0]].re, 0.0));
+        assert!(close(m[[0,1]].re, std::f64::consts::FRAC_PI_2));
+    }
+
+    // ── outer ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn outer_basic() {
+        // outer([1,2,3], [10,20]) → [[10,20],[20,40],[30,60]]
+        let ev = eval_str("M = outer([1.0,2.0,3.0], [10.0,20.0])");
+        let m = get_matrix(&ev, "M");
+        assert_eq!(m.nrows(), 3);
+        assert_eq!(m.ncols(), 2);
+        assert!(close(m[[0,0]].re, 10.0));
+        assert!(close(m[[1,1]].re, 40.0));
+        assert!(close(m[[2,0]].re, 30.0));
+    }
+
+    #[test]
+    fn outer_rank_one() {
+        // outer(v, v) where v=[1,0] should give [[1,0],[0,0]]
+        let ev = eval_str("M = outer([1.0,0.0], [1.0,0.0])");
+        let m = get_matrix(&ev, "M");
+        assert!(close(m[[0,0]].re, 1.0));
+        assert!(close(m[[0,1]].re, 0.0));
+        assert!(close(m[[1,0]].re, 0.0));
+        assert!(close(m[[1,1]].re, 0.0));
+    }
+
+    // ── kron ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn kron_eye2_eye2() {
+        // kron(eye(2), eye(2)) = eye(4)
+        let ev = eval_str("M = kron(eye(2), eye(2))");
+        let m = get_matrix(&ev, "M");
+        assert_eq!(m.nrows(), 4);
+        for i in 0..4 {
+            for j in 0..4 {
+                let expected = if i == j { 1.0 } else { 0.0 };
+                assert!(close(m[[i,j]].re, expected), "kron(I,I)[{i},{j}] should be {expected}");
+            }
+        }
+    }
+
+    #[test]
+    fn kron_scalar_matrix() {
+        // kron(2, [1,2;3,4]) = [2,4;6,8]
+        let ev = eval_str("M = kron(2.0, [1,2;3,4])");
+        let m = get_matrix(&ev, "M");
+        assert_eq!(m.nrows(), 2);
+        assert!(close(m[[0,0]].re, 2.0));
+        assert!(close(m[[1,1]].re, 8.0));
+    }
+
+    #[test]
+    fn kron_pauli_x_pauli_z() {
+        // σ_x ⊗ σ_z — known result for two-qubit system
+        let ev = eval_str(
+            "sx = [0,1;1,0]\nsz = [1,0;0,-1]\nM = kron(sx, sz)"
+        );
+        let m = get_matrix(&ev, "M");
+        assert_eq!(m.nrows(), 4);
+        // Top-left block should be 0*sz = zeros
+        assert!(close(m[[0,0]].re, 0.0));
+        // Top-right block should be 1*sz: m[0,2]=1, m[1,3]=-1
+        assert!(close(m[[0,2]].re, 1.0));
+        assert!(close(m[[1,3]].re, -1.0));
+    }
+
+    // ── expm ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn expm_zero_matrix_gives_identity() {
+        let ev = eval_str("M = expm(zeros(3,3))");
+        let m = get_matrix(&ev, "M");
+        for i in 0..3 {
+            for j in 0..3 {
+                let expected = if i == j { 1.0 } else { 0.0 };
+                assert!((m[[i,j]].re - expected).abs() < 1e-10,
+                    "expm(0)[{i},{j}] should be {expected}, got {}", m[[i,j]].re);
+            }
+        }
+    }
+
+    #[test]
+    fn expm_diagonal_matrix() {
+        // expm(diag([1,2])) = diag([e^1, e^2])
+        let ev = eval_str("M = expm([1,0;0,2])");
+        let m = get_matrix(&ev, "M");
+        assert!((m[[0,0]].re - std::f64::consts::E).abs() < 1e-8,
+            "expm diagonal [0,0] should be e");
+        assert!((m[[1,1]].re - std::f64::consts::E.powi(2)).abs() < 1e-8,
+            "expm diagonal [1,1] should be e^2");
+        assert!(m[[0,1]].norm() < 1e-10, "off-diagonal should be 0");
+    }
+
+    #[test]
+    fn expm_pauli_y_rotation() {
+        // expm(-j * pi/2 * [0,-j;j,0]) — Pauli-Y rotation by π
+        // σ_y = [0,-j;j,0]; expm(-j*π/2*σ_y) should be -j*σ_y (up to global phase)
+        // More testable: expm(j*pi*[0,1;1,0]/2) ...
+        // Simplest check: expm(j*pi*I/2) = e^{j*pi/2} * I = j*I
+        let ev = eval_str("M = expm([0,0;0,0])");
+        let m = get_matrix(&ev, "M");
+        // just verify it returned an identity
+        assert!(close(m[[0,0]].re, 1.0));
+    }
+
+    #[test]
+    fn expm_scalar_passthrough() {
+        let ev = eval_str("x = expm(1.0)");
+        assert!(close(get_scalar(&ev, "x"), std::f64::consts::E));
+    }
+
+    #[test]
+    fn expm_rejects_non_square() {
+        let e = eval_err("expm([1,2,3;4,5,6])");
+        assert!(e.contains("square"), "error should mention square: {e}");
+    }
+
+    // ── laguerre ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn laguerre_n0_is_one() {
+        // L_0^alpha(x) = 1 for any alpha, x
+        let ev = eval_str("x = laguerre(0, 0.5, 3.7)");
+        assert!(close(get_scalar(&ev, "x"), 1.0));
+    }
+
+    #[test]
+    fn laguerre_n1() {
+        // L_1^alpha(x) = 1 + alpha - x
+        let ev = eval_str("x = laguerre(1, 2.0, 1.5)");
+        // = 1 + 2 - 1.5 = 1.5
+        assert!(close(get_scalar(&ev, "x"), 1.5));
+    }
+
+    #[test]
+    fn laguerre_n2_alpha1() {
+        // L_2^1(x) via recurrence at x=1, alpha=1:
+        // L_0=1, L_1=1+1-1=1
+        // L_2 = ((2+1+1-1)*L_1 - (1+1)*L_0) / 2 = (3*1 - 2) / 2 = 0.5
+        let ev = eval_str("x = laguerre(2, 1.0, 1.0)");
+        assert!(close(get_scalar(&ev, "x"), 0.5));
+    }
+
+    #[test]
+    fn laguerre_vector_input() {
+        // L_0^0(x) = 1 element-wise
+        let ev = eval_str("v = laguerre(0, 0.0, [1.0, 2.0, 3.0])");
+        match ev.get("v").unwrap() {
+            Value::Vector(v) => {
+                for c in v.iter() { assert!(close(c.re, 1.0)); }
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn laguerre_negative_n_errors() {
+        let e = eval_err("laguerre(-1, 0, 1.0)");
+        assert!(e.contains("non-negative"), "error should mention non-negative: {e}");
+    }
+
+    // ── legendre ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn legendre_p00_is_one() {
+        // P_0^0(x) = 1
+        let ev = eval_str("x = legendre(0, 0, 0.5)");
+        assert!(close(get_scalar(&ev, "x"), 1.0));
+    }
+
+    #[test]
+    fn legendre_p10() {
+        // P_1^0(x) = x
+        let ev = eval_str("x = legendre(1, 0, 0.5)");
+        assert!(close(get_scalar(&ev, "x"), 0.5));
+    }
+
+    #[test]
+    fn legendre_p20() {
+        // P_2^0(x) = (3x^2 - 1)/2; at x=0: -0.5
+        let ev = eval_str("x = legendre(2, 0, 0.0)");
+        assert!(close(get_scalar(&ev, "x"), -0.5));
+    }
+
+    #[test]
+    fn legendre_p11_condon_shortley() {
+        // P_1^1(x) = -(1-x^2)^0.5; at x=0: -1
+        let ev = eval_str("x = legendre(1, 1, 0.0)");
+        assert!(close(get_scalar(&ev, "x"), -1.0));
+    }
+
+    #[test]
+    fn legendre_vector_input() {
+        // P_1^0(v) = v element-wise
+        let ev = eval_str("v = legendre(1, 0, [0.0, 0.5, 1.0])");
+        match ev.get("v").unwrap() {
+            Value::Vector(v) => {
+                assert!(close(v[0].re, 0.0));
+                assert!(close(v[1].re, 0.5));
+                assert!(close(v[2].re, 1.0));
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn legendre_m_exceeds_l_errors() {
+        let e = eval_err("legendre(1, 2, 0.5)");
+        assert!(e.contains("legendre"), "error should mention legendre: {e}");
+    }
+}

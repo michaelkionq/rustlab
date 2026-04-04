@@ -50,6 +50,16 @@ Cosine, element-wise. Accepts scalar, complex, vector, or matrix.
 ### `sin(x)`
 Sine, element-wise. Accepts scalar, complex, vector, or matrix.
 
+### `acos(x)`
+Inverse cosine in radians, element-wise. Accepts scalar, complex, vector, or matrix.
+
+### `asin(x)`
+Inverse sine in radians, element-wise. Accepts scalar, complex, vector, or matrix.
+
+### `atan(x)`
+Inverse tangent in radians (single-argument), element-wise. Accepts scalar, complex, vector, or matrix.
+For the two-argument form see `atan2(y, x)`.
+
 ### `sqrt(x)`
 Square root, element-wise. Accepts scalar, complex, vector, or matrix.
 
@@ -540,6 +550,34 @@ det(I)      # → 1.0
 - Returns a scalar if the imaginary part is negligible, otherwise complex.
 - `det(scalar)` returns the scalar unchanged.
 
+### `outer(a, b)`
+Outer (tensor) product of two vectors, returning an N×M matrix where `result[i,j] = a[i] * b[j]`.
+```
+outer([1,2,3], [10,20])   # → 3×2 matrix [[10,20],[20,40],[30,60]]
+```
+- Both arguments are coerced to vectors (scalars and column matrices accepted).
+- Supports complex values.
+
+### `kron(A, B)`
+Kronecker tensor product of two matrices. For A (m×n) and B (p×q) returns an mp×nq matrix
+where block `(i,j)` equals `A[i,j] * B`.
+```
+kron(eye(2), [1,2;3,4])   # → block-diagonal 4×4 matrix
+```
+- Accepts matrix, vector, or scalar for both arguments.
+- Essential for multi-qubit state space construction.
+
+### `expm(M)`
+Matrix exponential e^M via scaling-and-squaring with a [6/6] Padé approximant (Higham 2008).
+```
+H = [0, -j; j, 0]        # Pauli-Y (up to factor)
+expm(-j * H * pi/2)       # time-evolution operator
+expm(zeros(3,3))          # → eye(3)
+```
+- `M` must be square.
+- For diagonal or real-symmetric matrices the result is exact to double precision.
+- `expm(scalar)` returns `exp(scalar)`.
+
 ### `eig(M)`
 Eigenvalues of a square matrix `M`. Returns a complex vector of length `n`.
 Uses Hessenberg reduction followed by single-shift QR iteration with Wilkinson shifts.
@@ -550,6 +588,29 @@ v = eig(M)       # → complex vector with eigenvalues ~[3+0i, 1+0i]
 - Input must be a square matrix (or scalar, which returns a 1-element vector).
 - Eigenvalues are returned in convergence order, not sorted.
 - The sum of eigenvalues equals `trace(M)`; the product equals `det(M)`.
+
+### `laguerre(n, alpha, x)`
+Associated Laguerre polynomial L_n^α(x) computed via 3-term recurrence.
+```
+laguerre(0, 0, x)    # → 1  (for any x)
+laguerre(1, 0, 0)    # → 1
+laguerre(2, 1, 1.0)  # → L_2^1(1) = 0.5
+```
+- `n` must be a non-negative integer scalar.
+- `alpha` is a real scalar (often an integer in physics, e.g. `2*l+1` for radial wavefunctions).
+- `x` may be scalar, vector, or matrix (element-wise).
+- For hydrogen radial wavefunctions use `laguerre(n-l-1, 2*l+1, rho)`.
+
+### `legendre(l, m, x)`
+Associated Legendre polynomial P_l^m(x), Condon-Shortley phase convention.
+```
+legendre(1, 0, 0.5)  # → P_1^0(0.5) = 0.5
+legendre(2, 0, 0.0)  # → P_2^0(0) = -0.5
+legendre(1, 1, 0.0)  # → P_1^1(0) = -1.0  (Condon-Shortley)
+```
+- `l`, `m` must be integer scalars with `0 <= m <= l` (use negative `m` for m < 0 via symmetry).
+- `x` may be scalar, vector, or matrix (element-wise); typically `|x| <= 1` (cosine of colatitude).
+- For spherical harmonics: Y_l^m(θ,φ) = N · P_l^m(cosθ) · e^{imφ}.
 
 ### `factor(n)`
 Prime factorization of a positive integer `n`. Returns a real vector of prime factors
@@ -1024,7 +1085,7 @@ These are interactive commands available in the `rustlab` REPL only (not in scri
 |---------|-------------|
 | `whos` | List all variables with type, size, and value preview |
 | `clear` | Remove all user-defined variables (keeps `j`, `pi`, `e`) |
-| `run <file>` | Execute a `.r` script; its variables persist in the session |
+| `run <file>` | Execute a `.r` script; its variables persist in the session. File-relative paths (`savefig`, `save`, `load`) resolve relative to the script's own directory. |
 | `ls [path]` | List directory contents |
 | `cd [path]` | Change working directory |
 | `pwd` | Print current working directory |
