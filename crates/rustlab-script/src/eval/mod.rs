@@ -314,11 +314,11 @@ impl Evaluator {
                         .ok_or_else(|| ScriptError::Runtime(
                             format!("struct has no field '{}'", field)
                         )),
-                    Value::StateSpace { A, B, C, D } => match field.as_str() {
-                        "A" => Ok(Value::Matrix(A)),
-                        "B" => Ok(Value::Matrix(B)),
-                        "C" => Ok(Value::Matrix(C)),
-                        "D" => Ok(Value::Matrix(D)),
+                    Value::StateSpace { a, b, c, d } => match field.as_str() {
+                        "A" => Ok(Value::Matrix(a)),
+                        "B" => Ok(Value::Matrix(b)),
+                        "C" => Ok(Value::Matrix(c)),
+                        "D" => Ok(Value::Matrix(d)),
                         other => Err(ScriptError::Runtime(format!(
                             "ss has no field '{}'; valid fields are A, B, C, D", other
                         ))),

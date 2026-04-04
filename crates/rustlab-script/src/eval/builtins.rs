@@ -2917,7 +2917,7 @@ fn tf_to_ss(num: &[f64], den: &[f64]) -> Result<Value, String> {
     let d_mat: CMatrix = Array2::from_shape_vec((1, 1), vec![Complex::new(d_val, 0.0)])
         .map_err(|e| e.to_string())?;
 
-    Ok(Value::StateSpace { A: a_mat, B: b_mat, C: c_mat, D: d_mat })
+    Ok(Value::StateSpace { a: a_mat, b: b_mat, c: c_mat, d: d_mat })
 }
 
 fn builtin_ss(args: Vec<Value>) -> Result<Value, ScriptError> {
@@ -3194,7 +3194,7 @@ fn builtin_step(args: Vec<Value>) -> Result<Value, ScriptError> {
 
     // Convert TF → SS
     let (a_c, b_c, c_c, d_c) = match tf_to_ss(&num, &den).map_err(ScriptError::Runtime)? {
-        Value::StateSpace { A, B, C, D } => (A, B, C, D),
+        Value::StateSpace { a, b, c, d } => (a, b, c, d),
         _ => unreachable!(),
     };
     let a = to_real_mat(&a_c);
@@ -3328,7 +3328,7 @@ fn builtin_lqr(args: Vec<Value>) -> Result<Value, ScriptError> {
 
     // Extract A, B from state-space system
     let (a_mat, b_mat) = match &args[0] {
-        Value::StateSpace { A, B, .. } => (A.clone(), B.clone()),
+        Value::StateSpace { a, b, .. } => (a.clone(), b.clone()),
         other => {
             return Err(ScriptError::Type(format!(
                 "lqr: first argument must be a state-space system, got {}",

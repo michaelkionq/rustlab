@@ -297,7 +297,7 @@ fn whos_size(v: &rustlab_script::Value) -> String {
         Value::Str(s)     => format!("1×{}", s.len()),
         Value::Struct(f)      => format!("1×1 ({} fields)", f.len()),
         Value::Tuple(v)       => format!("1×{}", v.len()),
-        Value::StateSpace { A, .. } => format!("{}×{}", A.nrows(), A.ncols()),
+        Value::StateSpace { a, .. } => format!("{}×{}", a.nrows(), a.ncols()),
         Value::All            => "—".to_string(),
         _                     => "1×1".to_string(),
     }
@@ -343,9 +343,9 @@ fn whos_preview(v: &rustlab_script::Value) -> String {
             "{} / ({} terms)",
             num.len(), den.len()
         ),
-        Value::StateSpace { A, B, C, .. } => format!(
+        Value::StateSpace { a, b, c, .. } => format!(
             "{}-state, {} input, {} output",
-            A.nrows(), B.ncols(), C.nrows()
+            a.nrows(), b.ncols(), c.nrows()
         ),
     }
 }

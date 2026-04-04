@@ -28,7 +28,7 @@ pub enum Value {
     /// Coefficients in descending-power order (index 0 = highest power).
     TransferFn { num: Vec<f64>, den: Vec<f64> },
     /// Continuous-time state-space model: ẋ = Ax + Bu, y = Cx + Du.
-    StateSpace { A: CMatrix, B: CMatrix, C: CMatrix, D: CMatrix },
+    StateSpace { a: CMatrix, b: CMatrix, c: CMatrix, d: CMatrix },
 }
 
 impl Value {
@@ -946,13 +946,13 @@ impl fmt::Display for Value {
             }
             Value::All  => write!(f, ":"),
             Value::None => write!(f, "None"),
-            Value::StateSpace { A, B, C, D } => {
+            Value::StateSpace { a, b, c, d } => {
                 write!(f, "ss<{}-state, {} input, {} output>",
-                    A.nrows(), B.ncols(), C.nrows())?;
-                write!(f, "\n  A: {}x{}", A.nrows(), A.ncols())?;
-                write!(f, "  B: {}x{}", B.nrows(), B.ncols())?;
-                write!(f, "  C: {}x{}", C.nrows(), C.ncols())?;
-                write!(f, "  D: {}x{}", D.nrows(), D.ncols())
+                    a.nrows(), b.ncols(), c.nrows())?;
+                write!(f, "\n  A: {}x{}", a.nrows(), a.ncols())?;
+                write!(f, "  B: {}x{}", b.nrows(), b.ncols())?;
+                write!(f, "  C: {}x{}", c.nrows(), c.ncols())?;
+                write!(f, "  D: {}x{}", d.nrows(), d.ncols())
             }
             Value::TransferFn { num, den } => {
                 let ns = format_poly(num);

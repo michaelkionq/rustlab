@@ -139,7 +139,9 @@ pub fn freqz(
     if n_points == 0 {
         return Err(DspError::InvalidParameter("freqz: n_points must be > 0".to_string()));
     }
-    let fft_size = next_power_of_two(n_points.max(h.len()));
+    // fft_size must be >= 2*n_points so that the first n_points DFT bins
+    // cover [0, Nyquist) rather than [0, fs).
+    let fft_size = next_power_of_two((2 * n_points).max(h.len()));
     let padded: Vec<C64> = h.iter().copied()
         .chain(std::iter::repeat(Complex::new(0.0, 0.0)))
         .take(fft_size)
