@@ -1,0 +1,22 @@
+[package]
+name    = "rustlab-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "rustlab"
+path = "src/main.rs"
+
+[dependencies]
+rustlab-core.workspace   = true
+rustlab-dsp              = { path = "../rustlab-dsp" }
+rustlab-plot             = { path = "../rustlab-plot" }
+rustlab-script           = { path = "../rustlab-script" }
+clap                     = { version = "4", features = ["derive"] }
+rustyline                = "14"
+anyhow.workspace         = true
+num-complex.workspace    = true
+ndarray.workspace        = true
+
+[dev-dependencies]
+tempfile = "3"

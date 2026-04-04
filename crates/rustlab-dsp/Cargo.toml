@@ -1,0 +1,10 @@
+[package]
+name    = "rustlab-dsp"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rustlab-core.workspace = true
+num-complex.workspace  = true
+ndarray.workspace      = true
+thiserror.workspace    = true

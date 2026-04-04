@@ -1,0 +1,17 @@
+[package]
+name    = "rustlab-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+num-complex.workspace = true
+ndarray.workspace     = true
+thiserror.workspace   = true
+
+[dependencies.ndarray-linalg]
+version  = "0.17"
+optional = true
+
+[features]
+default = []
+linalg  = ["dep:ndarray-linalg"]

@@ -1,0 +1,10 @@
+# rustlab — AI reference
+
+The full scripting reference lives in the docs directory:
+
+  docs/functions.md   — all built-in functions, constants, and toolboxes
+  docs/examples.md    — annotated example walkthroughs
+  README.md           — quickstart and CLI usage
+
+Read those files for up-to-date function signatures, types, and examples.
+Script extension: .r   Run: rustlab run script.r   REPL: rustlab

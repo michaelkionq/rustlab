@@ -1,0 +1,27 @@
+# Generated files
+/target/
+
+# Cargo lock (keep for binaries, optional for libraries)
+# Cargo.lock
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# AI tool local settings
+.claude/
+
+# Project prompts (internal)
+prompts/
+
+# Environment files
+.env
+
+# Rust documentation
+/doc/
+*.svg
+*.npz
+*.npy

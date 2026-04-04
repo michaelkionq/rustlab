@@ -1,0 +1,67 @@
+#[derive(Debug, Clone)]
+pub enum Stmt {
+    /// `name = expr` — suppress=true when line ends with `;`
+    Assign { name: String, expr: Expr, suppress: bool },
+    /// bare expression — suppress=true when line ends with `;`
+    Expr(Expr, bool),
+    /// `function [retvar =] name(params) ... end`
+    FunctionDef {
+        name:       String,
+        params:     Vec<String>,
+        return_var: Option<String>,
+        body:       Vec<Stmt>,
+    },
+    /// `object.field = expr` — struct field assignment
+    FieldAssign { object: String, field: String, expr: Expr, suppress: bool },
+    /// `return` statement inside a function body
+    Return,
+    /// `if cond \n then_body [else \n else_body] end`
+    If {
+        cond:      Expr,
+        then_body: Vec<Stmt>,
+        else_body: Vec<Stmt>,
+    },
+    /// `[a, b, c] = expr` — multi-value assignment (unpacks a Tuple)
+    MultiAssign { names: Vec<String>, expr: Expr, suppress: bool },
+}
+
+#[derive(Debug, Clone)]
+pub enum Expr {
+    Number(f64),
+    Str(String),
+    Var(String),
+    BinOp { op: BinOp, lhs: Box<Expr>, rhs: Box<Expr> },
+    UnaryMinus(Box<Expr>),
+    UnaryNot(Box<Expr>),
+    /// `name(args)` — at eval time, if `name` is a vector/matrix in env, treated as indexing
+    Call { name: String, args: Vec<Expr> },
+    /// `[rows]` literal — rows separated by `;`, elements by `,`
+    Matrix(Vec<Vec<Expr>>),
+    /// `start:stop` or `start:step:stop` — produces a vector
+    Range { start: Box<Expr>, step: Option<Box<Expr>>, stop: Box<Expr> },
+    /// `expr'` — conjugate transpose
+    Transpose(Box<Expr>),
+    /// `expr.'` — non-conjugate (plain) transpose
+    NonConjTranspose(Box<Expr>),
+    /// `:` used as an index meaning "all elements in this dimension"
+    All,
+    /// `expr.field` — struct field access
+    Field { object: Box<Expr>, field: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BinOp {
+    Add, Sub, Mul, Div, Pow,
+    /// Element-wise: .*  ./  .^
+    ElemMul, ElemDiv, ElemPow,
+    /// Comparison operators
+    Eq, Ne, Lt, Le, Gt, Ge,
+    /// Logical operators
+    And, Or,
+}
+
+#[derive(Debug, Clone)]
+pub enum UnaryOp {
+    Neg,
+    Not,
+}

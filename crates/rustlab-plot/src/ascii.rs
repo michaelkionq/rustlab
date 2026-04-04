@@ -1,0 +1,426 @@
+use crossterm::{event, execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Style},
+    symbols,
+    text::{Line as TuiLine, Span},
+    widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, Paragraph},
+    Terminal,
+};
+use rustlab_core::{CMatrix, CVector, RVector};
+use crate::error::PlotError;
+use crate::figure::{colormap_rgb, LineStyle, PlotKind, SeriesColor, FIGURE};
+use crate::compute_histogram;
+use std::io::stdout;
+
+/// Format a float like C's `%.3g`: use scientific for very large/small numbers, otherwise 3 sig figs.
+fn fmt_g(v: f64) -> String {
+    if v == 0.0 { return "0".to_string(); }
+    let abs = v.abs();
+    if abs < 0.001 || abs >= 10000.0 {
+        format!("{:.2e}", v)
+    } else if abs >= 100.0 {
+        format!("{:.0}", v)
+    } else if abs >= 10.0 {
+        format!("{:.1}", v)
+    } else {
+        format!("{:.2}", v)
+    }
+}
+
+fn wait_for_key() -> Result<(), PlotError> {
+    loop {
+        if event::poll(std::time::Duration::from_millis(100))? {
+            if let event::Event::Key(_) = event::read()? { break; }
+        }
+    }
+    Ok(())
+}
+
+fn restore_terminal() {
+    let _ = disable_raw_mode();
+    let _ = execute!(stdout(), LeaveAlternateScreen);
+}
+
+/// Render the current FIGURE state to the terminal.
+pub fn render_figure_terminal() -> Result<(), PlotError> {
+    // Skip silently when stdout is not a real terminal (e.g. script mode, CI).
+    use std::io::IsTerminal;
+    if !std::io::stdout().is_terminal() {
+        return Ok(());
+    }
+    FIGURE.with(|fig| {
+        let fig = fig.borrow();
+        let rows = fig.subplot_rows;
+        let cols = fig.subplot_cols;
+        let subplots = &fig.subplots;
+        if subplots.iter().all(|sp| sp.series.is_empty()) {
+            return Err(PlotError::EmptyData);
+        }
+
+        execute!(stdout(), EnterAlternateScreen)?;
+        enable_raw_mode()?;
+        let backend = CrosstermBackend::new(stdout());
+        let mut terminal = Terminal::new(backend).map_err(|e| {
+            restore_terminal();
+            PlotError::Terminal(e.to_string())
+        })?;
+
+        let result = terminal.draw(|f| {
+            let area = f.area();
+
+            // Split into rows
+            let row_constraints: Vec<Constraint> = (0..rows).map(|_| Constraint::Ratio(1, rows as u32)).collect();
+            let row_areas = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(row_constraints)
+                .split(area);
+
+            for r in 0..rows {
+                let col_constraints: Vec<Constraint> = (0..cols).map(|_| Constraint::Ratio(1, cols as u32)).collect();
+                let col_areas = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints(col_constraints)
+                    .split(row_areas[r]);
+
+                for c in 0..cols {
+                    let idx = r * cols + c;
+                    if idx >= subplots.len() { break; }
+                    let sp = &subplots[idx];
+                    let cell = col_areas[c];
+
+                    // Compute axis bounds across all series in this subplot
+                    let all_x: Vec<f64> = sp.series.iter().flat_map(|s| s.x_data.iter().copied()).collect();
+                    let all_y: Vec<f64> = sp.series.iter().flat_map(|s| s.y_data.iter().copied()).collect();
+                    if all_x.is_empty() || all_y.is_empty() { continue; }
+
+                    let x_min = sp.xlim.0.unwrap_or_else(|| all_x.iter().copied().fold(f64::INFINITY, f64::min));
+                    let x_max = sp.xlim.1.unwrap_or_else(|| all_x.iter().copied().fold(f64::NEG_INFINITY, f64::max));
+                    let y_min_raw = all_y.iter().copied().fold(f64::INFINITY, f64::min);
+                    let y_max_raw = all_y.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                    let y_margin = ((y_max_raw - y_min_raw).abs() * 0.1).max(1e-6);
+                    let y_min = sp.ylim.0.unwrap_or(y_min_raw - y_margin);
+                    let y_max = sp.ylim.1.unwrap_or(y_max_raw + y_margin);
+
+                    // Build point data for each series
+                    let series_points: Vec<Vec<(f64, f64)>> = sp.series.iter().map(|s| {
+                        s.x_data.iter().copied().zip(s.y_data.iter().copied()).collect()
+                    }).collect();
+
+                    // For stem: build zigzag points (base → tip → base for each sample)
+                    let stem_points: Vec<Vec<(f64, f64)>> = sp.series.iter().map(|s| {
+                        if s.kind == PlotKind::Stem {
+                            let mut pts = Vec::with_capacity(s.x_data.len() * 3);
+                            for (&x, &y) in s.x_data.iter().zip(s.y_data.iter()) {
+                                pts.push((x, 0.0));
+                                pts.push((x, y));
+                                pts.push((x, 0.0));
+                            }
+                            pts
+                        } else {
+                            vec![]
+                        }
+                    }).collect();
+
+                    // Pre-compute grid line point vecs so they outlive the Dataset borrows.
+                    let grid_pts: Vec<Vec<(f64, f64)>> = if sp.grid {
+                        const N: usize = 5;
+                        let mut v = Vec::with_capacity(N * 2 + 2);
+                        for i in 0..=N {
+                            let yv = y_min + (y_max - y_min) * i as f64 / N as f64;
+                            v.push(vec![(x_min, yv), (x_max, yv)]);
+                        }
+                        for i in 1..N {
+                            let xv = x_min + (x_max - x_min) * i as f64 / N as f64;
+                            v.push(vec![(xv, y_min), (xv, y_max)]);
+                        }
+                        v
+                    } else {
+                        vec![]
+                    };
+
+                    let mut datasets: Vec<Dataset> = Vec::new();
+                    for pts in &grid_pts {
+                        datasets.push(Dataset::default()
+                            .marker(symbols::Marker::Braille)
+                            .graph_type(GraphType::Line)
+                            .style(Style::default().fg(ratatui::style::Color::Rgb(70, 70, 70)))
+                            .data(pts));
+                    }
+                    for (i, s) in sp.series.iter().enumerate() {
+                        let rcolor = s.color.to_ratatui();
+                        if s.kind == PlotKind::Stem {
+                            datasets.push(Dataset::default()
+                                .name(s.label.as_str())
+                                .marker(symbols::Marker::Braille)
+                                .graph_type(GraphType::Line)
+                                .style(Style::default().fg(rcolor))
+                                .data(&stem_points[i]));
+                        } else {
+                            datasets.push(Dataset::default()
+                                .name(s.label.as_str())
+                                .marker(symbols::Marker::Braille)
+                                .graph_type(GraphType::Line)
+                                .style(Style::default().fg(rcolor))
+                                .data(&series_points[i]));
+                        }
+                    }
+
+                    let title = if !sp.title.is_empty() { sp.title.as_str() } else { "" };
+                    let xlabel = if !sp.xlabel.is_empty() { sp.xlabel.as_str() } else { "x" };
+                    let ylabel = if !sp.ylabel.is_empty() { sp.ylabel.as_str() } else { "y" };
+
+                    let x_mid = (x_min + x_max) / 2.0;
+                    let y_mid = (y_min + y_max) / 2.0;
+
+                    let chart = Chart::new(datasets)
+                        .block(Block::default().borders(Borders::ALL).title(title))
+                        .x_axis(Axis::default()
+                            .title(xlabel)
+                            .bounds([x_min, x_max])
+                            .labels(vec![
+                                ratatui::text::Span::raw(fmt_g(x_min)),
+                                ratatui::text::Span::raw(fmt_g(x_mid)),
+                                ratatui::text::Span::raw(fmt_g(x_max)),
+                            ]))
+                        .y_axis(Axis::default()
+                            .title(ylabel)
+                            .bounds([y_min, y_max])
+                            .labels(vec![
+                                ratatui::text::Span::raw(fmt_g(y_min)),
+                                ratatui::text::Span::raw(fmt_g(y_mid)),
+                                ratatui::text::Span::raw(fmt_g(y_max)),
+                            ]));
+
+                    f.render_widget(chart, cell);
+                }
+            }
+        });
+
+        if let Err(e) = result {
+            restore_terminal();
+            return Err(PlotError::Terminal(e.to_string()));
+        }
+
+        let k = wait_for_key();
+        restore_terminal();
+        k
+    })
+}
+
+/// Render an imagesc heatmap to the terminal using colored block characters.
+pub fn imagesc_terminal(matrix: &CMatrix, title: &str, colormap: &str) -> Result<(), PlotError> {
+    let (nrows, ncols) = (matrix.nrows(), matrix.ncols());
+    if nrows == 0 || ncols == 0 { return Err(PlotError::EmptyData); }
+
+    // Use magnitude (norm) of each element
+    let vals: Vec<f64> = matrix.iter().map(|c| c.norm()).collect();
+    let min_v = vals.iter().copied().fold(f64::INFINITY, f64::min);
+    let max_v = vals.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let range = (max_v - min_v).max(1e-12);
+
+    execute!(stdout(), EnterAlternateScreen)?;
+    enable_raw_mode()?;
+    let backend = CrosstermBackend::new(stdout());
+    let mut terminal = Terminal::new(backend).map_err(|e| {
+        restore_terminal();
+        PlotError::Terminal(e.to_string())
+    })?;
+
+    let result = terminal.draw(|f| {
+        let area = f.area();
+        let inner_h = (area.height as usize).saturating_sub(2);
+        let inner_w = (area.width  as usize).saturating_sub(2);
+
+        // Map nrows×ncols → terminal rows × (terminal_cols / 2) pixels (2 chars per pixel)
+        let px_cols = inner_w / 2;
+        let disp_rows = nrows.min(inner_h);
+        let disp_cols = ncols.min(px_cols);
+
+        let mut tui_lines: Vec<TuiLine> = Vec::with_capacity(disp_rows);
+        for dr in 0..disp_rows {
+            let mr = dr * nrows / disp_rows.max(1);
+            let mut spans: Vec<Span<'static>> = Vec::with_capacity(disp_cols);
+            for dc in 0..disp_cols {
+                let mc = dc * ncols / disp_cols.max(1);
+                let v = matrix[[mr.min(nrows-1), mc.min(ncols-1)]].norm();
+                let t = (v - min_v) / range;
+                let (r, g, b) = colormap_rgb(t, colormap);
+                spans.push(Span::styled("  ", Style::default().bg(Color::Rgb(r, g, b))));
+            }
+            tui_lines.push(TuiLine::from(spans));
+        }
+
+        let subtitle = format!("{} [{}, {}]", colormap, fmt_g(min_v), fmt_g(max_v));
+        let full_title = if title.is_empty() {
+            subtitle.clone()
+        } else {
+            format!("{} — {}", title, subtitle)
+        };
+
+        let para = Paragraph::new(tui_lines)
+            .block(Block::default().borders(Borders::ALL).title(full_title));
+        f.render_widget(para, area);
+    });
+
+    if let Err(e) = result {
+        restore_terminal();
+        return Err(PlotError::Terminal(e.to_string()));
+    }
+    let k = wait_for_key();
+    restore_terminal();
+    k
+}
+
+// ─── Helpers that push series into FIGURE ──────────────────────────────────
+
+fn push_line_series(x: Vec<f64>, y: Vec<f64>, label: &str, title: &str, color: Option<SeriesColor>, style: LineStyle) {
+    FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        if !fig.hold {
+            fig.current_mut().series.clear();
+        }
+        let color = color.unwrap_or_else(|| fig.next_color());
+        let sp = fig.current_mut();
+        if !title.is_empty() && sp.title.is_empty() { sp.title = title.to_string(); }
+        sp.series.push(crate::figure::Series {
+            label: label.to_string(),
+            x_data: x,
+            y_data: y,
+            color,
+            style,
+            kind: PlotKind::Line,
+        });
+    });
+}
+
+fn push_stem_series(x: Vec<f64>, y: Vec<f64>, label: &str, title: &str, color: Option<SeriesColor>) {
+    FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        if !fig.hold {
+            fig.current_mut().series.clear();
+        }
+        let color = color.unwrap_or_else(|| fig.next_color());
+        let sp = fig.current_mut();
+        if !title.is_empty() && sp.title.is_empty() { sp.title = title.to_string(); }
+        sp.series.push(crate::figure::Series {
+            label: label.to_string(),
+            x_data: x,
+            y_data: y,
+            color,
+            style: LineStyle::Solid,
+            kind: PlotKind::Stem,
+        });
+    });
+}
+
+/// Push a line series with explicit x-data.
+pub fn push_xy_line(x: Vec<f64>, y: Vec<f64>, label: &str, title: &str, color: Option<SeriesColor>, style: LineStyle) {
+    push_line_series(x, y, label, title, color, style);
+}
+
+/// Push a stem series with explicit x-data.
+pub fn push_xy_stem(x: Vec<f64>, y: Vec<f64>, label: &str, title: &str, color: Option<SeriesColor>) {
+    push_stem_series(x, y, label, title, color);
+}
+
+// ─── Legacy wrappers ───────────────────────────────────────────────────────
+
+pub fn plot_real(data: &RVector, title: &str) -> Result<(), PlotError> {
+    if data.is_empty() { return Err(PlotError::EmptyData); }
+    let x: Vec<f64> = (0..data.len()).map(|i| i as f64).collect();
+    let y: Vec<f64> = data.iter().copied().collect();
+    push_line_series(x, y, "value", title, None, LineStyle::Solid);
+    render_figure_terminal()
+}
+
+pub fn stem_real(data: &RVector, title: &str) -> Result<(), PlotError> {
+    if data.is_empty() { return Err(PlotError::EmptyData); }
+    let x: Vec<f64> = (0..data.len()).map(|i| i as f64).collect();
+    let y: Vec<f64> = data.iter().copied().collect();
+    push_stem_series(x, y, "stem", title, None);
+    render_figure_terminal()
+}
+
+pub fn plot_complex(data: &CVector, title: &str) -> Result<(), PlotError> {
+    if data.is_empty() { return Err(PlotError::EmptyData); }
+    FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        if !fig.hold { fig.current_mut().series.clear(); }
+        let sp = fig.current_mut();
+        if !title.is_empty() && sp.title.is_empty() { sp.title = title.to_string(); }
+        let x: Vec<f64> = (0..data.len()).map(|i| i as f64).collect();
+        sp.series.push(crate::figure::Series {
+            label: "magnitude".to_string(),
+            x_data: x.clone(),
+            y_data: data.iter().map(|c| c.norm()).collect(),
+            color: SeriesColor::Blue,
+            style: LineStyle::Solid,
+            kind: PlotKind::Line,
+        });
+        sp.series.push(crate::figure::Series {
+            label: "real".to_string(),
+            x_data: x,
+            y_data: data.iter().map(|c| c.re).collect(),
+            color: SeriesColor::Green,
+            style: LineStyle::Solid,
+            kind: PlotKind::Line,
+        });
+    });
+    render_figure_terminal()
+}
+
+pub fn plot_db(freqs: &RVector, h: &CVector, title: &str) -> Result<(), PlotError> {
+    let n = freqs.len().min(h.len());
+    if n == 0 { return Err(PlotError::EmptyData); }
+    const FLOOR_DB: f64 = -120.0;
+    let x: Vec<f64> = freqs.iter().take(n).copied().collect();
+    let y: Vec<f64> = h.iter().take(n).map(|c| {
+        let m = c.norm();
+        if m < 1e-12 { FLOOR_DB } else { 20.0 * m.log10() }
+    }).collect();
+    FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        if !fig.hold { fig.current_mut().series.clear(); }
+        let color = fig.next_color();
+        let sp = fig.current_mut();
+        if !title.is_empty() && sp.title.is_empty() { sp.title = title.to_string(); }
+        if sp.xlabel.is_empty() { sp.xlabel = "Frequency (Hz)".to_string(); }
+        if sp.ylabel.is_empty() { sp.ylabel = "Magnitude (dB)".to_string(); }
+        sp.series.push(crate::figure::Series {
+            label: "dB".to_string(), x_data: x, y_data: y,
+            color, style: LineStyle::Solid, kind: PlotKind::Line,
+        });
+    });
+    render_figure_terminal()
+}
+
+pub fn plot_histogram(data: &RVector, n_bins: usize, title: &str) -> Result<(), PlotError> {
+    if data.is_empty() { return Err(PlotError::EmptyData); }
+    let (centers, counts, bin_width) = compute_histogram(data, n_bins);
+    if centers.is_empty() { return Err(PlotError::EmptyData); }
+    // Step-function outline
+    let mut x: Vec<f64> = Vec::with_capacity(n_bins * 4);
+    let mut y: Vec<f64> = Vec::with_capacity(n_bins * 4);
+    for i in 0..n_bins {
+        let left  = centers[i] - bin_width / 2.0;
+        let right = centers[i] + bin_width / 2.0;
+        x.extend_from_slice(&[left, left, right, right]);
+        y.extend_from_slice(&[0.0, counts[i], counts[i], 0.0]);
+    }
+    FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        if !fig.hold { fig.current_mut().series.clear(); }
+        let color = fig.next_color();
+        let sp = fig.current_mut();
+        if !title.is_empty() && sp.title.is_empty() { sp.title = title.to_string(); }
+        if sp.xlabel.is_empty() { sp.xlabel = "Value".to_string(); }
+        if sp.ylabel.is_empty() { sp.ylabel = "Count".to_string(); }
+        sp.series.push(crate::figure::Series {
+            label: "count".to_string(), x_data: x, y_data: y,
+            color, style: LineStyle::Solid, kind: PlotKind::Line,
+        });
+    });
+    render_figure_terminal()
+}

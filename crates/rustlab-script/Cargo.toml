@@ -1,0 +1,16 @@
+[package]
+name    = "rustlab-script"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rustlab-core.workspace  = true
+rustlab-dsp             = { path = "../rustlab-dsp" }
+rustlab-plot            = { path = "../rustlab-plot" }
+num-complex.workspace   = true
+ndarray.workspace       = true
+thiserror.workspace     = true
+anyhow.workspace        = true
+rand.workspace          = true
+rand_distr.workspace    = true
+zip.workspace           = true

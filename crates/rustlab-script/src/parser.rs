@@ -1,0 +1,699 @@
+use crate::ast::{BinOp, Expr, Stmt};
+use crate::error::ScriptError;
+use crate::lexer::{Spanned, Token};
+
+pub fn parse(tokens: Vec<Spanned>) -> Result<Vec<Stmt>, ScriptError> {
+    let mut parser = Parser::new(tokens);
+    parser.parse_program()
+}
+
+struct Parser {
+    tokens: Vec<Spanned>,
+    pos: usize,
+}
+
+impl Parser {
+    fn new(tokens: Vec<Spanned>) -> Self {
+        Self { tokens, pos: 0 }
+    }
+
+    fn current(&self) -> &Spanned {
+        &self.tokens[self.pos]
+    }
+
+    fn current_line(&self) -> usize {
+        self.current().line
+    }
+
+    fn peek_token(&self) -> &Token {
+        &self.current().token
+    }
+
+    fn advance(&mut self) -> &Token {
+        let tok = &self.tokens[self.pos].token;
+        if self.pos + 1 < self.tokens.len() {
+            self.pos += 1;
+        }
+        tok
+    }
+
+    fn expect(&mut self, expected: &Token) -> Result<(), ScriptError> {
+        if self.peek_token() == expected {
+            self.advance();
+            Ok(())
+        } else {
+            Err(ScriptError::Parse {
+                line: self.current_line(),
+                msg: format!("expected {:?}, got {:?}", expected, self.peek_token()),
+            })
+        }
+    }
+
+    /// Skip newlines (used inside delimiters like [...] and (...))
+    fn skip_newlines(&mut self) {
+        while self.peek_token() == &Token::Newline {
+            self.advance();
+        }
+    }
+
+    fn parse_program(&mut self) -> Result<Vec<Stmt>, ScriptError> {
+        self.parse_stmts_until_end(false)
+    }
+
+    /// Parse statements until EOF (top-level) or `end` keyword (function body).
+    /// `inside_fn` = true means we stop at `Token::End` or `Token::Eof`.
+    fn parse_stmts_until_end(&mut self, inside_fn: bool) -> Result<Vec<Stmt>, ScriptError> {
+        let mut stmts = Vec::new();
+        loop {
+            match self.peek_token() {
+                Token::Eof => {
+                    if inside_fn {
+                        return Err(ScriptError::Parse {
+                            line: self.current_line(),
+                            msg: "unexpected end of input: missing 'end' for function".to_string(),
+                        });
+                    }
+                    break;
+                }
+                Token::End => {
+                    if inside_fn {
+                        self.advance(); // consume 'end'
+                        // consume optional ';' and newline
+                        if self.peek_token() == &Token::Semicolon { self.advance(); }
+                        if self.peek_token() == &Token::Newline   { self.advance(); }
+                        break;
+                    } else {
+                        return Err(ScriptError::Parse {
+                            line: self.current_line(),
+                            msg: "unexpected 'end' outside of function".to_string(),
+                        });
+                    }
+                }
+                Token::Newline => { self.advance(); }
+                Token::Function => {
+                    stmts.push(self.parse_function_def()?);
+                }
+                Token::Return => {
+                    self.advance();
+                    let suppress = self.consume_stmt_end()?;
+                    let _ = suppress;
+                    stmts.push(Stmt::Return);
+                }
+                Token::If => {
+                    stmts.push(self.parse_if_stmt()?);
+                }
+                Token::Else => {
+                    if inside_fn {
+                        // `else` inside a function body means we're inside a nested if —
+                        // this shouldn't reach here; it's handled by parse_if_stmt.
+                        return Err(ScriptError::Parse {
+                            line: self.current_line(),
+                            msg: "unexpected 'else' without matching 'if'".to_string(),
+                        });
+                    } else {
+                        return Err(ScriptError::Parse {
+                            line: self.current_line(),
+                            msg: "unexpected 'else' without matching 'if'".to_string(),
+                        });
+                    }
+                }
+                Token::LBracket if self.is_multi_assign() => {
+                    stmts.push(self.parse_multi_assign()?);
+                }
+                Token::Ident(_) => {
+                    let stmt = if self.is_field_assignment() {
+                        self.parse_field_assignment()?
+                    } else if self.is_assignment() {
+                        self.parse_assignment()?
+                    } else {
+                        self.parse_expr_stmt()?
+                    };
+                    stmts.push(stmt);
+                }
+                _ => {
+                    stmts.push(self.parse_expr_stmt()?);
+                }
+            }
+        }
+        Ok(stmts)
+    }
+
+    /// Peek ahead to decide if we have `IDENT = expr` (not `IDENT == ...`)
+    fn is_assignment(&self) -> bool {
+        if self.pos + 1 < self.tokens.len() {
+            // Token::Eq is `=`; Token::EqEq is `==` — only the former is assignment
+            matches!(self.tokens[self.pos + 1].token, Token::Eq)
+                && !matches!(self.tokens.get(self.pos + 2).map(|s| &s.token), Some(Token::Eq))
+        } else {
+            false
+        }
+    }
+
+    /// Peek ahead to decide if we have `IDENT . IDENT = expr` (struct field assignment)
+    fn is_field_assignment(&self) -> bool {
+        self.pos + 3 < self.tokens.len()
+            && matches!(self.tokens[self.pos].token,     Token::Ident(_))
+            && self.tokens[self.pos + 1].token ==        Token::Dot
+            && matches!(self.tokens[self.pos + 2].token, Token::Ident(_))
+            && self.tokens[self.pos + 3].token ==        Token::Eq
+            && !matches!(self.tokens.get(self.pos + 4).map(|s| &s.token), Some(Token::Eq))
+    }
+
+    fn parse_field_assignment(&mut self) -> Result<Stmt, ScriptError> {
+        let object = match self.advance() {
+            Token::Ident(s) => s.clone(),
+            _ => unreachable!(),
+        };
+        self.advance(); // consume '.'
+        let field = match self.advance() {
+            Token::Ident(s) => s.clone(),
+            _ => unreachable!(),
+        };
+        self.advance(); // consume '='
+        let expr = self.parse_range_expr()?;
+        let suppress = self.consume_stmt_end()?;
+        Ok(Stmt::FieldAssign { object, field, expr, suppress })
+    }
+
+    fn parse_function_def(&mut self) -> Result<Stmt, ScriptError> {
+        self.advance(); // consume 'function'
+        self.skip_newlines();
+
+        // Determine if signature is  `retvar = name(params)`  or  `name(params)`
+        // Look ahead: IDENT EQ IDENT LPAREN  →  return-var form
+        let (return_var, name) = if self.pos + 3 < self.tokens.len()
+            && matches!(self.tokens[self.pos].token,     Token::Ident(_))
+            && self.tokens[self.pos + 1].token ==        Token::Eq
+            && matches!(self.tokens[self.pos + 2].token, Token::Ident(_))
+            && self.tokens[self.pos + 3].token ==        Token::LParen
+        {
+            let ret = match self.advance() { Token::Ident(s) => s.clone(), _ => unreachable!() };
+            self.advance(); // consume '='
+            let n   = match self.advance() { Token::Ident(s) => s.clone(), _ => unreachable!() };
+            (Some(ret), n)
+        } else {
+            let n = match self.peek_token().clone() {
+                Token::Ident(s) => { self.advance(); s }
+                other => return Err(ScriptError::Parse {
+                    line: self.current_line(),
+                    msg: format!("expected function name, got {:?}", other),
+                }),
+            };
+            (None, n)
+        };
+
+        // Parameter list
+        self.expect(&Token::LParen)?;
+        let params = if self.peek_token() == &Token::RParen {
+            vec![]
+        } else {
+            self.parse_param_list()?
+        };
+        self.expect(&Token::RParen)?;
+        let _ = self.consume_stmt_end()?;
+
+        // Body — parsed until `end`
+        let body = self.parse_stmts_until_end(true)?;
+
+        Ok(Stmt::FunctionDef { name, params, return_var, body })
+    }
+
+    fn parse_if_stmt(&mut self) -> Result<Stmt, ScriptError> {
+        self.advance(); // consume 'if'
+        let cond = self.parse_range_expr()?;
+        let _ = self.consume_stmt_end()?;
+
+        // Parse then-body until 'else' or 'end'
+        let mut then_body = Vec::new();
+        let hit_else = loop {
+            match self.peek_token() {
+                Token::Eof => return Err(ScriptError::Parse {
+                    line: self.current_line(),
+                    msg: "unexpected end of input: missing 'end' for 'if'".to_string(),
+                }),
+                Token::End => {
+                    self.advance();
+                    if self.peek_token() == &Token::Semicolon { self.advance(); }
+                    if self.peek_token() == &Token::Newline   { self.advance(); }
+                    break false;
+                }
+                Token::Else => {
+                    self.advance(); // consume 'else'
+                    if self.peek_token() == &Token::Semicolon { self.advance(); }
+                    if self.peek_token() == &Token::Newline   { self.advance(); }
+                    break true;
+                }
+                Token::Newline   => { self.advance(); }
+                Token::Function  => { then_body.push(self.parse_function_def()?); }
+                Token::Return    => { self.advance(); let _ = self.consume_stmt_end()?; then_body.push(Stmt::Return); }
+                Token::If        => { then_body.push(self.parse_if_stmt()?); }
+                Token::LBracket if self.is_multi_assign() => { then_body.push(self.parse_multi_assign()?); }
+                Token::Ident(_)  => {
+                    let s = if self.is_field_assignment() { self.parse_field_assignment()? }
+                            else if self.is_assignment()  { self.parse_assignment()? }
+                            else                          { self.parse_expr_stmt()? };
+                    then_body.push(s);
+                }
+                _ => { then_body.push(self.parse_expr_stmt()?); }
+            }
+        };
+
+        // Parse else-body if present
+        let else_body = if hit_else {
+            let mut body = Vec::new();
+            loop {
+                match self.peek_token() {
+                    Token::Eof => return Err(ScriptError::Parse {
+                        line: self.current_line(),
+                        msg: "unexpected end of input: missing 'end' for 'else'".to_string(),
+                    }),
+                    Token::End => {
+                        self.advance();
+                        if self.peek_token() == &Token::Semicolon { self.advance(); }
+                        if self.peek_token() == &Token::Newline   { self.advance(); }
+                        break;
+                    }
+                    Token::Newline   => { self.advance(); }
+                    Token::Function  => { body.push(self.parse_function_def()?); }
+                    Token::Return    => { self.advance(); let _ = self.consume_stmt_end()?; body.push(Stmt::Return); }
+                    Token::If        => { body.push(self.parse_if_stmt()?); }
+                    Token::LBracket if self.is_multi_assign() => { body.push(self.parse_multi_assign()?); }
+                    Token::Ident(_)  => {
+                        let s = if self.is_field_assignment() { self.parse_field_assignment()? }
+                                else if self.is_assignment()  { self.parse_assignment()? }
+                                else                          { self.parse_expr_stmt()? };
+                        body.push(s);
+                    }
+                    _ => { body.push(self.parse_expr_stmt()?); }
+                }
+            }
+            body
+        } else {
+            vec![]
+        };
+
+        Ok(Stmt::If { cond, then_body, else_body })
+    }
+
+    /// `[IDENT, IDENT, ...] =` (not `==`) at statement level
+    fn is_multi_assign(&self) -> bool {
+        if !matches!(self.peek_token(), Token::LBracket) { return false; }
+        let mut p = self.pos + 1;
+        // Expect at least one IDENT
+        if !matches!(self.tokens.get(p).map(|s| &s.token), Some(Token::Ident(_))) { return false; }
+        p += 1;
+        // Optional , IDENT pairs
+        loop {
+            match self.tokens.get(p).map(|s| &s.token) {
+                Some(Token::Comma) => {
+                    p += 1;
+                    if !matches!(self.tokens.get(p).map(|s| &s.token), Some(Token::Ident(_))) { return false; }
+                    p += 1;
+                }
+                Some(Token::RBracket) => { p += 1; break; }
+                _ => return false,
+            }
+        }
+        matches!(self.tokens.get(p).map(|s| &s.token), Some(Token::Eq))
+            && !matches!(self.tokens.get(p + 1).map(|s| &s.token), Some(Token::Eq))
+    }
+
+    fn parse_multi_assign(&mut self) -> Result<Stmt, ScriptError> {
+        self.advance(); // consume '['
+        let mut names = Vec::new();
+        names.push(match self.peek_token().clone() {
+            Token::Ident(s) => { self.advance(); s }
+            _ => unreachable!(),
+        });
+        while self.peek_token() == &Token::Comma {
+            self.advance();
+            names.push(match self.peek_token().clone() {
+                Token::Ident(s) => { self.advance(); s }
+                other => return Err(ScriptError::Parse {
+                    line: self.current_line(),
+                    msg: format!("expected name in multi-assign list, got {:?}", other),
+                }),
+            });
+        }
+        self.expect(&Token::RBracket)?;
+        self.advance(); // consume '='
+        let expr = self.parse_range_expr()?;
+        let suppress = self.consume_stmt_end()?;
+        Ok(Stmt::MultiAssign { names, expr, suppress })
+    }
+
+    fn parse_param_list(&mut self) -> Result<Vec<String>, ScriptError> {
+        let mut params = Vec::new();
+        params.push(match self.peek_token().clone() {
+            Token::Ident(s) => { self.advance(); s }
+            other => return Err(ScriptError::Parse {
+                line: self.current_line(),
+                msg: format!("expected parameter name, got {:?}", other),
+            }),
+        });
+        while self.peek_token() == &Token::Comma {
+            self.advance();
+            params.push(match self.peek_token().clone() {
+                Token::Ident(s) => { self.advance(); s }
+                other => return Err(ScriptError::Parse {
+                    line: self.current_line(),
+                    msg: format!("expected parameter name, got {:?}", other),
+                }),
+            });
+        }
+        Ok(params)
+    }
+
+    fn parse_assignment(&mut self) -> Result<Stmt, ScriptError> {
+        let name = match self.advance() {
+            Token::Ident(s) => s.clone(),
+            _ => unreachable!(),
+        };
+        // consume '='
+        self.advance();
+        let expr = self.parse_range_expr()?;
+        let suppress = self.consume_stmt_end()?;
+        Ok(Stmt::Assign { name, expr, suppress })
+    }
+
+    fn parse_expr_stmt(&mut self) -> Result<Stmt, ScriptError> {
+        let expr = self.parse_range_expr()?;
+        let suppress = self.consume_stmt_end()?;
+        Ok(Stmt::Expr(expr, suppress))
+    }
+
+    /// range_expr = logical_or (":" logical_or (":" logical_or)?)?
+    /// Handles `start:stop` and `start:step:stop` range syntax.
+    fn parse_range_expr(&mut self) -> Result<Expr, ScriptError> {
+        let first = self.parse_logical_or()?;
+        if self.peek_token() == &Token::Colon {
+            self.advance(); // consume ':'
+            let second = self.parse_expr()?;
+            if self.peek_token() == &Token::Colon {
+                self.advance(); // consume second ':'
+                let third = self.parse_logical_or()?;
+                // start:step:stop
+                Ok(Expr::Range {
+                    start: Box::new(first),
+                    step:  Some(Box::new(second)),
+                    stop:  Box::new(third),
+                })
+            } else {
+                // start:stop  (step defaults to 1)
+                Ok(Expr::Range {
+                    start: Box::new(first),
+                    step:  None,
+                    stop:  Box::new(second),
+                })
+            }
+        } else {
+            Ok(first)
+        }
+    }
+
+    /// Consume an optional trailing `;` then a newline or EOF.
+    /// Returns true (suppress output) if a `;` was present.
+    fn consume_stmt_end(&mut self) -> Result<bool, ScriptError> {
+        let suppress = if self.peek_token() == &Token::Semicolon {
+            self.advance();
+            true
+        } else {
+            false
+        };
+        match self.peek_token() {
+            Token::Newline => { self.advance(); Ok(suppress) }
+            Token::Eof     => Ok(suppress),
+            other => Err(ScriptError::Parse {
+                line: self.current_line(),
+                msg: format!("expected newline or EOF, got {:?}", other),
+            }),
+        }
+    }
+
+    // logical_or = logical_and ('||' logical_and)*
+    fn parse_logical_or(&mut self) -> Result<Expr, ScriptError> {
+        let mut lhs = self.parse_logical_and()?;
+        while self.peek_token() == &Token::PipePipe {
+            self.advance();
+            let rhs = self.parse_logical_and()?;
+            lhs = Expr::BinOp { op: BinOp::Or, lhs: Box::new(lhs), rhs: Box::new(rhs) };
+        }
+        Ok(lhs)
+    }
+
+    // logical_and = comparison ('&&' comparison)*
+    fn parse_logical_and(&mut self) -> Result<Expr, ScriptError> {
+        let mut lhs = self.parse_comparison()?;
+        while self.peek_token() == &Token::AmpAmp {
+            self.advance();
+            let rhs = self.parse_comparison()?;
+            lhs = Expr::BinOp { op: BinOp::And, lhs: Box::new(lhs), rhs: Box::new(rhs) };
+        }
+        Ok(lhs)
+    }
+
+    // comparison = expr (('==' | '!=' | '<' | '<=' | '>' | '>=') expr)?
+    fn parse_comparison(&mut self) -> Result<Expr, ScriptError> {
+        let lhs = self.parse_expr()?;
+        let op = match self.peek_token() {
+            Token::EqEq  => BinOp::Eq,
+            Token::BangEq => BinOp::Ne,
+            Token::Lt    => BinOp::Lt,
+            Token::LtEq  => BinOp::Le,
+            Token::Gt    => BinOp::Gt,
+            Token::GtEq  => BinOp::Ge,
+            _ => return Ok(lhs),
+        };
+        self.advance();
+        let rhs = self.parse_expr()?;
+        Ok(Expr::BinOp { op, lhs: Box::new(lhs), rhs: Box::new(rhs) })
+    }
+
+    // expr = term (('+' | '-') term)*
+    fn parse_expr(&mut self) -> Result<Expr, ScriptError> {
+        let mut lhs = self.parse_term()?;
+        loop {
+            match self.peek_token() {
+                Token::Plus => {
+                    self.advance();
+                    let rhs = self.parse_term()?;
+                    lhs = Expr::BinOp { op: BinOp::Add, lhs: Box::new(lhs), rhs: Box::new(rhs) };
+                }
+                Token::Minus => {
+                    self.advance();
+                    let rhs = self.parse_term()?;
+                    lhs = Expr::BinOp { op: BinOp::Sub, lhs: Box::new(lhs), rhs: Box::new(rhs) };
+                }
+                _ => break,
+            }
+        }
+        Ok(lhs)
+    }
+
+    // term = factor (('*' | '/' | '.*' | './') factor)*
+    fn parse_term(&mut self) -> Result<Expr, ScriptError> {
+        let mut lhs = self.parse_factor()?;
+        loop {
+            match self.peek_token() {
+                Token::Star     => { self.advance(); let r = self.parse_factor()?; lhs = Expr::BinOp { op: BinOp::Mul,     lhs: Box::new(lhs), rhs: Box::new(r) }; }
+                Token::Slash    => { self.advance(); let r = self.parse_factor()?; lhs = Expr::BinOp { op: BinOp::Div,     lhs: Box::new(lhs), rhs: Box::new(r) }; }
+                Token::DotStar  => { self.advance(); let r = self.parse_factor()?; lhs = Expr::BinOp { op: BinOp::ElemMul, lhs: Box::new(lhs), rhs: Box::new(r) }; }
+                Token::DotSlash => { self.advance(); let r = self.parse_factor()?; lhs = Expr::BinOp { op: BinOp::ElemDiv, lhs: Box::new(lhs), rhs: Box::new(r) }; }
+                _ => break,
+            }
+        }
+        Ok(lhs)
+    }
+
+    // factor = postfix ('^' | '.^' factor)?   right-associative
+    fn parse_factor(&mut self) -> Result<Expr, ScriptError> {
+        let base = self.parse_postfix()?;
+        match self.peek_token() {
+            Token::Caret => {
+                self.advance();
+                let exp = self.parse_factor()?;
+                Ok(Expr::BinOp { op: BinOp::Pow, lhs: Box::new(base), rhs: Box::new(exp) })
+            }
+            Token::DotCaret => {
+                self.advance();
+                let exp = self.parse_factor()?;
+                Ok(Expr::BinOp { op: BinOp::ElemPow, lhs: Box::new(base), rhs: Box::new(exp) })
+            }
+            _ => Ok(base),
+        }
+    }
+
+    // postfix = primary ("'" | ".'" | "." IDENT ["(" args ")"])*
+    fn parse_postfix(&mut self) -> Result<Expr, ScriptError> {
+        let mut expr = self.parse_primary()?;
+        loop {
+            match self.peek_token() {
+                Token::Apostrophe => {
+                    self.advance();
+                    expr = Expr::Transpose(Box::new(expr));
+                }
+                Token::DotApostrophe => {
+                    self.advance();
+                    expr = Expr::NonConjTranspose(Box::new(expr));
+                }
+                Token::Dot => {
+                    self.advance(); // consume '.'
+                    let field = match self.peek_token().clone() {
+                        Token::Ident(name) => { self.advance(); name }
+                        other => return Err(ScriptError::Parse {
+                            line: self.current_line(),
+                            msg: format!("expected field name after '.', got {:?}", other),
+                        }),
+                    };
+                    if self.peek_token() == &Token::LParen {
+                        // Method-call sugar: obj.method(args) → method(obj, args)
+                        self.advance(); // consume '('
+                        self.skip_newlines();
+                        let mut args = vec![expr];
+                        if self.peek_token() != &Token::RParen {
+                            args.extend(self.parse_arglist()?);
+                        }
+                        self.skip_newlines();
+                        self.expect(&Token::RParen)?;
+                        expr = Expr::Call { name: field, args };
+                    } else {
+                        expr = Expr::Field { object: Box::new(expr), field };
+                    }
+                }
+                _ => break,
+            }
+        }
+        Ok(expr)
+    }
+
+    // primary = NUMBER | STRING | IDENT | IDENT '(' arglist? ')' | '[' ... ']' | '(' expr ')' | '-' primary
+    fn parse_primary(&mut self) -> Result<Expr, ScriptError> {
+        match self.peek_token().clone() {
+            Token::Number(n) => {
+                self.advance();
+                Ok(Expr::Number(n))
+            }
+            Token::Str(s) => {
+                self.advance();
+                Ok(Expr::Str(s))
+            }
+            Token::Ident(name) => {
+                self.advance();
+                // Check if this is a function call
+                if self.peek_token() == &Token::LParen {
+                    self.advance(); // consume '('
+                    self.skip_newlines();
+                    let args = if self.peek_token() == &Token::RParen {
+                        vec![]
+                    } else {
+                        self.parse_arglist()?
+                    };
+                    self.skip_newlines();
+                    self.expect(&Token::RParen)?;
+                    Ok(Expr::Call { name, args })
+                } else {
+                    Ok(Expr::Var(name))
+                }
+            }
+            Token::LBracket => {
+                self.advance(); // consume '['
+                self.skip_newlines();
+                // Parse rows separated by semicolons
+                let mut rows: Vec<Vec<Expr>> = Vec::new();
+                if self.peek_token() != &Token::RBracket {
+                    let first_row = self.parse_row()?;
+                    rows.push(first_row);
+                    loop {
+                        self.skip_newlines();
+                        if self.peek_token() == &Token::Semicolon {
+                            self.advance();
+                            self.skip_newlines();
+                            if self.peek_token() == &Token::RBracket {
+                                break;
+                            }
+                            let row = self.parse_row()?;
+                            rows.push(row);
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.skip_newlines();
+                self.expect(&Token::RBracket)?;
+                Ok(Expr::Matrix(rows))
+            }
+            Token::LParen => {
+                self.advance(); // consume '('
+                self.skip_newlines();
+                let expr = self.parse_range_expr()?;
+                self.skip_newlines();
+                self.expect(&Token::RParen)?;
+                Ok(expr)
+            }
+            Token::Minus => {
+                self.advance();
+                let inner = self.parse_primary()?;
+                Ok(Expr::UnaryMinus(Box::new(inner)))
+            }
+            Token::Bang => {
+                self.advance();
+                let inner = self.parse_primary()?;
+                Ok(Expr::UnaryNot(Box::new(inner)))
+            }
+            // `end` used as an index variable inside subscripts (e.g. v(end), v(2:end))
+            Token::End => {
+                self.advance();
+                Ok(Expr::Var("end".to_string()))
+            }
+            other => Err(ScriptError::Parse {
+                line: self.current_line(),
+                msg: format!("unexpected token in expression: {:?}", other),
+            }),
+        }
+    }
+
+    fn parse_arglist(&mut self) -> Result<Vec<Expr>, ScriptError> {
+        let mut args = Vec::new();
+        self.skip_newlines();
+        args.push(self.parse_index_arg()?);
+        loop {
+            self.skip_newlines();
+            if self.peek_token() == &Token::Comma {
+                self.advance();
+                self.skip_newlines();
+                args.push(self.parse_index_arg()?);
+            } else {
+                break;
+            }
+        }
+        Ok(args)
+    }
+
+    /// Parse one argument, treating a bare `:` as `Expr::All` (the "all elements" index).
+    fn parse_index_arg(&mut self) -> Result<Expr, ScriptError> {
+        if self.peek_token() == &Token::Colon {
+            let next = self.tokens.get(self.pos + 1).map(|s| &s.token);
+            if matches!(next, Some(Token::Comma) | Some(Token::RParen) | Some(Token::Newline) | Some(Token::Eof) | None) {
+                self.advance(); // consume ':'
+                return Ok(Expr::All);
+            }
+        }
+        self.parse_range_expr()
+    }
+
+    fn parse_row(&mut self) -> Result<Vec<Expr>, ScriptError> {
+        let mut elems = Vec::new();
+        elems.push(self.parse_range_expr()?);
+        loop {
+            self.skip_newlines();
+            if self.peek_token() == &Token::Comma {
+                self.advance();
+                self.skip_newlines();
+                elems.push(self.parse_range_expr()?);
+            } else {
+                break;
+            }
+        }
+        Ok(elems)
+    }
+}
