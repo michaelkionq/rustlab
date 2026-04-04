@@ -98,6 +98,11 @@ impl BuiltinRegistry {
         r.register("std",      builtin_std);
         r.register("min",      builtin_min);
         r.register("max",      builtin_max);
+        r.register("sum",      builtin_sum);
+        r.register("cumsum",   builtin_cumsum);
+        r.register("argmin",   builtin_argmin);
+        r.register("argmax",   builtin_argmax);
+        r.register("trapz",    builtin_trapz);
         r.register("len",      builtin_len);
         r.register("length",   builtin_len);   // alias for len
         r.register("numel",    builtin_numel);
@@ -721,6 +726,105 @@ fn builtin_std(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Scalar(_) | Value::Complex(_) => Ok(Value::Scalar(0.0)),
         _ => Err(ScriptError::Type("std: argument must be a non-empty vector or scalar".to_string())),
     }
+}
+
+/// sum(v) — sum of all elements. Returns Complex if any imaginary part is non-negligible.
+fn builtin_sum(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("sum", &args, 1)?;
+    match &args[0] {
+        Value::Vector(v) => {
+            let s: C64 = v.iter().copied().sum();
+            if s.im.abs() < 1e-12 { Ok(Value::Scalar(s.re)) } else { Ok(Value::Complex(s)) }
+        }
+        Value::Matrix(m) => {
+            let s: C64 = m.iter().copied().sum();
+            if s.im.abs() < 1e-12 { Ok(Value::Scalar(s.re)) } else { Ok(Value::Complex(s)) }
+        }
+        Value::Scalar(n)  => Ok(Value::Scalar(*n)),
+        Value::Complex(c) => Ok(Value::Complex(*c)),
+        other => Err(ScriptError::Type(format!("sum: unsupported type {}", other.type_name()))),
+    }
+}
+
+/// cumsum(v) — cumulative sum of a vector. Returns a vector of the same length.
+fn builtin_cumsum(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("cumsum", &args, 1)?;
+    match &args[0] {
+        Value::Vector(v) => {
+            let mut acc = Complex::new(0.0, 0.0);
+            let result: CVector = Array1::from_iter(v.iter().map(|&x| { acc += x; acc }));
+            Ok(Value::Vector(result))
+        }
+        Value::Scalar(n)  => Ok(Value::Scalar(*n)),
+        Value::Complex(c) => Ok(Value::Complex(*c)),
+        other => Err(ScriptError::Type(format!("cumsum: unsupported type {}", other.type_name()))),
+    }
+}
+
+/// argmin(v) — 1-based index of the minimum element (by real part).
+fn builtin_argmin(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("argmin", &args, 1)?;
+    match &args[0] {
+        Value::Vector(v) if !v.is_empty() => {
+            let idx = v.iter().enumerate()
+                .min_by(|(_, a), (_, b)| a.re.partial_cmp(&b.re).unwrap())
+                .map(|(i, _)| i)
+                .unwrap();
+            Ok(Value::Scalar((idx + 1) as f64))
+        }
+        Value::Scalar(_) => Ok(Value::Scalar(1.0)),
+        _ => Err(ScriptError::Type("argmin: argument must be a non-empty vector".to_string())),
+    }
+}
+
+/// argmax(v) — 1-based index of the maximum element (by real part).
+fn builtin_argmax(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("argmax", &args, 1)?;
+    match &args[0] {
+        Value::Vector(v) if !v.is_empty() => {
+            let idx = v.iter().enumerate()
+                .max_by(|(_, a), (_, b)| a.re.partial_cmp(&b.re).unwrap())
+                .map(|(i, _)| i)
+                .unwrap();
+            Ok(Value::Scalar((idx + 1) as f64))
+        }
+        Value::Scalar(_) => Ok(Value::Scalar(1.0)),
+        _ => Err(ScriptError::Type("argmax: argument must be a non-empty vector".to_string())),
+    }
+}
+
+/// trapz(v) — trapezoidal integration with unit spacing.
+/// trapz(x, v) — trapezoidal integration with x coordinates.
+fn builtin_trapz(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args_range("trapz", &args, 1, 2)?;
+    let (x_opt, v) = if args.len() == 2 {
+        let x = match &args[0] {
+            Value::Vector(v) => v.iter().map(|c| c.re).collect::<Vec<f64>>(),
+            other => return Err(ScriptError::Type(format!("trapz: x must be a vector, got {}", other.type_name()))),
+        };
+        let v = match &args[1] {
+            Value::Vector(v) => v.clone(),
+            other => return Err(ScriptError::Type(format!("trapz: v must be a vector, got {}", other.type_name()))),
+        };
+        (Some(x), v)
+    } else {
+        let v = match &args[0] {
+            Value::Vector(v) => v.clone(),
+            other => return Err(ScriptError::Type(format!("trapz: argument must be a vector, got {}", other.type_name()))),
+        };
+        (None, v)
+    };
+    if v.len() < 2 {
+        return Ok(Value::Scalar(0.0));
+    }
+    let s: C64 = (0..v.len() - 1).map(|i| {
+        let dx = match &x_opt {
+            Some(x) => x[i + 1] - x[i],
+            None    => 1.0,
+        };
+        (v[i] + v[i + 1]) * 0.5 * dx
+    }).sum();
+    if s.im.abs() < 1e-12 { Ok(Value::Scalar(s.re)) } else { Ok(Value::Complex(s)) }
 }
 
 fn builtin_len(args: Vec<Value>) -> Result<Value, ScriptError> {

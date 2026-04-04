@@ -109,6 +109,43 @@ Sample standard deviation (Bessel-corrected, N−1 denominator).
 std(randn(10000))   # → ≈ 1.0
 ```
 
+### `sum(v)`
+Sum of all elements. Accepts scalar, complex, vector, or matrix. Returns complex if any
+imaginary part is non-negligible, otherwise scalar.
+```
+sum([1.0, 2.0, 3.0])   # → 6.0
+sum(ones(4) * j)        # → 0+4i
+```
+
+### `cumsum(v)`
+Cumulative sum of a vector. Returns a vector of the same length where each element is the
+running total up to that index.
+```
+cumsum([1.0, 2.0, 3.0, 4.0])   # → [1, 3, 6, 10]
+```
+
+### `argmin(v)`
+1-based index of the minimum element (by real part).
+```
+argmin([3.0, 1.0, 4.0, 1.5])   # → 2
+```
+
+### `argmax(v)`
+1-based index of the maximum element (by real part).
+```
+argmax([3.0, 1.0, 4.0, 1.5])   # → 3
+```
+
+### `trapz(v)` / `trapz(x, v)`
+Trapezoidal numerical integration. With one argument, assumes unit spacing between samples.
+With two arguments, uses `x` as the sample positions.
+```
+trapz([0.0, 1.0, 2.0, 1.0, 0.0])            # → 4.0  (unit spacing)
+trapz(linspace(0,1,5), [0,1,2,1,0] * 1.0)   # area under triangle
+```
+- Returns a scalar (real or complex).
+- Returns `0.0` for vectors with fewer than 2 elements.
+
 ---
 
 ## Array Construction
