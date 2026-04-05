@@ -133,11 +133,21 @@ Add tests in the same PR/commit as the feature — never defer them. Good locati
 - `crates/rustlab-script/src/tests.rs` — interpreter and builtins (use `run()` to evaluate snippets)
 - `crates/rustlab-cli/tests/examples.rs` — integration / example scripts
 
-### 3. Never commit or push without explicit approval
+### 3. Every new feature ships with docs and REPL help
+
+Any commit that adds or changes a builtin function, scripting construct, or CLI feature **must** include all three of the following in the same commit — not as a follow-up:
+
+1. **`docs/functions.md`** — add or update the function's section with its full signature, description, and at least one usage example.
+2. **REPL `HelpEntry`** — add a `HelpEntry { name, brief, detail }` record in `crates/rustlab-cli/src/commands/repl.rs`.
+3. **Category list** — add the function name to the appropriate category slice in `print_help_list()` in the same file.
+
+A feature is not done until a user can type `help foo` in the REPL and get a useful answer. Do not treat documentation as optional cleanup.
+
+### 4. Never commit or push without explicit approval
 
 Do not run `git commit` or `git push` automatically, even when work is complete and all tests pass. Present a summary of what changed and wait for the user to explicitly say to commit and/or push.
 
-### 4. Keep `docs/functions.md` current
+### 5. Keep `docs/functions.md` current
 
 `docs/functions.md` is the canonical scripting reference. It must be updated in the same commit as any change that affects it:
 
@@ -148,7 +158,7 @@ Do not run `git commit` or `git push` automatically, even when work is complete 
 
 `llms.txt` at the repo root is a short pointer to `docs/functions.md`; it does not need content updates. Do not treat docs updates as optional cleanup.
 
-### 5. Never commit secrets or sensitive information
+### 6. Never commit secrets or sensitive information
 
 Before staging any file, check that it does not contain:
 - SSH private keys (any `-----BEGIN ... PRIVATE KEY-----` block)
@@ -385,7 +395,9 @@ Window names: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`
    ```
 2. Register: `r.register("foo", builtin_foo);` in `with_defaults()`
 3. No grammar changes needed
-4. Add a `HelpEntry` for the new function in `crates/rustlab-cli/src/commands/repl.rs` and add it to the appropriate category in `print_help_list()`. Every registered builtin must have a help entry — do not skip this step.
+4. Add a `HelpEntry` in `crates/rustlab-cli/src/commands/repl.rs` and add the name to the appropriate category in `print_help_list()` — required, not optional (see Workflow Rule 3)
+5. Add the function to `docs/functions.md` with its signature, description, and an example (see Workflow Rule 5)
+6. Write at least one unit test in `crates/rustlab-script/src/tests.rs` (see Workflow Rule 2)
 
 ### Add a new `Value` type
 
