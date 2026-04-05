@@ -162,6 +162,122 @@ impl Evaluator {
                     }
                 }
             }
+            Stmt::For { var, iter, body } => {
+                let iter_val = self.eval_expr(iter)?;
+                let elements = match iter_val {
+                    Value::Vector(v) => v.to_vec(),
+                    Value::Scalar(n) => vec![Complex::new(n, 0.0)],
+                    other => return Err(ScriptError::Runtime(format!(
+                        "for: cannot iterate over {}", other.type_name()
+                    ))),
+                };
+                for elem in elements {
+                    let val = if elem.im == 0.0 {
+                        Value::Scalar(elem.re)
+                    } else {
+                        Value::Complex(elem)
+                    };
+                    self.env.insert(var.clone(), val);
+                    for s in body {
+                        self.exec_stmt(s)?;
+                    }
+                }
+            }
+            Stmt::IndexAssign { name, indices, expr, suppress } => {
+                let val = self.eval_expr(expr)?;
+
+                // Evaluate indices with `end` bound to current container length (if any)
+                let container_len = match self.env.get(name.as_str()) {
+                    Some(Value::Vector(v)) => v.len(),
+                    Some(Value::Matrix(m)) if indices.len() == 1 => m.nrows() * m.ncols(),
+                    _ => 0,
+                };
+                self.env.insert("end".to_string(), Value::Scalar(container_len as f64));
+                let idx_vals: Vec<Value> = indices.iter()
+                    .map(|a| self.eval_expr(a))
+                    .collect::<Result<_, _>>()?;
+                self.env.remove("end");
+
+                if idx_vals.len() == 1 {
+                    // Single-index: vector assignment (auto-create/grow)
+                    let idx = idx_vals[0].to_scalar()
+                        .map_err(ScriptError::Type)? as usize;
+                    if idx < 1 {
+                        return Err(ScriptError::Runtime(
+                            "index assignment: index must be >= 1".to_string()
+                        ));
+                    }
+                    let assign_val = match &val {
+                        Value::Scalar(n)  => Complex::new(*n, 0.0),
+                        Value::Complex(c) => *c,
+                        other => return Err(ScriptError::Runtime(format!(
+                            "index assignment: right-hand side must be scalar or complex, got {}",
+                            other.type_name()
+                        ))),
+                    };
+                    let vec = match self.env.get_mut(name.as_str()) {
+                        Some(Value::Vector(v)) => {
+                            if idx > v.len() {
+                                let mut new_vec = vec![Complex::new(0.0, 0.0); idx];
+                                for (i, c) in v.iter().enumerate() { new_vec[i] = *c; }
+                                *v = Array1::from_vec(new_vec);
+                            }
+                            v
+                        }
+                        _ => {
+                            // Create new vector of length idx, filled with zeros
+                            let new_vec = vec![Complex::new(0.0, 0.0); idx];
+                            self.env.insert(name.clone(), Value::Vector(Array1::from_vec(new_vec)));
+                            match self.env.get_mut(name.as_str()) {
+                                Some(Value::Vector(v)) => v,
+                                _ => unreachable!(),
+                            }
+                        }
+                    };
+                    vec[idx - 1] = assign_val;
+                    if !suppress && !self.in_function {
+                        println!("{}({}) = {}", name, idx, Value::Complex(assign_val));
+                    }
+                } else if idx_vals.len() == 2 {
+                    // Two-index: matrix assignment
+                    let row = idx_vals[0].to_scalar().map_err(ScriptError::Type)? as usize;
+                    let col = idx_vals[1].to_scalar().map_err(ScriptError::Type)? as usize;
+                    if row < 1 || col < 1 {
+                        return Err(ScriptError::Runtime(
+                            "index assignment: indices must be >= 1".to_string()
+                        ));
+                    }
+                    let assign_val = match &val {
+                        Value::Scalar(n)  => Complex::new(*n, 0.0),
+                        Value::Complex(c) => *c,
+                        other => return Err(ScriptError::Runtime(format!(
+                            "index assignment: right-hand side must be scalar or complex, got {}",
+                            other.type_name()
+                        ))),
+                    };
+                    match self.env.get_mut(name.as_str()) {
+                        Some(Value::Matrix(m)) => {
+                            if row > m.nrows() || col > m.ncols() {
+                                return Err(ScriptError::Runtime(format!(
+                                    "index assignment: ({},{}) out of bounds for {}×{} matrix",
+                                    row, col, m.nrows(), m.ncols()
+                                )));
+                            }
+                            m[[row - 1, col - 1]] = assign_val;
+                            if !suppress && !self.in_function {
+                                println!("{}({},{}) = {}", name, row, col, Value::Complex(assign_val));
+                            }
+                        }
+                        _ => return Err(ScriptError::Runtime(format!(
+                            "index assignment: '{}' is not a matrix", name
+                        ))),
+                    }
+                } else {
+                    return Err(ScriptError::Runtime(
+                        "index assignment: only 1 or 2 indices are supported".to_string()
+                    ));
+                }
+            }
             Stmt::Expr(expr, suppress) => {
                 // Special case: bare load("file.npz") injects all variables into the workspace.
                 if let Expr::Call { name, args } = expr {
@@ -306,6 +422,21 @@ impl Evaluator {
                 v.non_conj_transpose().map_err(ScriptError::Runtime)
             }
             Expr::All => Ok(Value::All),
+            Expr::Index { expr, args } => {
+                let container = self.eval_expr(expr)?;
+                // Bind `end` to length of the container for use inside index expressions
+                let end_val = match &container {
+                    Value::Vector(v) => v.len(),
+                    Value::Matrix(m) => m.nrows(),
+                    _ => 0,
+                };
+                self.env.insert("end".to_string(), Value::Scalar(end_val as f64));
+                let idx_vals: Vec<Value> = args.iter()
+                    .map(|a| self.eval_expr(a))
+                    .collect::<Result<_, _>>()?;
+                self.env.remove("end");
+                container.index(idx_vals).map_err(ScriptError::Runtime)
+            }
             Expr::Field { object, field } => {
                 let obj = self.eval_expr(object)?;
                 match obj {

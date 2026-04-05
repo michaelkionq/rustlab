@@ -2765,3 +2765,130 @@ mod ml_tests {
         assert!(result.is_err(), "layernorm with 3 args should error");
     }
 }
+
+// ── For loop, IndexAssign, abs(matrix), chained indexing ─────────────────────
+#[cfg(test)]
+mod lang_ext_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+
+    fn run(src: &str) -> Evaluator {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts).unwrap();
+        ev
+    }
+
+    fn get_scalar(ev: &Evaluator, name: &str) -> f64 {
+        match ev.get(name).unwrap() {
+            Value::Scalar(n) => *n,
+            Value::Complex(c) => c.re,
+            other => panic!("expected scalar for '{name}', got {other:?}"),
+        }
+    }
+
+    fn get_vec(ev: &Evaluator, name: &str) -> Vec<f64> {
+        match ev.get(name).unwrap() {
+            Value::Vector(v) => v.iter().map(|c| c.re).collect(),
+            other => panic!("expected vector for '{name}', got {other:?}"),
+        }
+    }
+
+    // ── for loop ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn for_sum_range() {
+        // sum 1..5 = 15
+        let ev = run("s = 0\nfor i = 1:5\ns = s + i\nend");
+        assert_eq!(get_scalar(&ev, "s"), 15.0);
+    }
+
+    #[test]
+    fn for_loop_var_in_scope_after() {
+        // loop variable stays in scope after end (like Octave/Python)
+        let ev = run("for i = 1:3\nend");
+        assert_eq!(get_scalar(&ev, "i"), 3.0);
+    }
+
+    #[test]
+    fn for_index_assign_builds_vector() {
+        // x(i) = i*2 should produce [2, 4, 6, 8, 10]
+        let ev = run("for i = 1:5\nx(i) = i * 2\nend");
+        let v = get_vec(&ev, "x");
+        assert_eq!(v, vec![2.0, 4.0, 6.0, 8.0, 10.0]);
+    }
+
+    #[test]
+    fn for_nested() {
+        // nested for: s = sum of 1..3 twice = 12
+        let ev = run("s = 0\nfor i = 1:3\nfor k = 1:2\ns = s + i\nend\nend");
+        assert_eq!(get_scalar(&ev, "s"), 12.0);
+    }
+
+    // ── indexed assignment standalone ─────────────────────────────────────────
+
+    #[test]
+    fn index_assign_to_existing_vector() {
+        let ev = run("v = [10, 20, 30];\nv(2) = 99");
+        let vec = get_vec(&ev, "v");
+        assert_eq!(vec[1], 99.0);
+    }
+
+    #[test]
+    fn index_assign_matrix_element() {
+        let ev = run("M = [1,2;3,4];\nM(1,2) = 99");
+        match ev.get("M").unwrap() {
+            Value::Matrix(m) => assert_eq!(m[[0, 1]].re, 99.0),
+            other => panic!("expected matrix, got {other:?}"),
+        }
+    }
+
+    // ── abs on matrices ────────────────────────────────────────────────────────
+
+    #[test]
+    fn abs_matrix_element_wise() {
+        let ev = run("A = [-1,2;-3,4];\nB = abs(A)");
+        match ev.get("B").unwrap() {
+            Value::Matrix(m) => {
+                assert_eq!(m[[0, 0]].re, 1.0);
+                assert_eq!(m[[0, 1]].re, 2.0);
+                assert_eq!(m[[1, 0]].re, 3.0);
+                assert_eq!(m[[1, 1]].re, 4.0);
+            }
+            other => panic!("expected matrix, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn abs_matrix_shape_preserved() {
+        let ev = run("A = [-5, 3; 0, -7];\nB = abs(A)");
+        match ev.get("B").unwrap() {
+            Value::Matrix(m) => {
+                assert_eq!(m.nrows(), 2);
+                assert_eq!(m.ncols(), 2);
+            }
+            other => panic!("expected matrix, got {other:?}"),
+        }
+    }
+
+    // ── chained call-and-index ────────────────────────────────────────────────
+
+    #[test]
+    fn chained_index_call_result() {
+        // linspace(1,5,5) returns [1,2,3,4,5]; index element 3 → 3.0
+        let ev = run("v = linspace(1,5,5);\ndirect = v(3)\nchained = linspace(1,5,5)(3)");
+        assert_eq!(get_scalar(&ev, "direct"),  3.0);
+        assert_eq!(get_scalar(&ev, "chained"), 3.0);
+    }
+
+    #[test]
+    fn chained_index_matches_tmp_var() {
+        // user-defined function return value indexed inline
+        let src = "function y = make(n)\ny = 1:n\nend\ntmp = make(4)\na = tmp(2)\nb = make(4)(2)";
+        let ev = run(src);
+        assert_eq!(get_scalar(&ev, "a"), 2.0);
+        assert_eq!(get_scalar(&ev, "b"), 2.0);
+    }
+}

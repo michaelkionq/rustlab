@@ -189,22 +189,21 @@ cargo run -p rustlab-cli --bin rustlab -- run examples/lowpass.r
 
 ### Installing the binary
 
-`make install` works on both macOS and Linux. It detects the OS and runs `codesign` only on macOS:
+`make install` works on both macOS and Linux. It installs to `~/.local/bin` by default and detects the OS to run `codesign` only on macOS:
 
 ```sh
-make install
+make install                          # → ~/.local/bin/rustlab
+make install INSTALL_DIR=/usr/local/bin   # override destination
 # or via cargo on any platform:
-cargo install --path crates/rustlab-cli
+cargo install --path crates/rustlab-cli   # → ~/.cargo/bin/rustlab
 ```
 
 > **macOS note:** Copying a binary with `cp` invalidates its ad-hoc code signature.
 > `make install` handles this automatically. If you copy the binary manually, run:
-> `codesign --sign - --force /opt/rustlab/bin/rustlab`
+> `codesign --sign - --force <destination>/rustlab`
 
 > **Linux note:** No system libraries required. The `plotters` crate uses
 > `default-features = false` to avoid `font-kit` → `freetype-sys` → `fontconfig-sys`.
-
-**There are currently no unit tests** — adding them is a good first contribution (see "How to add tests" below).
 
 ---
 
@@ -301,11 +300,14 @@ Scripts use the `.r` extension. Run with `rustlab run script.r` or enter stateme
 ```
 program     = stmt*
 stmt        = IDENT "=" range_expr [";"] "\n"              # assignment
+            | IDENT "(" arglist ")" "=" range_expr [";"] "\n"  # indexed assignment
             | IDENT "." IDENT "=" range_expr [";"] "\n"    # struct field assignment
             | range_expr [";"] "\n"                         # expression
             | "function" [IDENT "="] IDENT "(" params ")"  # function definition
                 stmt* "end"
             | "return" [";"] "\n"                          # early return (inside function)
+            | "for" IDENT "=" range_expr "\n"              # for loop
+                stmt* "end"
             | "#" ... "\n"                                  # comment
 
 range_expr  = expr (":" expr (":" expr)?)?     # a:b or a:step:b → Vector
@@ -313,9 +315,10 @@ range_expr  = expr (":" expr (":" expr)?)?     # a:b or a:step:b → Vector
 expr        = term (("+"|"-") term)*
 term        = factor (("*"|"/"|".*"|"./") factor)*
 factor      = postfix (("^"|".^") factor)?     # right-associative
-postfix     = primary ("'" | ".'" | "." IDENT ["(" arglist ")"])*
+postfix     = primary ("'" | ".'" | "." IDENT ["(" arglist ")"] | "(" arglist ")")*
                 # ' = conjugate transpose; .' = plain transpose
                 # .field = struct access; .method(args) = method-call sugar
+                # (args) after any non-Var expr = chained index: f(a)(i)
 
 primary     = NUMBER | STRING | IDENT
             | IDENT "(" range_arglist ")"       # call or 1-based index
@@ -333,6 +336,9 @@ primary     = NUMBER | STRING | IDENT
 | Suppress output | `x = expr;` | Trailing `;` on any statement |
 | Range | `1:10`, `0:0.5:2`, `10:-1:1` | Creates a real `Vector` |
 | 1-based index | `v(3)`, `v(2:5)`, `v(end)` | `end` = `len(v)`; slice returns Vector |
+| Indexed assign | `v(i) = val`, `M(r,c) = val` | Vectors auto-created/grown; matrices must exist |
+| Chained index | `f(a,b)(i)` | Index return value of any call without a temp variable |
+| For loop | `for i = 1:n ... end` | Iterates over range or vector; loop var stays in scope |
 | Concatenation | `[v1, v2]` | Vectors inside `[...]` are flattened |
 | Transpose | `v'` | Conjugate transpose |
 | Element-wise | `.*` `./` `.^` | Always element-wise on vectors/matrices |

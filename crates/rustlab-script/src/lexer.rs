@@ -43,6 +43,7 @@ pub enum Token {
     Return,     // return
     If,         // if
     Else,       // else
+    For,        // for
     Dot,        // . (field access)
     // Structure
     Newline,
@@ -193,6 +194,7 @@ pub fn tokenize(source: &str) -> Result<Vec<Spanned>, ScriptError> {
                     "return"   => Token::Return,
                     "if"       => Token::If,
                     "else"     => Token::Else,
+                    "for"      => Token::For,
                     _          => Token::Ident(ident),
                 };
                 tokens.push(Spanned { token: tok, line });

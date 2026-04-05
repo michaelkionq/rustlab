@@ -18,10 +18,11 @@ Complete reference for all built-in functions and constants available in the rus
 ## Math
 
 ### `abs(x)`
-Absolute value or magnitude.
+Absolute value or magnitude. Element-wise on all numeric types.
 - Scalar: `abs(-3.0)` → `3.0`
 - Complex: `abs(3 + j*4)` → `5.0` (L2 norm)
 - Vector: element-wise magnitude, returns real vector
+- Matrix: element-wise magnitude, returns real matrix of the same shape
 
 ### `angle(x)`
 Phase angle in radians (`atan2(im, re)`).
@@ -1217,6 +1218,57 @@ v(1)       # first element
 v(end)     # last element
 v(2:4)     # elements 2, 3, 4
 ```
+
+### Indexed assignment: `v(i) = val` / `M(r,c) = val`
+Assign to a specific position. Vectors are auto-created and grown as needed.
+```
+v(3) = 99         # create or update element 3
+M(2, 1) = 0.5    # update matrix element (row 2, col 1)
+```
+Inside a loop:
+```
+for i = 1:5
+  x(i) = i ^ 2
+end
+# x is now [1, 4, 9, 16, 25]
+```
+
+### Chained call-and-index: `f(args)(i)`
+Index the return value of a function call without a temporary variable.
+```
+v = linspace(0, 1, 10)(3)   # third element of the range
+loss = gd_step(w, b, x, y)(3)
+```
+
+### `for` loop
+Iterate over a range or vector.
+```
+for VAR = start:stop
+  body
+end
+
+for VAR = start:step:stop
+  body
+end
+
+for VAR = some_vector
+  body
+end
+```
+Example:
+```
+s = 0
+for i = 1:10
+  s = s + i
+end
+# s = 55
+
+for i = 1:n
+  result(i) = my_fn(data(i))
+end
+```
+- The loop variable remains in scope after `end`.
+- Use `for i = n:-1:1` to iterate in reverse.
 
 ### Element-wise operators: `.* ./ .^`
 ```

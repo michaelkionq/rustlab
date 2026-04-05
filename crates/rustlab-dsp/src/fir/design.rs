@@ -103,8 +103,8 @@ pub fn fir_lowpass(
         Complex::new(h * win[n], 0.0)
     }));
 
-    // Normalize for unity DC gain (H(0) = sum of taps = 1.0), matching the
-    // behaviour of MATLAB fir1.  Windowing can reduce the passband gain,
+    // Normalize for unity DC gain (H(0) = sum of taps = 1.0).
+    // Windowing can reduce the passband gain,
     // especially for narrow-band filters where many sinc tail samples are
     // tapered away by the window.
     let dc_gain: f64 = coeffs.iter().map(|c| c.re).sum();

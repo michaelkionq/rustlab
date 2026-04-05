@@ -13,7 +13,7 @@ struct HelpEntry {
 const HELP: &[HelpEntry] = &[
     // Math
     HelpEntry { name: "abs",    brief: "Absolute value / magnitude",
-        detail: "abs(x)  — scalar, complex, or vector\n  Returns magnitude for complex values." },
+        detail: "abs(x)  — scalar, complex, vector, or matrix\n  Returns element-wise magnitude; complex inputs give their L2 norm per element.\n  abs([-1, 2; -3, 4])  →  [1, 2; 3, 4]" },
     HelpEntry { name: "angle",  brief: "Phase angle in radians",
         detail: "angle(x)  — scalar, complex, or vector\n  Returns the argument of a complex number." },
     HelpEntry { name: "real",   brief: "Real part",
@@ -301,6 +301,12 @@ const HELP: &[HelpEntry] = &[
     // Control flow
     HelpEntry { name: "if", brief: "Conditional branching",
         detail: "if cond\n  body\nend\n\nif cond\n  then_body\nelse\n  else_body\nend\n\nCondition may be a Bool or scalar (0 = false, nonzero = true)." },
+    HelpEntry { name: "for", brief: "Iterate over a range or vector",
+        detail: "for i = 1:10\n  body\nend\n\nfor i = 1:step:stop\n  body\nend\n\nfor i = some_vector\n  body\nend\n\n  The loop variable stays in scope after end.\n  Use reverse step for countdown: for i = n:-1:1" },
+    HelpEntry { name: "index_assign", brief: "Assign to a vector or matrix element",
+        detail: "v(i) = val       — 1-based; vector auto-created and grown as needed\nM(r, c) = val   — matrix must already exist with sufficient size\n\nExample:\n  for i = 1:5\n    x(i) = i ^ 2\n  end\n  # x = [1, 4, 9, 16, 25]" },
+    HelpEntry { name: "chained_index", brief: "Index a function return value inline",
+        detail: "f(args)(i)  — no temporary variable needed\n\nExample:\n  v = linspace(0, 1, 10)(3)   # third element\n  loss = gd_step(w, b, x, y)(3)" },
     // User-defined functions
     HelpEntry { name: "function", brief: "Define a named function",
         detail: "function y = foo(x)\n  y = x * 2\nend\n\nfunction bar(a, b)\n  print(a + b)\nend\n\nSyntax:\n  function retvar = name(param1, param2, ...)\n    body\n  end\n  function name(param, ...)   % no return value\n    body\n  end\n\nuse 'return' to exit early." },
@@ -502,10 +508,10 @@ fn print_help_list() {
         ("Controls",         &["tf","pole","zero","ss","ctrb","obsv",
                                "bode","step","margin","lqr","rlocus"]),
         ("Structs",          &["struct","isstruct","fieldnames","isfield","rmfield"]),
-        ("Functions",        &["function","if"]),
+        ("Control Flow",     &["if","for","function","index_assign","chained_index"]),
         ("Output",           &["disp","fprintf","print"]),
         ("I/O",              &["print","save","load","whos"]),
-        ("Language / REPL",  &["i / j","pi","e","range","index","clear","whos"]),
+        ("Language / REPL",  &["i / j","pi","e","range","index","index_assign","chained_index","clear","whos"]),
         ("Filesystem",       &["run","ls","cd","pwd"]),
     ];
 

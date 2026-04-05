@@ -343,6 +343,10 @@ fn builtin_abs(args: Vec<Value>) -> Result<Value, ScriptError> {
             );
             Ok(Value::Vector(result))
         }
+        Value::Matrix(m) => {
+            let result = m.mapv(|c| Complex::new(c.norm(), 0.0));
+            Ok(Value::Matrix(result))
+        }
         other => Err(ScriptError::Type(format!("abs: unsupported type {}", other))),
     }
 }

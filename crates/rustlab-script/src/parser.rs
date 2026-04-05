@@ -102,6 +102,9 @@ impl Parser {
                 Token::If => {
                     stmts.push(self.parse_if_stmt()?);
                 }
+                Token::For => {
+                    stmts.push(self.parse_for_stmt()?);
+                }
                 Token::Else => {
                     if inside_fn {
                         // `else` inside a function body means we're inside a nested if —
@@ -123,6 +126,8 @@ impl Parser {
                 Token::Ident(_) => {
                     let stmt = if self.is_field_assignment() {
                         self.parse_field_assignment()?
+                    } else if self.is_index_assignment() {
+                        self.parse_index_assign()?
                     } else if self.is_assignment() {
                         self.parse_assignment()?
                     } else {
@@ -136,6 +141,70 @@ impl Parser {
             }
         }
         Ok(stmts)
+    }
+
+    /// Peek ahead to decide if we have `IDENT ( ... ) =` (not `==`) — indexed assignment.
+    /// Uses paren-depth counting to find the matching `)`.
+    fn is_index_assignment(&self) -> bool {
+        if !matches!(self.peek_token(), Token::Ident(_)) { return false; }
+        if !matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::LParen)) {
+            return false;
+        }
+        let mut depth = 0usize;
+        let mut p = self.pos + 1;
+        while p < self.tokens.len() {
+            match &self.tokens[p].token {
+                Token::LParen  => depth += 1,
+                Token::RParen  => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return matches!(
+                            self.tokens.get(p + 1).map(|s| &s.token),
+                            Some(Token::Eq)
+                        ) && !matches!(
+                            self.tokens.get(p + 2).map(|s| &s.token),
+                            Some(Token::Eq)
+                        );
+                    }
+                }
+                Token::Newline | Token::Eof => break,
+                _ => {}
+            }
+            p += 1;
+        }
+        false
+    }
+
+    fn parse_index_assign(&mut self) -> Result<Stmt, ScriptError> {
+        let name = match self.advance() {
+            Token::Ident(s) => s.clone(),
+            _ => unreachable!(),
+        };
+        self.advance(); // consume '('
+        self.skip_newlines();
+        let indices = self.parse_arglist()?;
+        self.skip_newlines();
+        self.expect(&Token::RParen)?;
+        self.advance(); // consume '='
+        let expr = self.parse_range_expr()?;
+        let suppress = self.consume_stmt_end()?;
+        Ok(Stmt::IndexAssign { name, indices, expr, suppress })
+    }
+
+    fn parse_for_stmt(&mut self) -> Result<Stmt, ScriptError> {
+        self.advance(); // consume 'for'
+        let var = match self.peek_token().clone() {
+            Token::Ident(s) => { self.advance(); s }
+            other => return Err(ScriptError::Parse {
+                line: self.current_line(),
+                msg: format!("expected loop variable after 'for', got {:?}", other),
+            }),
+        };
+        self.expect(&Token::Eq)?;
+        let iter = self.parse_range_expr()?;
+        let _ = self.consume_stmt_end()?;
+        let body = self.parse_stmts_until_end(true)?;
+        Ok(Stmt::For { var, iter, body })
     }
 
     /// Peek ahead to decide if we have `IDENT = expr` (not `IDENT == ...`)
@@ -247,11 +316,13 @@ impl Parser {
                 Token::Function  => { then_body.push(self.parse_function_def()?); }
                 Token::Return    => { self.advance(); let _ = self.consume_stmt_end()?; then_body.push(Stmt::Return); }
                 Token::If        => { then_body.push(self.parse_if_stmt()?); }
+                Token::For       => { then_body.push(self.parse_for_stmt()?); }
                 Token::LBracket if self.is_multi_assign() => { then_body.push(self.parse_multi_assign()?); }
                 Token::Ident(_)  => {
-                    let s = if self.is_field_assignment() { self.parse_field_assignment()? }
-                            else if self.is_assignment()  { self.parse_assignment()? }
-                            else                          { self.parse_expr_stmt()? };
+                    let s = if self.is_field_assignment()  { self.parse_field_assignment()? }
+                            else if self.is_index_assignment() { self.parse_index_assign()? }
+                            else if self.is_assignment()   { self.parse_assignment()? }
+                            else                           { self.parse_expr_stmt()? };
                     then_body.push(s);
                 }
                 _ => { then_body.push(self.parse_expr_stmt()?); }
@@ -277,11 +348,13 @@ impl Parser {
                     Token::Function  => { body.push(self.parse_function_def()?); }
                     Token::Return    => { self.advance(); let _ = self.consume_stmt_end()?; body.push(Stmt::Return); }
                     Token::If        => { body.push(self.parse_if_stmt()?); }
+                    Token::For       => { body.push(self.parse_for_stmt()?); }
                     Token::LBracket if self.is_multi_assign() => { body.push(self.parse_multi_assign()?); }
                     Token::Ident(_)  => {
-                        let s = if self.is_field_assignment() { self.parse_field_assignment()? }
-                                else if self.is_assignment()  { self.parse_assignment()? }
-                                else                          { self.parse_expr_stmt()? };
+                        let s = if self.is_field_assignment()  { self.parse_field_assignment()? }
+                                else if self.is_index_assignment() { self.parse_index_assign()? }
+                                else if self.is_assignment()   { self.parse_assignment()? }
+                                else                           { self.parse_expr_stmt()? };
                         body.push(s);
                     }
                     _ => { body.push(self.parse_expr_stmt()?); }
@@ -523,7 +596,7 @@ impl Parser {
         }
     }
 
-    // postfix = primary ("'" | ".'" | "." IDENT ["(" args ")"])*
+    // postfix = primary ("'" | ".'" | "." IDENT ["(" args ")"] | "(" args ")")*
     fn parse_postfix(&mut self) -> Result<Expr, ScriptError> {
         let mut expr = self.parse_primary()?;
         loop {
@@ -535,6 +608,19 @@ impl Parser {
                 Token::DotApostrophe => {
                     self.advance();
                     expr = Expr::NonConjTranspose(Box::new(expr));
+                }
+                // Chained indexing: expr(args) — e.g. f(a,b)(i)
+                Token::LParen if !matches!(expr, Expr::Var(_)) => {
+                    self.advance(); // consume '('
+                    self.skip_newlines();
+                    let args = if self.peek_token() == &Token::RParen {
+                        vec![]
+                    } else {
+                        self.parse_arglist()?
+                    };
+                    self.skip_newlines();
+                    self.expect(&Token::RParen)?;
+                    expr = Expr::Index { expr: Box::new(expr), args };
                 }
                 Token::Dot => {
                     self.advance(); // consume '.'

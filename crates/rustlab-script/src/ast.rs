@@ -23,6 +23,19 @@ pub enum Stmt {
     },
     /// `[a, b, c] = expr` — multi-value assignment (unpacks a Tuple)
     MultiAssign { names: Vec<String>, expr: Expr, suppress: bool },
+    /// `for VAR = iter_expr ... end` — iterate over elements of a vector
+    For {
+        var:  String,
+        iter: Expr,
+        body: Vec<Stmt>,
+    },
+    /// `name(i) = expr` or `name(i,j) = expr` — indexed assignment
+    IndexAssign {
+        name:     String,
+        indices:  Vec<Expr>,
+        expr:     Expr,
+        suppress: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +60,9 @@ pub enum Expr {
     All,
     /// `expr.field` — struct field access
     Field { object: Box<Expr>, field: String },
+    /// `expr(args)` — index or call on the result of an arbitrary expression
+    /// Used for chained indexing: `f(a, b)(i)` → `Index { expr: Call{f,[a,b]}, args: [i] }`
+    Index { expr: Box<Expr>, args: Vec<Expr> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

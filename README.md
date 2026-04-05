@@ -6,20 +6,26 @@ A matrix algebra and DSP toolkit written in Rust — scriptable from the command
 
 ## Install (macOS and Linux)
 
-### Option 1 — system-wide to `/opt/rustlab/bin` (recommended)
+### Option 1 — into `~/.local/bin` (recommended)
 
 ```sh
 make install
 ```
 
-Builds a release binary and copies it to `/opt/rustlab/bin/rustlab` (requires `sudo`).
+Builds a release binary and copies it to `~/.local/bin/rustlab`. No `sudo` required.
 On macOS, `codesign` is run automatically. On Linux, it is skipped.
 
-Add to your shell's `PATH` once:
+To install to a different location, override `INSTALL_DIR`:
+
+```sh
+make install INSTALL_DIR=/usr/local/bin
+```
+
+If `~/.local/bin` is not already on your `PATH`, add it once:
 
 ```sh
 # bash (~/.bash_profile / ~/.bashrc) or zsh (~/.zshrc)
-export PATH="/opt/rustlab/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Then reload your shell or run `source ~/.zshrc`.
