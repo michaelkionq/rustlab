@@ -19,7 +19,7 @@ EXAMPLES_ALL := \
 # Non-interactive subset — safe for headless / CI runs.
 EXAMPLES_CI := complex_basics save_load firpm fixed_point
 
-.PHONY: install examples examples-ci clean-examples clean help $(EXAMPLES_ALL)
+.PHONY: install examples examples-ci perf clean-examples clean help $(EXAMPLES_ALL)
 
 ## Build release binary and install to $(INSTALL_DIR) (macOS and Linux)
 install:
@@ -50,6 +50,10 @@ examples-ci:
 $(EXAMPLES_ALL):
 	$(RUSTLAB) run examples/$@.r
 
+## Build release binary, run all benchmarks, and write perf/report.md
+perf:
+	@bash perf/run_perf.sh
+
 ## Remove generated output files (*.svg *.npy *.csv *.npz)
 clean-examples:
 	@rm -f *.svg *.npy *.csv *.npz
@@ -71,6 +75,7 @@ help:
 	@echo "  <name>              Run one example, e.g.  make lowpass"
 	@echo "  clean-examples      Remove *.svg *.npy *.csv *.npz from the workspace root"
 	@echo "  clean               clean-examples + cargo clean"
+	@echo "  perf                Build release, run benchmarks, write perf/report.md"
 	@echo ""
 	@echo "  Available examples:"
 	@for ex in $(EXAMPLES_ALL); do echo "    $$ex"; done

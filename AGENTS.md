@@ -60,6 +60,36 @@ rustlab-dsp   rustlab-plot
 
 ---
 
+## Performance Analysis
+
+### Running benchmarks
+
+```sh
+make perf
+```
+
+This builds the release binary, times every script in `perf/`, measures
+binary size, and writes `perf/report.md`.
+
+### When an AI agent sees `perf/report.md`
+
+If `perf/report.md` exists and was generated in the current session (or the
+user asks for a performance review), the agent **must**:
+
+1. Read `perf/report.md` in full.
+2. Work through every task listed in the `<!-- AI_ANALYSIS -->` block inside
+   that file.
+3. Append a `## AI Analysis` section directly to `perf/report.md` with
+   findings and a prioritised recommendation table.
+4. If any **open** optimisation (OPT-1, OPT-2, OPT-3, …) can be applied
+   without breaking tests, implement it, re-run `make perf`, and update the
+   report with before/after numbers.
+
+Do not skip the analysis or produce it only as a chat response — it must be
+written into the report file so it is preserved across sessions.
+
+---
+
 ## Development Plans
 
 Multi-phase feature plans live in `dev/plans/`.  Each plan tracks current phase
