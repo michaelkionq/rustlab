@@ -158,6 +158,54 @@ trapz(linspace(0,1,5), [0,1,2,1,0] * 1.0)   # area under triangle
 
 ---
 
+## ML / Activation Functions
+
+### `softmax(v)`
+Numerically-stable softmax over the real parts of a vector. Returns a probability vector whose elements sum to 1.0. Subtracts the maximum value before exponentiation to prevent overflow.
+```
+p = softmax([1.0, 2.0, 3.0, 4.0])    # → [0.032, 0.087, 0.237, 0.644]
+sum(p)                                 # → 1.0
+```
+- Single scalar input returns `1.0`.
+- Monotone: larger input values produce larger output probabilities.
+
+### `relu(x)`
+Rectified linear unit: `max(0, x)`, element-wise.
+```
+relu(3.5)                              # → 3.5
+relu(-2.0)                             # → 0.0
+relu([-3.0, -1.0, 0.0, 2.0, 5.0])     # → [0, 0, 0, 2, 5]
+relu(M)                                # element-wise over a matrix
+```
+- Accepts scalar, vector, or matrix.
+- Clamps negative values to zero; positive values pass through unchanged.
+
+### `gelu(x)`
+Gaussian error linear unit, element-wise. Uses the standard tanh approximation:
+`GELU(x) = 0.5 · x · (1 + tanh(√(2/π) · (x + 0.044715 · x³)))`
+```
+gelu(0.0)                              # → 0.0
+gelu(1.0)                              # → ~0.841
+gelu([-2.0, 0.0, 2.0])                # → [~-0.045, 0.0, ~1.955]
+```
+- Accepts scalar, vector, or matrix.
+- Allows small negative outputs near `x ≈ -0.17` — unlike ReLU.
+- Approaches identity for large positive `x`; approaches zero for large negative `x`.
+
+### `layernorm(v)` / `layernorm(v, eps)`
+Layer normalisation: subtracts the mean and divides by the population standard deviation.
+`y = (v − mean(v)) / sqrt(var(v) + eps)`
+```
+y = layernorm([1.0, 2.0, 3.0, 4.0, 5.0])   # zero mean, ~unit variance
+layernorm(v, 1e-8)                           # custom epsilon
+```
+- `eps` defaults to `1e-5` and prevents division by zero for constant inputs.
+- Uses **population variance** (divides by N, not N-1).
+- Output has zero mean and variance ≈ 1.0 for any non-constant input.
+- Single scalar input returns `0.0`.
+
+---
+
 ## Array Construction
 
 ### `zeros(n)`
@@ -762,6 +810,23 @@ histogram(randn(2000), 30)
 H = histogram(data, 20)   # capture bin data
 ```
 
+### `bar(y)` / `bar(x, y)` / `bar(y, title)` / `bar(x, y, title)`
+Bar chart. Each element of `y` is rendered as a filled vertical bar. `x` specifies the bar centre positions (defaults to 0, 1, 2, …).
+```
+bar([3, 1, 4, 1, 5, 9, 2, 6])
+bar(categories, counts, "Vote Counts")
+```
+- Negative bar heights are supported (bars extend downward from zero).
+- Press any key to close the terminal display.
+
+### `scatter(x, y)` / `scatter(x, y, title)`
+Scatter plot — renders each (x, y) pair as a dot. No lines are drawn between points.
+```
+scatter(x, y)
+scatter(t, noise, "Noise vs Time")
+```
+- Press any key to close.
+
 ### `imagesc(M)` / `imagesc(M, colormap)`
 Display a matrix as a false-color heatmap in the terminal. Each cell is colored according to its magnitude using the specified colormap. Supported colormaps: `"viridis"` (default), `"jet"`, `"hot"`, `"gray"`.
 ```
@@ -794,6 +859,20 @@ Save a dB frequency response chart to file. `Hz` is the 2×n matrix from `freqz(
 ```
 savedb(freqz(h, 512, sr), "response.svg", "Lowpass Response")
 savedb(spectrum(fft(x), sr), "spectrum.svg", "Signal Spectrum")
+```
+
+### `savebar(y, filename)` / `savebar(x, y, filename)` / `savebar(x, y, filename, title)`
+Save a bar chart to file. Bar positions default to 0, 1, 2, … if `x` is omitted.
+```
+savebar(counts, "votes.svg", "Election Results")
+savebar(x, y, "bars.svg")
+```
+
+### `savescatter(x, y, filename)` / `savescatter(x, y, filename, title)`
+Save a scatter plot to file. Each (x, y) pair is rendered as a filled circle.
+```
+savescatter(x, y, "scatter.svg", "Noise Distribution")
+savescatter(real(z), imag(z), "constellation.svg")
 ```
 
 ### `savehist(v, filename [, title])` / `savehist(v, n_bins, filename [, title])`
