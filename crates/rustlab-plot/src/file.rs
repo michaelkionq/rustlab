@@ -181,6 +181,45 @@ where
                     })
                 ).map_err(err)?;
             }
+            PlotKind::Bar => {
+                let n = s.x_data.len();
+                let bar_w = if n > 1 {
+                    let span = s.x_data[n - 1] - s.x_data[0];
+                    (span / (n - 1) as f64) * 0.8
+                } else {
+                    0.8
+                };
+                let half = bar_w / 2.0;
+
+                // Baseline
+                chart.draw_series(LineSeries::new(
+                    vec![(x_lo, 0.0), (x_hi, 0.0)],
+                    BLACK.stroke_width(1),
+                )).map_err(err)?;
+
+                // Filled bars
+                chart.draw_series(
+                    s.x_data.iter().copied().zip(s.y_data.iter().copied()).map(|(x, y)| {
+                        let (y0, y1) = if y >= 0.0 { (0.0, y) } else { (y, 0.0) };
+                        Rectangle::new([(x - half, y0), (x + half, y1)], rgb.filled())
+                    })
+                ).map_err(err)?;
+
+                // Bar outlines
+                chart.draw_series(
+                    s.x_data.iter().copied().zip(s.y_data.iter().copied()).map(|(x, y)| {
+                        let (y0, y1) = if y >= 0.0 { (0.0, y) } else { (y, 0.0) };
+                        Rectangle::new([(x - half, y0), (x + half, y1)], BLACK.stroke_width(1))
+                    })
+                ).map_err(err)?;
+            }
+            PlotKind::Scatter => {
+                chart.draw_series(
+                    s.x_data.iter().copied().zip(s.y_data.iter().copied()).map(|(x, y)| {
+                        Circle::new((x, y), 4, rgb.filled())
+                    })
+                ).map_err(err)?;
+            }
         }
     }
     Ok(())
@@ -383,6 +422,66 @@ pub fn save_histogram(data: &RVector, n_bins: usize, title: &str, path: &str) ->
     render_figure_file(path)
 }
 
+/// Push a bar series and render to file.
+/// `x` holds bar centre positions; `y` holds bar heights.
+/// If `x` is empty the bars are indexed 0, 1, 2, …
+pub fn save_bar(x: &[f64], y: &[f64], title: &str, path: &str) -> Result<(), PlotError> {
+    if y.is_empty() { return Err(PlotError::EmptyData); }
+    let x_data: Vec<f64> = if x.is_empty() {
+        (0..y.len()).map(|i| i as f64).collect()
+    } else {
+        x.to_vec()
+    };
+    let y_max = y.iter().copied().fold(0.0_f64, f64::max).max(0.0);
+    let y_min = y.iter().copied().fold(0.0_f64, f64::min).min(0.0);
+    FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        fig.current_mut().series.clear();
+        let sp = fig.current_mut();
+        if !title.is_empty() { sp.title = title.to_string(); }
+        sp.ylim = (Some(y_min * 1.1 - 0.1), Some(y_max * 1.1 + 0.1));
+    });
+    FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        let color = fig.next_color();
+        let sp = fig.current_mut();
+        sp.series.push(crate::figure::Series {
+            label: "bar".to_string(),
+            x_data,
+            y_data: y.to_vec(),
+            color,
+            style: crate::figure::LineStyle::Solid,
+            kind: PlotKind::Bar,
+        });
+    });
+    render_figure_file(path)
+}
+
+/// Push a scatter series and render to file.
+pub fn save_scatter(x: &[f64], y: &[f64], title: &str, path: &str) -> Result<(), PlotError> {
+    if x.is_empty() || y.is_empty() { return Err(PlotError::EmptyData); }
+    FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        fig.current_mut().series.clear();
+        let sp = fig.current_mut();
+        if !title.is_empty() { sp.title = title.to_string(); }
+    });
+    FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        let color = fig.next_color();
+        let sp = fig.current_mut();
+        sp.series.push(crate::figure::Series {
+            label: "scatter".to_string(),
+            x_data: x.to_vec(),
+            y_data: y.to_vec(),
+            color,
+            style: crate::figure::LineStyle::Solid,
+            kind: PlotKind::Scatter,
+        });
+    });
+    render_figure_file(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -451,6 +550,171 @@ mod tests {
         save_histogram(&data, 10, "Test Histogram", &path).expect("save_histogram should succeed");
         let meta = std::fs::metadata(&path).expect("histogram SVG should exist");
         assert!(meta.len() > 500, "histogram SVG should be non-trivial, got {}", meta.len());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // ── bar chart tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn save_bar_svg_nonempty() {
+        let path = tmp_path("_bar.svg");
+        let y = vec![3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0];
+        save_bar(&[], &y, "Test Bar", &path).expect("save_bar should succeed");
+        let meta = std::fs::metadata(&path).expect("bar SVG should exist");
+        assert!(meta.len() > 500, "bar SVG should be non-trivial (>500 bytes), got {}", meta.len());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_bar_with_explicit_x_positions() {
+        let path = tmp_path("_bar_x.svg");
+        let x = vec![0.0, 1.0, 2.0, 3.0, 4.0];
+        let y = vec![10.0, 20.0, 15.0, 5.0, 8.0];
+        save_bar(&x, &y, "Bar with X", &path).expect("save_bar with x should succeed");
+        let meta = std::fs::metadata(&path).expect("bar SVG should exist");
+        assert!(meta.len() > 500, "bar SVG should be non-trivial, got {}", meta.len());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_bar_contains_svg_tag() {
+        let path = tmp_path("_bar_tag.svg");
+        let y = vec![1.0, 2.0, 3.0];
+        save_bar(&[], &y, "Bar Tag Test", &path).expect("save_bar should succeed");
+        let content = std::fs::read_to_string(&path).expect("should read SVG");
+        assert!(content.contains("<svg"), "bar SVG should contain '<svg' tag");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_bar_negative_values() {
+        // Bars should render for negative heights without panicking
+        let path = tmp_path("_bar_neg.svg");
+        let y = vec![-3.0, 2.0, -1.0, 5.0];
+        save_bar(&[], &y, "Negative Bars", &path).expect("save_bar with negatives should succeed");
+        let meta = std::fs::metadata(&path).expect("file should exist");
+        assert!(meta.len() > 500);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_bar_single_bar() {
+        let path = tmp_path("_bar_single.svg");
+        save_bar(&[], &[7.0], "Single Bar", &path).expect("single bar should succeed");
+        let meta = std::fs::metadata(&path).expect("file should exist");
+        assert!(meta.len() > 500);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_bar_empty_data_errors() {
+        let path = tmp_path("_bar_empty.svg");
+        let result = save_bar(&[], &[], "Empty", &path);
+        assert!(result.is_err(), "save_bar with empty data should return an error");
+    }
+
+    #[test]
+    fn save_bar_empty_title() {
+        // title = "" should still produce a valid SVG
+        let path = tmp_path("_bar_notitle.svg");
+        let y = vec![1.0, 4.0, 9.0, 16.0];
+        save_bar(&[], &y, "", &path).expect("save_bar with empty title should succeed");
+        let content = std::fs::read_to_string(&path).expect("should read SVG");
+        assert!(content.contains("<svg"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // ── scatter chart tests ───────────────────────────────────────────────────
+
+    #[test]
+    fn save_scatter_svg_nonempty() {
+        let path = tmp_path("_scatter.svg");
+        let x: Vec<f64> = (0..20).map(|i| i as f64 * 0.5).collect();
+        let y: Vec<f64> = x.iter().map(|&xi| xi * xi * 0.1).collect();
+        save_scatter(&x, &y, "Test Scatter", &path).expect("save_scatter should succeed");
+        let meta = std::fs::metadata(&path).expect("scatter SVG should exist");
+        assert!(meta.len() > 500, "scatter SVG should be non-trivial, got {}", meta.len());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_scatter_contains_svg_tag() {
+        let path = tmp_path("_scatter_tag.svg");
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![4.0, 2.0, 5.0];
+        save_scatter(&x, &y, "Scatter Tag", &path).expect("save_scatter should succeed");
+        let content = std::fs::read_to_string(&path).expect("should read SVG");
+        assert!(content.contains("<svg"), "scatter SVG should contain '<svg' tag");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_scatter_negative_coords() {
+        let path = tmp_path("_scatter_neg.svg");
+        let x = vec![-3.0, -1.0, 0.0, 1.0, 3.0];
+        let y = vec![ 2.0, -2.0, 0.5, 3.0, -1.0];
+        save_scatter(&x, &y, "Scatter Neg", &path).expect("scatter with negatives should succeed");
+        let meta = std::fs::metadata(&path).expect("file should exist");
+        assert!(meta.len() > 500);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_scatter_many_points() {
+        let path = tmp_path("_scatter_many.svg");
+        let x: Vec<f64> = (0..200).map(|i| i as f64).collect();
+        let y: Vec<f64> = x.iter().map(|&xi| xi.sin()).collect();
+        save_scatter(&x, &y, "Many Points", &path).expect("large scatter should succeed");
+        let meta = std::fs::metadata(&path).expect("file should exist");
+        assert!(meta.len() > 500);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_scatter_empty_data_errors() {
+        let path = tmp_path("_scatter_empty.svg");
+        let result = save_scatter(&[], &[], "Empty", &path);
+        assert!(result.is_err(), "save_scatter with empty data should return error");
+    }
+
+    #[test]
+    fn save_scatter_empty_title() {
+        let path = tmp_path("_scatter_notitle.svg");
+        let x = vec![1.0, 2.0, 3.0, 4.0];
+        let y = vec![1.0, 4.0, 9.0, 16.0];
+        save_scatter(&x, &y, "", &path).expect("scatter with empty title should succeed");
+        let content = std::fs::read_to_string(&path).expect("should read SVG");
+        assert!(content.contains("<svg"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // ── push_xy_bar / push_xy_scatter → render_figure_file ───────────────────
+
+    #[test]
+    fn push_bar_and_render_file_produces_svg() {
+        use crate::{push_xy_bar, render_figure_file};
+        let path = tmp_path("_push_bar.svg");
+        push_xy_bar(
+            vec![0.0, 1.0, 2.0, 3.0],
+            vec![4.0, 7.0, 2.0, 9.0],
+            "data", "Push Bar Test", None,
+        );
+        render_figure_file(&path).expect("render after push_xy_bar should succeed");
+        let content = std::fs::read_to_string(&path).expect("should read SVG");
+        assert!(content.contains("<svg"), "rendered bar figure should be SVG");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn push_scatter_and_render_file_produces_svg() {
+        use crate::{push_xy_scatter, render_figure_file};
+        let path = tmp_path("_push_scatter.svg");
+        let x: Vec<f64> = (0..15).map(|i| i as f64).collect();
+        let y: Vec<f64> = x.iter().map(|&xi| xi * 2.0 + 1.0).collect();
+        push_xy_scatter(x, y, "pts", "Push Scatter Test", None);
+        render_figure_file(&path).expect("render after push_xy_scatter should succeed");
+        let content = std::fs::read_to_string(&path).expect("should read SVG");
+        assert!(content.contains("<svg"), "rendered scatter figure should be SVG");
         let _ = std::fs::remove_file(&path);
     }
 }

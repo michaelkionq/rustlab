@@ -66,7 +66,7 @@ impl SeriesColor {
 pub enum LineStyle { Solid, Dashed }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum PlotKind { Line, Stem }
+pub enum PlotKind { Line, Stem, Bar, Scatter }
 
 /// One data series in a subplot.
 #[derive(Debug, Clone)]

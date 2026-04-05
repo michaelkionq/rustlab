@@ -2534,3 +2534,234 @@ mod new_builtins_tests {
         assert!(e.contains("legendre"), "error should mention legendre: {e}");
     }
 }
+
+// ─── ML / activation function tests ─────────────────────────────────────────
+
+#[cfg(test)]
+mod ml_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+
+    fn eval_str(src: &str) -> Evaluator {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts { ev.exec_stmt(stmt).unwrap(); }
+        ev
+    }
+
+    fn get_vec(ev: &Evaluator, name: &str) -> Vec<f64> {
+        match ev.get(name).unwrap() {
+            Value::Vector(v) => v.iter().map(|c| c.re).collect(),
+            other => panic!("expected vector for '{name}', got {other:?}"),
+        }
+    }
+
+    fn get_scalar(ev: &Evaluator, name: &str) -> f64 {
+        match ev.get(name).unwrap() {
+            Value::Scalar(s) => *s,
+            Value::Complex(c) => c.re,
+            other => panic!("expected scalar for '{name}', got {other:?}"),
+        }
+    }
+
+    fn close(a: f64, b: f64) -> bool { (a - b).abs() < 1e-6 }
+
+    // ── softmax ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn softmax_sums_to_one() {
+        let ev = eval_str("p = softmax([1.0, 2.0, 3.0, 4.0])");
+        let v = get_vec(&ev, "p");
+        let s: f64 = v.iter().sum();
+        assert!((s - 1.0).abs() < 1e-12, "softmax should sum to 1.0, got {s}");
+    }
+
+    #[test]
+    fn softmax_all_positive() {
+        let ev = eval_str("p = softmax([1.0, 2.0, 3.0])");
+        let v = get_vec(&ev, "p");
+        for &x in &v {
+            assert!(x > 0.0, "softmax output must be positive, got {x}");
+        }
+    }
+
+    #[test]
+    fn softmax_monotone_with_input() {
+        // Larger input → larger output probability
+        let ev = eval_str("p = softmax([1.0, 2.0, 3.0])");
+        let v = get_vec(&ev, "p");
+        assert!(v[0] < v[1] && v[1] < v[2], "softmax should be monotone: {:?}", v);
+    }
+
+    #[test]
+    fn softmax_numerically_stable_large_values() {
+        // Should not overflow even with large inputs
+        let ev = eval_str("p = softmax([1000.0, 1001.0, 1002.0])");
+        let v = get_vec(&ev, "p");
+        let s: f64 = v.iter().sum();
+        assert!((s - 1.0).abs() < 1e-10, "softmax should be stable for large inputs, sum={s}");
+    }
+
+    #[test]
+    fn softmax_uniform_input_is_uniform_output() {
+        let ev = eval_str("p = softmax([2.0, 2.0, 2.0, 2.0])");
+        let v = get_vec(&ev, "p");
+        for &x in &v {
+            assert!((x - 0.25).abs() < 1e-10, "uniform softmax should be 0.25, got {x}");
+        }
+    }
+
+    #[test]
+    fn softmax_single_scalar_is_one() {
+        let ev = eval_str("p = softmax(5.0)");
+        let s = get_scalar(&ev, "p");
+        assert!((s - 1.0).abs() < 1e-12, "softmax of scalar should be 1.0, got {s}");
+    }
+
+    // ── relu ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn relu_positive_passthrough() {
+        let ev = eval_str("y = relu(3.5)");
+        assert!(close(get_scalar(&ev, "y"), 3.5), "relu(3.5) should be 3.5");
+    }
+
+    #[test]
+    fn relu_negative_clamped_to_zero() {
+        let ev = eval_str("y = relu(-2.0)");
+        assert!(close(get_scalar(&ev, "y"), 0.0), "relu(-2) should be 0");
+    }
+
+    #[test]
+    fn relu_zero_unchanged() {
+        let ev = eval_str("y = relu(0.0)");
+        assert!(close(get_scalar(&ev, "y"), 0.0));
+    }
+
+    #[test]
+    fn relu_vector_element_wise() {
+        let ev = eval_str("y = relu([-3.0, -1.0, 0.0, 2.0, 5.0])");
+        let v = get_vec(&ev, "y");
+        let expected = [0.0, 0.0, 0.0, 2.0, 5.0];
+        for (a, b) in v.iter().zip(expected.iter()) {
+            assert!(close(*a, *b), "relu mismatch: {a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn relu_matrix_element_wise() {
+        let ev = eval_str("M = relu([-1.0, 2.0; 3.0, -4.0])");
+        match ev.get("M").unwrap() {
+            Value::Matrix(m) => {
+                assert!(close(m[[0,0]].re, 0.0));
+                assert!(close(m[[0,1]].re, 2.0));
+                assert!(close(m[[1,0]].re, 3.0));
+                assert!(close(m[[1,1]].re, 0.0));
+            }
+            other => panic!("expected matrix, got {other:?}"),
+        }
+    }
+
+    // ── gelu ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn gelu_zero_is_zero() {
+        let ev = eval_str("y = gelu(0.0)");
+        assert!(close(get_scalar(&ev, "y"), 0.0), "gelu(0) should be 0");
+    }
+
+    #[test]
+    fn gelu_positive_input_positive_output() {
+        let ev = eval_str("y = gelu(1.0)");
+        let s = get_scalar(&ev, "y");
+        assert!(s > 0.0 && s < 1.0, "gelu(1) should be in (0,1), got {s}");
+    }
+
+    #[test]
+    fn gelu_large_positive_approaches_identity() {
+        // For large x, GELU(x) ≈ x
+        let ev = eval_str("y = gelu(10.0)");
+        let s = get_scalar(&ev, "y");
+        assert!((s - 10.0).abs() < 0.01, "gelu(10) should be ~10, got {s}");
+    }
+
+    #[test]
+    fn gelu_large_negative_approaches_zero() {
+        let ev = eval_str("y = gelu(-10.0)");
+        let s = get_scalar(&ev, "y");
+        assert!(s.abs() < 0.01, "gelu(-10) should be ~0, got {s}");
+    }
+
+    #[test]
+    fn gelu_negative_input_slightly_negative() {
+        // GELU allows small negative outputs for x ≈ -0.17..0
+        let ev = eval_str("y = gelu(-1.0)");
+        let s = get_scalar(&ev, "y");
+        assert!(s < 0.0, "gelu(-1) should be negative, got {s}");
+    }
+
+    #[test]
+    fn gelu_vector() {
+        let ev = eval_str("y = gelu([-2.0, 0.0, 2.0])");
+        let v = get_vec(&ev, "y");
+        assert_eq!(v.len(), 3);
+        assert!(v[0] < 0.0,  "gelu(-2) < 0");
+        assert!(v[1] == 0.0, "gelu(0) == 0");
+        assert!(v[2] > 1.5,  "gelu(2) > 1.5");
+    }
+
+    // ── layernorm ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn layernorm_zero_mean() {
+        let ev = eval_str("y = layernorm([1.0, 2.0, 3.0, 4.0, 5.0])");
+        let v = get_vec(&ev, "y");
+        let mean: f64 = v.iter().sum::<f64>() / v.len() as f64;
+        assert!(mean.abs() < 1e-10, "layernorm output should have zero mean, got {mean}");
+    }
+
+    #[test]
+    fn layernorm_unit_variance() {
+        let ev = eval_str("y = layernorm([2.0, 4.0, 6.0, 8.0, 10.0])");
+        let v = get_vec(&ev, "y");
+        let n = v.len() as f64;
+        let mean: f64 = v.iter().sum::<f64>() / n;
+        let var: f64 = v.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+        // var should be ~1.0 (population variance, eps≈1e-5)
+        assert!((var - 1.0).abs() < 1e-4, "layernorm output should have ~unit variance, got {var}");
+    }
+
+    #[test]
+    fn layernorm_length_preserved() {
+        let ev = eval_str("y = layernorm([10.0, 20.0, 30.0])");
+        let v = get_vec(&ev, "y");
+        assert_eq!(v.len(), 3, "layernorm output length must match input");
+    }
+
+    #[test]
+    fn layernorm_single_scalar_is_zero() {
+        let ev = eval_str("y = layernorm(5.0)");
+        assert!(close(get_scalar(&ev, "y"), 0.0), "layernorm of scalar should be 0");
+    }
+
+    #[test]
+    fn layernorm_custom_eps() {
+        // With a large eps the norm is less sharp but should still be close to zero mean
+        let ev = eval_str("y = layernorm([1.0, 2.0, 3.0], 1.0)");
+        let v = get_vec(&ev, "y");
+        let mean: f64 = v.iter().sum::<f64>() / v.len() as f64;
+        assert!(mean.abs() < 1e-10);
+    }
+
+    #[test]
+    fn layernorm_wrong_arg_errors() {
+        let src = format!("{}\n", "y = layernorm([1.0, 2.0], 1.0, 2.0)");
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        let result = ev.exec_stmt(&stmts[0]);
+        assert!(result.is_err(), "layernorm with 3 args should error");
+    }
+}

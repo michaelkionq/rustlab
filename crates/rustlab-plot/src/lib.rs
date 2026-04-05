@@ -6,13 +6,14 @@ pub mod file;
 pub use ascii::{
     imagesc_terminal,
     plot_complex, plot_db, plot_histogram, plot_real, stem_real,
-    push_xy_line, push_xy_stem,
+    push_xy_line, push_xy_stem, push_xy_bar, push_xy_scatter,
     render_figure_terminal,
 };
 pub use error::PlotError;
 pub use file::{
     render_figure_file,
     save_db, save_histogram, save_imagesc_cmap, save_plot, save_stem,
+    save_bar, save_scatter,
 };
 pub use figure::{
     colormap_rgb, FigureState, LineStyle, PlotKind, Series, SeriesColor, SubplotState,

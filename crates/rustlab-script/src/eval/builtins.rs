@@ -16,11 +16,11 @@ use rustlab_core::{RoundMode, OverflowMode};
 use rustlab_dsp::convolution::convolve;
 use rustlab_plot::{
     plot_db, plot_histogram,
-    save_plot, save_stem, save_db, save_histogram,
+    save_plot, save_stem, save_db, save_histogram, save_bar, save_scatter,
     compute_histogram, histogram_matrix,
     render_figure_terminal, render_figure_file,
     imagesc_terminal, save_imagesc_cmap,
-    push_xy_line, push_xy_stem,
+    push_xy_line, push_xy_stem, push_xy_bar, push_xy_scatter,
     LineStyle, SeriesColor, FIGURE,
 };
 use ndarray::{Array1, Array2};
@@ -192,6 +192,16 @@ impl BuiltinRegistry {
         r.register("fieldnames", builtin_fieldnames);
         r.register("isfield",   builtin_isfield);
         r.register("rmfield",   builtin_rmfield);
+        // ML / activation functions
+        r.register("softmax",   builtin_softmax);
+        r.register("relu",      builtin_relu);
+        r.register("gelu",      builtin_gelu);
+        r.register("layernorm", builtin_layernorm);
+        // New plot types
+        r.register("bar",        builtin_bar);
+        r.register("scatter",    builtin_scatter);
+        r.register("savebar",    builtin_savebar);
+        r.register("savescatter", builtin_savescatter);
         r
     }
 
@@ -4038,4 +4048,203 @@ fn builtin_margin(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Scalar(wcg.unwrap_or(f64::INFINITY)),
         Value::Scalar(wcp.unwrap_or(f64::INFINITY)),
     ]))
+}
+
+// ─── ML / activation functions ──────────────────────────────────────────────
+
+/// softmax(v) — numerically-stable softmax over the real parts of a vector.
+/// Returns a real-valued probability vector summing to 1.0.
+fn builtin_softmax(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("softmax", &args, 1)?;
+    match &args[0] {
+        Value::Vector(v) if !v.is_empty() => {
+            // Subtract max for numerical stability before exp
+            let max_re = v.iter().map(|c| c.re).fold(f64::NEG_INFINITY, f64::max);
+            let exps: Vec<f64> = v.iter().map(|c| (c.re - max_re).exp()).collect();
+            let sum: f64 = exps.iter().sum();
+            let result: CVector = Array1::from_iter(exps.iter().map(|&e| Complex::new(e / sum, 0.0)));
+            Ok(Value::Vector(result))
+        }
+        Value::Scalar(_) => Ok(Value::Scalar(1.0)),
+        _ => Err(ScriptError::Type("softmax: argument must be a non-empty vector or scalar".to_string())),
+    }
+}
+
+/// relu(x) — rectified linear unit: max(0, x), element-wise.
+fn builtin_relu(args: Vec<Value>) -> Result<Value, ScriptError> {
+    apply_scalar_fn_to_value("relu", args, |x: f64| x.max(0.0), |c: Complex<f64>| Complex::new(c.re.max(0.0), 0.0))
+}
+
+fn gelu_scalar(x: f64) -> f64 {
+    // Standard tanh approximation used by most deep-learning frameworks:
+    //   GELU(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))
+    let c = (2.0_f64 / std::f64::consts::PI).sqrt();
+    0.5 * x * (1.0 + (c * (x + 0.044715 * x.powi(3))).tanh())
+}
+
+/// gelu(x) — Gaussian error linear unit, element-wise.
+fn builtin_gelu(args: Vec<Value>) -> Result<Value, ScriptError> {
+    apply_scalar_fn_to_value("gelu", args, gelu_scalar, |c: Complex<f64>| Complex::new(gelu_scalar(c.re), 0.0))
+}
+
+/// layernorm(v) or layernorm(v, eps) — layer normalisation: (v - mean) / sqrt(var + eps).
+/// Uses population variance (divides by N, not N-1).
+fn builtin_layernorm(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args_range("layernorm", &args, 1, 2)?;
+    let eps = if args.len() == 2 {
+        args[1].to_scalar().map_err(ScriptError::Type)?
+    } else {
+        1e-5
+    };
+    match &args[0] {
+        Value::Vector(v) if !v.is_empty() => {
+            let n = v.len() as f64;
+            let mean: C64 = v.iter().copied().sum::<C64>() / n;
+            let variance: f64 = v.iter().map(|&x| (x - mean).norm_sqr()).sum::<f64>() / n;
+            let std_dev = (variance + eps).sqrt();
+            let result: CVector = v.mapv(|c| (c - mean) / std_dev);
+            Ok(Value::Vector(result))
+        }
+        Value::Scalar(s) => {
+            // Single scalar: mean == s, variance == 0, result == 0 (no information)
+            let _ = s;
+            Ok(Value::Scalar(0.0))
+        }
+        _ => Err(ScriptError::Type("layernorm: argument must be a non-empty vector or scalar".to_string())),
+    }
+}
+
+// ─── bar builtin ─────────────────────────────────────────────────────────────
+
+/// bar(y)  or  bar(x, y)  or  bar(x, y, "title")  or  bar(y, "title")
+fn builtin_bar(args: Vec<Value>) -> Result<Value, ScriptError> {
+    if args.is_empty() || args.len() > 3 {
+        return Err(ScriptError::Type(
+            "bar: expected bar(y), bar(x,y), bar(y,title), or bar(x,y,title)".to_string()
+        ));
+    }
+    let (x_data, y_data, title) = extract_xy_with_title(&args, "bar")?;
+    push_xy_bar(x_data, y_data, "bar", &title, None);
+    render_figure_terminal().map_err(|e| ScriptError::Runtime(e.to_string()))?;
+    Ok(Value::None)
+}
+
+/// savebar(y, path)  or  savebar(x, y, path)  or  savebar(x, y, path, title)
+fn builtin_savebar(args: Vec<Value>) -> Result<Value, ScriptError> {
+    if args.len() < 2 || args.len() > 4 {
+        return Err(ScriptError::Type(
+            "savebar: expected savebar(y, path) or savebar(x, y, path) or savebar(x, y, path, title)".to_string()
+        ));
+    }
+    let (x_data, y_data, path, title) = extract_xy_path_title(&args, "savebar")?;
+    save_bar(&x_data, &y_data, &title, &path).map_err(|e| ScriptError::Runtime(e.to_string()))?;
+    Ok(Value::None)
+}
+
+// ─── scatter builtin ──────────────────────────────────────────────────────────
+
+/// scatter(x, y)  or  scatter(x, y, "title")
+fn builtin_scatter(args: Vec<Value>) -> Result<Value, ScriptError> {
+    if args.len() < 2 || args.len() > 3 {
+        return Err(ScriptError::Type(
+            "scatter: expected scatter(x, y) or scatter(x, y, title)".to_string()
+        ));
+    }
+    let xv = to_real_vector(&args[0])?;
+    let yv = to_real_vector(&args[1])?;
+    let title = if args.len() == 3 { args[2].to_str().map_err(ScriptError::Type)? } else { String::new() };
+    let x_data: Vec<f64> = xv.to_vec();
+    let y_data: Vec<f64> = yv.to_vec();
+    push_xy_scatter(x_data, y_data, "scatter", &title, None);
+    render_figure_terminal().map_err(|e| ScriptError::Runtime(e.to_string()))?;
+    Ok(Value::None)
+}
+
+/// savescatter(x, y, path)  or  savescatter(x, y, path, title)
+fn builtin_savescatter(args: Vec<Value>) -> Result<Value, ScriptError> {
+    if args.len() < 3 || args.len() > 4 {
+        return Err(ScriptError::Type(
+            "savescatter: expected savescatter(x, y, path) or savescatter(x, y, path, title)".to_string()
+        ));
+    }
+    let xv = to_real_vector(&args[0])?;
+    let yv = to_real_vector(&args[1])?;
+    let path  = args[2].to_str().map_err(ScriptError::Type)?;
+    let title = if args.len() == 4 { args[3].to_str().map_err(ScriptError::Type)? } else { String::new() };
+    let x_data: Vec<f64> = xv.to_vec();
+    let y_data: Vec<f64> = yv.to_vec();
+    save_scatter(&x_data, &y_data, &title, &path).map_err(|e| ScriptError::Runtime(e.to_string()))?;
+    Ok(Value::None)
+}
+
+// ─── Shared extraction helpers ─────────────────────────────────────────────
+
+/// Extract (x_data, y_data, title) from `bar(y)`, `bar(x,y)`, `bar(y,title)`,
+/// `bar(x,y,title)` style argument lists.
+fn extract_xy_with_title(args: &[Value], name: &str) -> Result<(Vec<f64>, Vec<f64>, String), ScriptError> {
+    match args {
+        // bar(y)
+        [y] => {
+            let yv = to_real_vector(y)?;
+            let x_data: Vec<f64> = (0..yv.len()).map(|i| i as f64).collect();
+            Ok((x_data, yv.to_vec(), String::new()))
+        }
+        // bar(x, y) or bar(y, "title")
+        [a, b] => {
+            if let Ok(title) = b.to_str() {
+                let yv = to_real_vector(a)?;
+                let x_data: Vec<f64> = (0..yv.len()).map(|i| i as f64).collect();
+                Ok((x_data, yv.to_vec(), title))
+            } else {
+                let xv = to_real_vector(a)?;
+                let yv = to_real_vector(b)?;
+                Ok((xv.to_vec(), yv.to_vec(), String::new()))
+            }
+        }
+        // bar(x, y, "title")
+        [x, y, t] => {
+            let xv = to_real_vector(x)?;
+            let yv = to_real_vector(y)?;
+            let title = t.to_str().map_err(ScriptError::Type)?;
+            Ok((xv.to_vec(), yv.to_vec(), title))
+        }
+        _ => Err(ScriptError::Type(format!("{name}: wrong number of arguments"))),
+    }
+}
+
+/// Extract (x_data, y_data, path, title) from save-style arg lists.
+fn extract_xy_path_title(args: &[Value], name: &str) -> Result<(Vec<f64>, Vec<f64>, String, String), ScriptError> {
+    match args {
+        // save(y, path)
+        [y, path] => {
+            let yv = to_real_vector(y)?;
+            let x_data: Vec<f64> = (0..yv.len()).map(|i| i as f64).collect();
+            Ok((x_data, yv.to_vec(), path.to_str().map_err(ScriptError::Type)?, String::new()))
+        }
+        // save(x, y, path) or save(y, path, title) — detect by whether arg[1] is a vector
+        [a, b, c] => {
+            if let Ok(path) = b.to_str() {
+                // save(y, path, title)
+                let yv = to_real_vector(a)?;
+                let x_data: Vec<f64> = (0..yv.len()).map(|i| i as f64).collect();
+                let title = c.to_str().map_err(ScriptError::Type)?;
+                Ok((x_data, yv.to_vec(), path, title))
+            } else {
+                // save(x, y, path)
+                let xv = to_real_vector(a)?;
+                let yv = to_real_vector(b)?;
+                let path = c.to_str().map_err(ScriptError::Type)?;
+                Ok((xv.to_vec(), yv.to_vec(), path, String::new()))
+            }
+        }
+        // save(x, y, path, title)
+        [x, y, path, title] => {
+            let xv = to_real_vector(x)?;
+            let yv = to_real_vector(y)?;
+            Ok((xv.to_vec(), yv.to_vec(),
+                path.to_str().map_err(ScriptError::Type)?,
+                title.to_str().map_err(ScriptError::Type)?))
+        }
+        _ => Err(ScriptError::Type(format!("{name}: wrong number of arguments"))),
+    }
 }

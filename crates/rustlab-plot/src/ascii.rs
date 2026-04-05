@@ -123,6 +123,31 @@ pub fn render_figure_terminal() -> Result<(), PlotError> {
                         }
                     }).collect();
 
+                    // For bar: convert each bar to a step-function outline (left→top→right→base)
+                    // Bar width is derived from spacing between adjacent bars (or 0.8 if only one).
+                    let bar_points: Vec<Vec<(f64, f64)>> = sp.series.iter().map(|s| {
+                        if s.kind == PlotKind::Bar {
+                            let n = s.x_data.len();
+                            let bar_w = if n > 1 {
+                                let span = s.x_data[n - 1] - s.x_data[0];
+                                (span / (n - 1) as f64) * 0.8
+                            } else {
+                                0.8
+                            };
+                            let half = bar_w / 2.0;
+                            let mut pts = Vec::with_capacity(n * 4);
+                            for (&x, &y) in s.x_data.iter().zip(s.y_data.iter()) {
+                                pts.push((x - half, 0.0));
+                                pts.push((x - half, y));
+                                pts.push((x + half, y));
+                                pts.push((x + half, 0.0));
+                            }
+                            pts
+                        } else {
+                            vec![]
+                        }
+                    }).collect();
+
                     // Pre-compute grid line point vecs so they outlive the Dataset borrows.
                     let grid_pts: Vec<Vec<(f64, f64)>> = if sp.grid {
                         const N: usize = 5;
@@ -150,20 +175,39 @@ pub fn render_figure_terminal() -> Result<(), PlotError> {
                     }
                     for (i, s) in sp.series.iter().enumerate() {
                         let rcolor = s.color.to_ratatui();
-                        if s.kind == PlotKind::Stem {
-                            datasets.push(Dataset::default()
-                                .name(s.label.as_str())
-                                .marker(symbols::Marker::Braille)
-                                .graph_type(GraphType::Line)
-                                .style(Style::default().fg(rcolor))
-                                .data(&stem_points[i]));
-                        } else {
-                            datasets.push(Dataset::default()
-                                .name(s.label.as_str())
-                                .marker(symbols::Marker::Braille)
-                                .graph_type(GraphType::Line)
-                                .style(Style::default().fg(rcolor))
-                                .data(&series_points[i]));
+                        match s.kind {
+                            PlotKind::Stem => {
+                                datasets.push(Dataset::default()
+                                    .name(s.label.as_str())
+                                    .marker(symbols::Marker::Braille)
+                                    .graph_type(GraphType::Line)
+                                    .style(Style::default().fg(rcolor))
+                                    .data(&stem_points[i]));
+                            }
+                            PlotKind::Bar => {
+                                datasets.push(Dataset::default()
+                                    .name(s.label.as_str())
+                                    .marker(symbols::Marker::Braille)
+                                    .graph_type(GraphType::Line)
+                                    .style(Style::default().fg(rcolor))
+                                    .data(&bar_points[i]));
+                            }
+                            PlotKind::Scatter => {
+                                datasets.push(Dataset::default()
+                                    .name(s.label.as_str())
+                                    .marker(symbols::Marker::Dot)
+                                    .graph_type(GraphType::Scatter)
+                                    .style(Style::default().fg(rcolor))
+                                    .data(&series_points[i]));
+                            }
+                            PlotKind::Line => {
+                                datasets.push(Dataset::default()
+                                    .name(s.label.as_str())
+                                    .marker(symbols::Marker::Braille)
+                                    .graph_type(GraphType::Line)
+                                    .style(Style::default().fg(rcolor))
+                                    .data(&series_points[i]));
+                            }
                         }
                     }
 
@@ -323,6 +367,48 @@ pub fn push_xy_line(x: Vec<f64>, y: Vec<f64>, label: &str, title: &str, color: O
 /// Push a stem series with explicit x-data.
 pub fn push_xy_stem(x: Vec<f64>, y: Vec<f64>, label: &str, title: &str, color: Option<SeriesColor>) {
     push_stem_series(x, y, label, title, color);
+}
+
+/// Push a bar series with explicit x-positions and heights.
+pub fn push_xy_bar(x: Vec<f64>, y: Vec<f64>, label: &str, title: &str, color: Option<SeriesColor>) {
+    FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        if !fig.hold {
+            fig.current_mut().series.clear();
+        }
+        let color = color.unwrap_or_else(|| fig.next_color());
+        let sp = fig.current_mut();
+        if !title.is_empty() && sp.title.is_empty() { sp.title = title.to_string(); }
+        sp.series.push(crate::figure::Series {
+            label: label.to_string(),
+            x_data: x,
+            y_data: y,
+            color,
+            style: LineStyle::Solid,
+            kind: PlotKind::Bar,
+        });
+    });
+}
+
+/// Push a scatter series with explicit x and y point data.
+pub fn push_xy_scatter(x: Vec<f64>, y: Vec<f64>, label: &str, title: &str, color: Option<SeriesColor>) {
+    FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        if !fig.hold {
+            fig.current_mut().series.clear();
+        }
+        let color = color.unwrap_or_else(|| fig.next_color());
+        let sp = fig.current_mut();
+        if !title.is_empty() && sp.title.is_empty() { sp.title = title.to_string(); }
+        sp.series.push(crate::figure::Series {
+            label: label.to_string(),
+            x_data: x,
+            y_data: y,
+            color,
+            style: LineStyle::Solid,
+            kind: PlotKind::Scatter,
+        });
+    });
 }
 
 // ─── Legacy wrappers ───────────────────────────────────────────────────────
