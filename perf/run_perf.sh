@@ -42,21 +42,31 @@ strip /tmp/rustlab_perf_stripped
 STRIPPED_SIZE_H=$(ls -lh /tmp/rustlab_perf_stripped | awk '{print $5}')
 rm /tmp/rustlab_perf_stripped
 
-# ── run benchmarks ────────────────────────────────────────────────────────────
+# ── discover and run all bench_*.r scripts ────────────────────────────────────
 
 echo "Running benchmarks..."
 
-echo "  bench_upfirdn..."
-run_bench "$PERF_DIR/bench_upfirdn.r"
-MS_UPFIRDN=$BENCH_MS; OUT_UPFIRDN=$BENCH_OUT; ST_UPFIRDN=$BENCH_STATUS
+# Collect bench scripts sorted by name
+BENCH_SCRIPTS=()
+for f in "$PERF_DIR"/bench_*.r; do
+    [ -f "$f" ] && BENCH_SCRIPTS+=("$f")
+done
 
-echo "  bench_fft..."
-run_bench "$PERF_DIR/bench_fft.r"
-MS_FFT=$BENCH_MS; OUT_FFT=$BENCH_OUT; ST_FFT=$BENCH_STATUS
+# Arrays to accumulate results (parallel arrays, bash 3 compatible)
+BENCH_NAMES=()
+BENCH_MS_ALL=()
+BENCH_STATUS_ALL=()
+BENCH_OUT_ALL=()
 
-echo "  bench_linalg..."
-run_bench "$PERF_DIR/bench_linalg.r"
-MS_LINALG=$BENCH_MS; OUT_LINALG=$BENCH_OUT; ST_LINALG=$BENCH_STATUS
+for script in "${BENCH_SCRIPTS[@]}"; do
+    name=$(basename "$script" .r)
+    echo "  $name..."
+    run_bench "$script"
+    BENCH_NAMES+=("$name")
+    BENCH_MS_ALL+=("$BENCH_MS")
+    BENCH_STATUS_ALL+=("$BENCH_STATUS")
+    BENCH_OUT_ALL+=("$BENCH_OUT")
+done
 
 # ── dependency counts ─────────────────────────────────────────────────────────
 
@@ -100,39 +110,34 @@ $SIZE_TABLE
 
 ## Benchmark Results
 
-### \`bench_upfirdn\` — polyphase upsample / filter / downsample
+HEADER
+
+# Emit one section per benchmark
+for i in "${!BENCH_NAMES[@]}"; do
+    name="${BENCH_NAMES[$i]}"
+    ms_val="${BENCH_MS_ALL[$i]}"
+    status="${BENCH_STATUS_ALL[$i]}"
+    out="${BENCH_OUT_ALL[$i]}"
+
+    # Human-readable title: bench_foo_bar → Foo bar
+    title=$(echo "$name" | sed 's/^bench_//' | tr '_' ' ')
+
+    cat << SECTION
+### \`$name\` — $title
 
 | | |
 |---|---|
-| **Wall time** | ${MS_UPFIRDN} ms |
-| **Status** | $ST_UPFIRDN |
+| **Wall time** | ${ms_val} ms |
+| **Status** | $status |
 
 \`\`\`
-$OUT_UPFIRDN
+$out
 \`\`\`
 
-### \`bench_fft\` — FFT / IFFT round-trip
+SECTION
+done
 
-| | |
-|---|---|
-| **Wall time** | ${MS_FFT} ms |
-| **Status** | $ST_FFT |
-
-\`\`\`
-$OUT_FFT
-\`\`\`
-
-### \`bench_linalg\` — matrix multiply, inverse, eigenvalues
-
-| | |
-|---|---|
-| **Wall time** | ${MS_LINALG} ms |
-| **Status** | $ST_LINALG |
-
-\`\`\`
-$OUT_LINALG
-\`\`\`
-
+cat << FOOTER
 ---
 
 ## Dependency Summary
@@ -178,10 +183,13 @@ Work through these tasks in order:
 
 2. BENCHMARK TIMINGS
    Thresholds for concern (flag if exceeded):
-   - bench_upfirdn total: > 500 ms
-   - bench_fft total:     > 100 ms
-   - bench_linalg total:  > 200 ms
-   Current values: upfirdn=${MS_UPFIRDN}ms  fft=${MS_FFT}ms  linalg=${MS_LINALG}ms
+   - bench_upfirdn total:        > 500 ms
+   - bench_fft total:            > 100 ms
+   - bench_linalg total:         > 200 ms
+   - bench_convolve total:       > 800 ms
+   - bench_filter_design total:  > 600 ms
+   - bench_builtins total:       > 300 ms
+   - bench_interpreter total:    > 2000 ms
    For each benchmark that exceeds its threshold, suggest a specific next
    profiling step (e.g. samply, flamegraph, criterion micro-benchmark).
 
@@ -194,14 +202,17 @@ Work through these tasks in order:
    Review the bench script outputs above.  If any workload output looks
    wrong (e.g. unexpected lengths, NaN values) flag it.  Otherwise suggest
    one concrete algorithmic improvement for the slowest benchmark.
+   For bench_interpreter specifically: if the scalar loop time is more than
+   10x the equivalent C loop time (estimate ~1ms for 10K additions), flag
+   interpreter dispatch overhead and suggest a JIT or bytecode compilation path.
 
 5. SUMMARY TABLE
    End with a markdown table:
    | Recommendation | Priority | Effort | Expected gain |
-   listing all findings from steps 1–4, highest priority first.
+   listing all findings from steps 1-4, highest priority first.
 
 -->
-HEADER
+FOOTER
 } > "$REPORT"
 
 # ── console summary ───────────────────────────────────────────────────────────
@@ -211,9 +222,11 @@ echo "Report written to perf/report.md"
 echo ""
 echo "  Binary (unstripped): $BINARY_SIZE_H"
 echo "  Binary (stripped):   $STRIPPED_SIZE_H"
-printf "  %-32s %d ms\n" "bench_upfirdn:" "$MS_UPFIRDN"
-printf "  %-32s %d ms\n" "bench_fft:"     "$MS_FFT"
-printf "  %-32s %d ms\n" "bench_linalg:"  "$MS_LINALG"
+echo ""
+echo "  Benchmark results:"
+for i in "${!BENCH_NAMES[@]}"; do
+    printf "  %-36s %d ms  [%s]\n" "${BENCH_NAMES[$i]}:" "${BENCH_MS_ALL[$i]}" "${BENCH_STATUS_ALL[$i]}"
+done
 echo ""
 echo "Run the AI analysis:"
 echo "  claude --print 'Read perf/report.md and follow the AI_ANALYSIS instructions.'"

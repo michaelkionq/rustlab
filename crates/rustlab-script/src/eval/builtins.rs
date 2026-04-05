@@ -355,10 +355,12 @@ fn builtin_abs(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Scalar(n) => Ok(Value::Scalar(n.abs())),
         Value::Complex(c) => Ok(Value::Scalar(c.norm())),
         Value::Vector(v) => {
-            let result: CVector = Array1::from_iter(
-                v.iter().map(|&c| Complex::new(c.norm(), 0.0))
-            );
-            Ok(Value::Vector(result))
+            // Fast path: |re| is cheaper than sqrt(re²+im²) for real-only vectors.
+            if is_real_vector(v) {
+                Ok(Value::Vector(v.mapv(|c| Complex::new(c.re.abs(), 0.0))))
+            } else {
+                Ok(Value::Vector(v.mapv(|c| Complex::new(c.norm(), 0.0))))
+            }
         }
         Value::Matrix(m) => {
             let result = m.mapv(|c| Complex::new(c.norm(), 0.0));
@@ -439,10 +441,20 @@ fn apply_scalar_fn_to_value(
         Value::Scalar(n) => Ok(Value::Scalar(f(*n))),
         Value::Complex(c) => Ok(Value::Complex(fc(*c))),
         Value::Vector(v) => {
-            let result: CVector = Array1::from_iter(v.iter().map(|&c| fc(c)));
-            Ok(Value::Vector(result))
+            // Fast path: avoid complex-number formula overhead for purely real vectors.
+            if is_real_vector(v) {
+                Ok(Value::Vector(v.mapv(|c| Complex::new(f(c.re), 0.0))))
+            } else {
+                Ok(Value::Vector(v.mapv(|c| fc(c))))
+            }
         }
-        Value::Matrix(m) => Ok(Value::Matrix(m.mapv(|c| fc(c)))),
+        Value::Matrix(m) => {
+            if m.iter().all(|c| c.im == 0.0) {
+                Ok(Value::Matrix(m.mapv(|c| Complex::new(f(c.re), 0.0))))
+            } else {
+                Ok(Value::Matrix(m.mapv(|c| fc(c))))
+            }
+        }
         other => Err(ScriptError::Type(format!("{}: unsupported type {}", name, other))),
     }
 }
@@ -856,9 +868,16 @@ fn builtin_sort(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("sort", &args, 1)?;
     match &args[0] {
         Value::Vector(v) => {
-            let mut sorted: Vec<C64> = v.iter().copied().collect();
-            sorted.sort_by(|a, b| a.re.partial_cmp(&b.re).unwrap_or(std::cmp::Ordering::Equal));
-            Ok(Value::Vector(Array1::from_vec(sorted)))
+            if is_real_vector(v) {
+                // Fast path: sort f64 values (half the memory, no partial_cmp unwrap).
+                let mut reals: Vec<f64> = v.iter().map(|c| c.re).collect();
+                reals.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                Ok(Value::Vector(Array1::from_iter(reals.into_iter().map(|r| Complex::new(r, 0.0)))))
+            } else {
+                let mut sorted: Vec<C64> = v.iter().copied().collect();
+                sorted.sort_by(|a, b| a.re.partial_cmp(&b.re).unwrap_or(std::cmp::Ordering::Equal));
+                Ok(Value::Vector(Array1::from_vec(sorted)))
+            }
         }
         Value::Scalar(_) => Ok(args[0].clone()),
         _ => Err(ScriptError::Type("sort: argument must be a vector or scalar".to_string())),

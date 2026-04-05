@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Generated** | 2026-04-05 11:32:31 |
+| **Generated** | 2026-04-05 12:22:30 |
 | **Version** | 0.1.1 |
 | **Platform** | Darwin 25.3.0 arm64 |
 | **Binary** | `target/release/rustlab` |
@@ -19,39 +19,71 @@
 **Section sizes:**
 ```
 __TEXT	__DATA	__OBJC	others	dec	hex
-2605056	16384	0	4295147520	4297768960	1002ac000
+2637824	16384	0	4295147520	4297801728	1002b4000
 ```
 
 ---
 
 ## Benchmark Results
 
-### `bench_upfirdn` — polyphase upsample / filter / downsample
+### `bench_builtins` — builtins
 
 | | |
 |---|---|
-| **Wall time** | 271 ms |
+| **Wall time** | 289 ms |
 | **Status** | PASS |
 
 ```
-sr = 48000
-n1 = 256
-Workload 1: n=256, h=512-tap, 4x interp
-  output length:  1532
-n2 = 48000
-Workload 2: n=48000 (1s), h=64-tap, 3x decimate
-  output length:  16021
-n3 = 44100
-Workload 3: n=44100 (1s at 44.1kHz), h=128-tap, SRC 3/2
-  output length:  66213
+N = 100000
+abs   n=100000
+  out:  100000
+exp   n=100000
+  out:  100000
+log   n=100000 (positive input)
+  out:  100000
+sqrt  n=100000 (positive input)
+  out:  100000
+sin   n=100000
+  out:  100000
+cos   n=100000
+  out:  100000
+tanh  n=100000
+  out:  100000
+sum   n=100000
+  sum:  453.99943460684705
+mean  n=100000
+  mean:  0.00453999434606847+0j
+std   n=100000
+  std:  1.0017760257059867
+sort  n=100000
+  out:  100000
 done
 ```
 
-### `bench_fft` — FFT / IFFT round-trip
+### `bench_convolve` — convolve
 
 | | |
 |---|---|
-| **Wall time** | 30 ms |
+| **Wall time** | 39 ms |
+| **Status** | PASS |
+
+```
+convolve 256 * 64
+  output length:  319
+convolve 4096 * 256
+  output length:  4351
+convolve 48000 * 64
+  output length:  48063
+convolve 48000 * 512
+  output length:  48511
+done
+```
+
+### `bench_fft` — fft
+
+| | |
+|---|---|
+| **Wall time** | 25 ms |
 | **Status** | PASS |
 
 ```
@@ -68,11 +100,60 @@ FFT/IFFT n=131072
 done
 ```
 
-### `bench_linalg` — matrix multiply, inverse, eigenvalues
+### `bench_filter_design` — filter design
 
 | | |
 |---|---|
-| **Wall time** | 22 ms |
+| **Wall time** | 17 ms |
+| **Status** | PASS |
+
+```
+sr = 48000
+fir_lowpass 64-tap hann
+  taps:  64
+fir_lowpass 512-tap hann
+  taps:  512
+fir_lowpass 1024-tap hann
+  taps:  1024
+fir_lowpass_kaiser 60dB
+  taps:  175
+fir_lowpass_kaiser 80dB
+  taps:  243
+firpm 63-tap lowpass
+  taps:  63
+firpm 127-tap lowpass
+  taps:  127
+butterworth_lowpass order 4
+  coeff count:  5
+butterworth_lowpass order 8
+  coeff count:  9
+done
+```
+
+### `bench_interpreter` — interpreter
+
+| | |
+|---|---|
+| **Wall time** | 19 ms |
+| **Status** | PASS |
+
+```
+scalar loop 10000 iterations
+  result:  50005000
+indexed assign build n=1000
+  v(1000):  2000
+deep expression chain n=500
+  out:  500
+1000 calls to len()
+  total:  64000
+done
+```
+
+### `bench_linalg` — linalg
+
+| | |
+|---|---|
+| **Wall time** | 23 ms |
 | **Status** | PASS |
 
 ```
@@ -84,6 +165,27 @@ inv 64x64
   result size:  [1×2]  64.000000  64.000000
 eig 32x32
   eigenvalue count:  32
+done
+```
+
+### `bench_upfirdn` — upfirdn
+
+| | |
+|---|---|
+| **Wall time** | 19 ms |
+| **Status** | PASS |
+
+```
+sr = 48000
+n1 = 256
+Workload 1: n=256, h=512-tap, 4x interp
+  output length:  1532
+n2 = 48000
+Workload 2: n=48000 (1s), h=64-tap, 3x decimate
+  output length:  16021
+n3 = 44100
+Workload 3: n=44100 (1s at 44.1kHz), h=128-tap, SRC 3/2
+  output length:  66213
 done
 ```
 
@@ -121,9 +223,9 @@ open, estimate its impact given the numbers above, and prioritise them.
 
 | ID | Change | Expected saving | Status |
 |----|--------|----------------|--------|
-| OPT-1 | `zip`: `default-features = false, features = ["deflate"]` | ~300–500 KB | ✅ applied |
-| OPT-2 | `ndarray`: remove `features = ["rayon"]` (unused) | ~150–250 KB | ✅ applied |
-| OPT-3 | `[profile.release]` — `lto = "thin"`, `codegen-units = 1`, `strip = "symbols"` | ~400–800 KB + runtime | ✅ applied |
+| OPT-1 | `zip`: `default-features = false, features = ["deflate"]` | ~300–500 KB | **open** |
+| OPT-2 | `ndarray`: remove `features = ["rayon"]` (unused) | ~150–250 KB | **open** |
+| OPT-3 | `[profile.release]` — `lto = "thin"`, `codegen-units = 1`, `strip = "symbols"` | ~400–800 KB + runtime | **open** |
 
 ---
 
@@ -143,10 +245,13 @@ Work through these tasks in order:
 
 2. BENCHMARK TIMINGS
    Thresholds for concern (flag if exceeded):
-   - bench_upfirdn total: > 500 ms
-   - bench_fft total:     > 100 ms
-   - bench_linalg total:  > 200 ms
-   Current values: upfirdn=271ms  fft=30ms  linalg=22ms
+   - bench_upfirdn total:        > 500 ms
+   - bench_fft total:            > 100 ms
+   - bench_linalg total:         > 200 ms
+   - bench_convolve total:       > 800 ms
+   - bench_filter_design total:  > 600 ms
+   - bench_builtins total:       > 300 ms
+   - bench_interpreter total:    > 2000 ms
    For each benchmark that exceeds its threshold, suggest a specific next
    profiling step (e.g. samply, flamegraph, criterion micro-benchmark).
 
@@ -159,101 +264,13 @@ Work through these tasks in order:
    Review the bench script outputs above.  If any workload output looks
    wrong (e.g. unexpected lengths, NaN values) flag it.  Otherwise suggest
    one concrete algorithmic improvement for the slowest benchmark.
+   For bench_interpreter specifically: if the scalar loop time is more than
+   10x the equivalent C loop time (estimate ~1ms for 10K additions), flag
+   interpreter dispatch overhead and suggest a JIT or bytecode compilation path.
 
 5. SUMMARY TABLE
    End with a markdown table:
    | Recommendation | Priority | Effort | Expected gain |
-   listing all findings from steps 1–4, highest priority first.
+   listing all findings from steps 1-4, highest priority first.
 
 -->
-
----
-
-## AI Analysis
-
-_Generated 2026-04-05 after applying OPT-1, OPT-2, OPT-3._
-
-### 1. Binary Size
-
-All three open optimisations were applied in this session and the binary was rebuilt.
-
-| Metric | Before | After | Δ |
-|---|---|---|---|
-| Unstripped binary | 4.3 MB | 2.7 MB | **−1.6 MB (−37%)** |
-| Stripped binary | 3.7 MB | 2.7 MB | −1.0 MB |
-| Transitive dep lines | 307 | 233 | −74 |
-
-`strip = "symbols"` is now in `[profile.release]`, so the installed binary is always
-stripped — the "unstripped" and "stripped" numbers are now the same.
-
-**What drove the reduction:**
-- OPT-3 (`lto = "thin"`, `codegen-units = 1`) — LTO removed dead code across crate
-  boundaries; the linker could now eliminate unreachable codepaths from `plotters`,
-  `ratatui`, and the DSP library that are never reached from a given call path.
-- OPT-1 (trim `zip`) — removed `aes-crypto`, `bzip2`, `deflate64`, `lzma`, `zstd`,
-  `xz`, `zopfli`, and their transitive crypto/compression deps (≈10 crates).
-- OPT-2 (remove `rayon` feature from `ndarray`) — removed the full rayon
-  thread-pool runtime.
-
-**Remaining opportunity — OPT-4 (low effort):**
-`zip`'s `deflate` feature pulls in `zopfli` (a high-quality but large deflate
-compressor used for writes). The codebase only uses `Stored` compression for
-writes; deflate is only needed for *reading* Python-generated `.npz` files.
-Switching to `features = ["deflate-flate2"]` would use `flate2` alone (already
-a transitive dep) and drop `zopfli`. Estimated saving: 50–100 KB.
-
-### 2. Benchmark Timings
-
-All three benchmarks are comfortably within thresholds.
-
-| Benchmark | Time | Threshold | Status |
-|---|---|---|---|
-| `bench_upfirdn` | 271 ms | 500 ms | ✓ |
-| `bench_fft` | 30 ms | 100 ms | ✓ |
-| `bench_linalg` | 22 ms | 200 ms | ✓ |
-
-`bench_upfirdn` at 271 ms is the slowest. It covers three workloads totalling
-~90 K input samples and roughly 4 M multiply-adds. The dominant cost for the
-large workloads (Workload 2: n=48000, Workload 3: n=44100) is likely the
-interpreter dispatch loop — variable lookups, value cloning, and `println`
-calls — rather than the polyphase arithmetic itself. The arithmetic for Workload
-3 alone is ~2.8 M MACs which would take ~1 ms in native Rust; the remaining
-~200 ms is interpreter overhead from startup, parsing, and the three `print`
-calls.
-
-No output values look wrong — lengths match the formula exactly.
-
-### 3. Dependency Growth
-
-Transitive dep count is 233 lines — well below the 400-line flag threshold.
-No new direct dependencies were added in this session; no audit needed.
-
-### 4. Algorithmic Suggestion (upfirdn inner loop)
-
-The upfirdn hot loop currently does a bounds check on `x_idx` for every `k`:
-
-```rust
-if x_idx >= 0 && (x_idx as usize) < n_x { acc += h[h_idx] * x[...]; }
-```
-
-For the fully-interior range (when `k` is not near the signal boundaries) this
-branch is always true and just wastes a compare. The loop can be split into
-three segments — left boundary, interior, right boundary — so the interior
-segment is a tight unchecked loop. For Workload 2 (n=48000, h=64) almost all
-64K output iterations are in the interior, so this saves ~64K×64 = 4 M
-redundant comparisons.
-
-Additionally, `p=1` (pure decimation, Workload 2) always sets `r=0`, so
-`h_idx = k` and the `r + k*p` address arithmetic degenerates to a direct
-slice index. A `if p == 1` fast-path in `upfirdn()` would simplify the inner
-loop for this very common case.
-
-### 5. Summary Table
-
-| Recommendation | Priority | Effort | Expected gain |
-|---|---|---|---|
-| Apply OPT-4: `zip` → `features = ["deflate-flate2"]` | Low | Trivial (1 line) | ~50–100 KB binary |
-| Split upfirdn inner loop into boundary/interior regions | Medium | Small (~20 lines) | Faster for large n, especially decimation |
-| Add `p=1` fast-path in `upfirdn()` | Medium | Small (~15 lines) | Cleaner branch-free decimation hot path |
-| Add `criterion` micro-benchmarks for upfirdn and FFT | Low | Medium | Per-run regression detection |
-| Audit `clap` feature flags when CLI surface grows | Low | Trivial | Prevents future bloat |
