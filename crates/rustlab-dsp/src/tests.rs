@@ -851,3 +851,122 @@ mod kaiser_fir_tests {
         assert!(mag < 0.001, "stopband magnitude at {target}Hz should be < 0.001, got {mag}");
     }
 }
+
+
+#[cfg(test)]
+mod upfirdn_tests {
+    use ndarray::Array1;
+    use num_complex::Complex;
+    use crate::upfirdn::upfirdn;
+
+    fn c(re: f64) -> Complex<f64> { Complex::new(re, 0.0) }
+    fn close(a: f64, b: f64) -> bool { (a - b).abs() < 1e-10 }
+
+    fn run(x: &[f64], h: &[f64], p: usize, q: usize) -> Vec<f64> {
+        let xv = Array1::from_iter(x.iter().map(|&v| c(v)));
+        upfirdn(&xv, h, p, q).unwrap().iter().map(|c| c.re).collect()
+    }
+
+    // identity: p=1, q=1, h=[1] → input unchanged
+    #[test]
+    fn identity_filter() {
+        let y = run(&[1.0, 2.0, 3.0], &[1.0], 1, 1);
+        assert_eq!(y, vec![1.0, 2.0, 3.0]);
+    }
+
+    // upsample by 2 with delta filter: inserts zeros between samples
+    #[test]
+    fn upsample_by_2_delta() {
+        let y = run(&[1.0, 2.0], &[1.0], 2, 1);
+        // output length = ((2-1)*2 + 1 - 1)/1 + 1 = 2/1 + 1 = 3
+        assert_eq!(y.len(), 3);
+        assert!(close(y[0], 1.0));
+        assert!(close(y[1], 0.0));
+        assert!(close(y[2], 2.0));
+    }
+
+    // downsample by 2 with delta filter: keeps every other sample
+    #[test]
+    fn downsample_by_2_delta() {
+        let y = run(&[1.0, 2.0, 3.0, 4.0], &[1.0], 1, 2);
+        // output = [1, 3]
+        assert_eq!(y.len(), 2);
+        assert!(close(y[0], 1.0));
+        assert!(close(y[1], 3.0));
+    }
+
+    // interpolate by 2 with box filter: each sample spreads to two outputs
+    #[test]
+    fn interpolate_box_filter() {
+        // x=[1,2], h=[1,1], p=2, q=1
+        // x_up=[1,0,2], convolve [1,1] → [1,1,2,2] length=(2-1)*2+2=4
+        let y = run(&[1.0, 2.0], &[1.0, 1.0], 2, 1);
+        assert_eq!(y.len(), 4);
+        assert!(close(y[0], 1.0));
+        assert!(close(y[1], 1.0));
+        assert!(close(y[2], 2.0));
+        assert!(close(y[3], 2.0));
+    }
+
+    // output length matches scipy formula for various p/q
+    #[test]
+    fn output_length_formula() {
+        for &(n_x, n_h, p, q) in &[(6, 4, 1, 2), (5, 3, 3, 2), (10, 7, 4, 3), (1, 1, 1, 1)] {
+            let x = Array1::from_iter((0..n_x).map(|i| c(i as f64)));
+            let h: Vec<f64> = vec![1.0; n_h];
+            let y = upfirdn(&x, &h, p, q).unwrap();
+            let expected = ((n_x - 1) * p + n_h - 1) / q + 1;
+            assert_eq!(y.len(), expected,
+                "len mismatch for n_x={n_x} n_h={n_h} p={p} q={q}");
+        }
+    }
+
+    // polyphase gives same result as naive brute-force for 3↑ / 2↓
+    #[test]
+    fn matches_brute_force() {
+        let x_vals: Vec<f64> = vec![1.0, -1.0, 0.5, 2.0];
+        let h_vals: Vec<f64> = vec![0.25, 0.5, 0.25];
+        let p = 3usize;
+        let q = 2usize;
+        let n_x = x_vals.len();
+        let n_h = h_vals.len();
+
+        // Brute-force: build full upsampled signal, convolve, decimate
+        let n_up = (n_x - 1) * p + 1;
+        let mut x_up = vec![0.0f64; n_up];
+        for (i, &v) in x_vals.iter().enumerate() { x_up[i * p] = v; }
+
+        let conv_len = n_up + n_h - 1;
+        let mut y_full = vec![0.0f64; conv_len];
+        for n in 0..conv_len {
+            for k in 0..n_h {
+                if n >= k && n - k < n_up {
+                    y_full[n] += h_vals[k] * x_up[n - k];
+                }
+            }
+        }
+        let y_ref: Vec<f64> = y_full.iter().copied()
+            .enumerate()
+            .filter(|&(i, _)| i % q == 0)
+            .map(|(_, v)| v)
+            .collect();
+
+        let y_poly = run(&x_vals, &h_vals, p, q);
+
+        assert_eq!(y_poly.len(), y_ref.len(),
+            "length mismatch: poly={} brute={}", y_poly.len(), y_ref.len());
+        for (i, (&a, &b)) in y_poly.iter().zip(y_ref.iter()).enumerate() {
+            assert!(close(a, b), "mismatch at index {i}: poly={a} brute={b}");
+        }
+    }
+
+    // error cases
+    #[test]
+    fn error_p_zero()    { assert!(upfirdn(&Array1::zeros(4), &[1.0], 0, 1).is_err()); }
+    #[test]
+    fn error_q_zero()    { assert!(upfirdn(&Array1::zeros(4), &[1.0], 1, 0).is_err()); }
+    #[test]
+    fn error_empty_h()   { assert!(upfirdn(&Array1::zeros(4), &[],    1, 1).is_err()); }
+    #[test]
+    fn empty_input_ok()  { assert_eq!(upfirdn(&Array1::zeros(0), &[1.0], 2, 3).unwrap().len(), 0); }
+}

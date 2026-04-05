@@ -552,3 +552,81 @@ Narrowing `tbw` (sharper transition) or increasing `attn` both increase the tap 
 ```sh
 rustlab run examples/kaiser_fir.r
 ```
+
+---
+
+## `examples/upfirdn.r`
+
+Demonstrates the three fundamental use cases of `upfirdn`: interpolation,
+decimation, and rational sample-rate conversion. All three share the same
+pattern — design a lowpass anti-aliasing / anti-imaging filter, then call
+`upfirdn` with the appropriate `p` and `q`.
+
+**Full script:**
+
+```
+# upfirdn — polyphase upsample / filter / downsample
+
+sr   = 8000.0
+n    = 64
+tone = 300.0
+
+t = linspace(0.0, (n - 1) / sr, n);
+x = real(cos(2.0 * pi * tone * t));
+
+savefig(x, "upfirdn_input.svg", "Input — 300 Hz at 8 kHz")
+
+# 1. Interpolation by 4
+h_interp = fir_lowpass(64, sr / 2.0 / 4, sr, "hann");
+y_up = upfirdn(x, h_interp, 4, 1);
+print("Interpolated length: ", len(y_up))
+savefig(real(y_up), "upfirdn_interp4.svg", "Interpolated x4 (32 kHz)")
+
+# 2. Decimation by 4
+h_decim = fir_lowpass(64, sr / 2.0 / 4, sr, "hann");
+y_down = upfirdn(x, h_decim, 1, 4);
+print("Decimated length:  ", len(y_down))
+savefig(real(y_down), "upfirdn_decim4.svg", "Decimated x4 (2 kHz)")
+
+# 3. Rational SRC 3/2
+cutoff = (sr / 2.0) / 3.0
+h_src = fir_lowpass(128, cutoff, sr, "hann");
+y_src = upfirdn(x, h_src, 3, 2);
+print("SRC 3/2 length:  ", len(y_src))
+savefig(real(y_src), "upfirdn_src32.svg", "Rate conversion 3/2")
+```
+
+**Step-by-step explanation:**
+
+1. **Test signal** — a 300 Hz cosine at 8 kHz, 64 samples long.
+
+2. **Interpolation by 4** (`p=4, q=1`):
+   - The output sample rate becomes `8000 × 4 = 32 kHz`.
+   - The anti-imaging filter cuts off at `sr/2/p = 1 kHz` — the original
+     signal band — to suppress the spectral images created by upsampling.
+   - Output length: `(64−1)·4 + 64 − 1)/1 + 1 = 316`.
+
+3. **Decimation by 4** (`p=1, q=4`):
+   - The output sample rate becomes `8000 / 4 = 2 kHz`.
+   - The anti-aliasing filter cuts off at `sr/2/q = 1 kHz` — the new
+     Nyquist — to prevent aliasing from the downsampled images.
+   - Output length: `(64−1)·1 + 64 − 1)/4 + 1 = 32`.
+
+4. **Rational SRC 3/2** (`p=3, q=2`):
+   - Effective rate change: `× 3/2`, so 8 kHz → 12 kHz.
+   - Cutoff is `sr/2/max(p,q) = sr/2/3 ≈ 1333 Hz` — the lower of the two
+     Nyquist limits after up and down conversion.
+   - A longer filter (128 taps) is used to maintain stopband attenuation
+     after the narrower transition band.
+   - Output length: `(64−1)·3 + 128 − 1)/2 + 1 = 159`.
+
+5. **Filter design rule of thumb:**
+   - Interpolation `p`: cutoff = `sr / (2·p)`
+   - Decimation `q`: cutoff = `sr / (2·q)`
+   - Rational `p/q`: cutoff = `sr / (2·max(p, q))`
+
+**Run it:**
+
+```sh
+rustlab run examples/upfirdn.r
+```

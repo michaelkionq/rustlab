@@ -386,6 +386,56 @@ Linear convolution. Output length = `len(x) + len(h) − 1`.
 y = convolve(signal, h)
 ```
 
+### `upfirdn(x, h, p, q)`
+Upsample by `p`, apply FIR filter `h`, then downsample by `q` — all in one pass using
+a polyphase decomposition. The filter is split into `p` subfilters so each output sample
+costs only `⌈len(h)/p⌉` multiply-adds instead of `len(h)`.
+
+**Signature:** `upfirdn(x, h, p, q)`
+
+| Argument | Type | Description |
+|---|---|---|
+| `x` | vector | Input signal (complex or real) |
+| `h` | vector | Real FIR filter coefficients |
+| `p` | scalar | Upsample factor (≥ 1) |
+| `q` | scalar | Downsample factor (≥ 1) |
+
+**Output length:** `floor(((len(x) − 1)·p + len(h) − 1) / q) + 1`
+
+| `p` | `q` | Use case | Filter cutoff |
+|-----|-----|----------|---------------|
+| 1   | 1   | FIR filtering (equivalent to `convolve`) | any |
+| >1  | 1   | Interpolation — increase sample rate by `p` | `sr / (2·p)` |
+| 1   | >1  | Decimation — reduce sample rate by `q` | `sr / (2·q)` |
+| >1  | >1  | Rational rate conversion `p/q` | `sr / (2·max(p,q))` |
+
+**Interpolation by 4:**
+```
+sr = 44100.0
+h  = fir_lowpass(128, sr / 8.0, sr, "hann")   # cutoff at sr/2/4
+y  = upfirdn(x, h, 4, 1)
+# len(y) = (len(x)-1)*4 + 128
+```
+
+**Decimation by 3:**
+```
+sr = 48000.0
+h  = fir_lowpass(128, sr / 6.0, sr, "hann")   # cutoff at sr/2/3
+y  = upfirdn(x, h, 1, 3)
+# len(y) ≈ len(x) / 3
+```
+
+**Rational sample-rate conversion 3/2:**
+```
+sr     = 44100.0
+cutoff = sr / 2.0 / 3.0                        # governed by the larger factor
+h      = fir_lowpass(128, cutoff, sr, "hann")
+y      = upfirdn(x, h, 3, 2)
+# len(y) ≈ len(x) * 3/2
+```
+
+See `examples/upfirdn.r` for a runnable demonstration of all three cases.
+
 ### `window(name, n)`
 Generate a standalone window function vector of length `n`.
 ```

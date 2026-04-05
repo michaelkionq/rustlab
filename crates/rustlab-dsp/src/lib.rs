@@ -4,6 +4,7 @@ pub mod fft;
 pub mod fir;
 pub mod fixed;
 pub mod iir;
+pub mod upfirdn;
 pub mod window;
 
 #[cfg(test)]
@@ -18,4 +19,5 @@ pub use fir::kaiser::{
 pub use fir::pm::firpm;
 pub use fixed::{QFmtSpec, quantize_scalar, quantize_vec, qadd, qmul, qconv, snr_db};
 pub use iir::butterworth::{butterworth_highpass, butterworth_lowpass, IirFilter};
+pub use upfirdn::upfirdn;
 pub use window::WindowFunction;

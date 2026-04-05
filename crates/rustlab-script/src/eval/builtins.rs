@@ -8,6 +8,7 @@ use rustlab_dsp::{
     fir_notch, freqz, firpm,
     fft, ifft, fftshift, fftfreq,
     butterworth_lowpass, butterworth_highpass,
+    upfirdn,
     WindowFunction,
     QFmtSpec, quantize_scalar, snr_db,
 };
@@ -48,6 +49,7 @@ impl BuiltinRegistry {
         r.register("butterworth_lowpass",  builtin_butterworth_lowpass);
         r.register("butterworth_highpass", builtin_butterworth_highpass);
         r.register("convolve",             builtin_convolve);
+        r.register("upfirdn",              builtin_upfirdn);
         r.register("window",               builtin_window);
         // FFT
         r.register("fft",      builtin_fft);
@@ -317,6 +319,21 @@ fn builtin_convolve(args: Vec<Value>) -> Result<Value, ScriptError> {
     let x = args[0].to_cvector().map_err(ScriptError::Type)?;
     let h = args[1].to_cvector().map_err(ScriptError::Type)?;
     let result = convolve(&x, &h)?;
+    Ok(Value::Vector(result))
+}
+
+fn builtin_upfirdn(args: Vec<Value>) -> Result<Value, ScriptError> {
+    if args.len() != 4 {
+        return Err(ScriptError::Runtime(format!(
+            "upfirdn: expected 4 arguments (x, h, p, q), got {}", args.len()
+        )));
+    }
+    let x = args[0].to_cvector().map_err(ScriptError::Type)?;
+    let h_cv = args[1].to_cvector().map_err(ScriptError::Type)?;
+    let h: Vec<f64> = h_cv.iter().map(|c| c.re).collect();
+    let p = args[2].to_usize().map_err(ScriptError::Type)?;
+    let q = args[3].to_usize().map_err(ScriptError::Type)?;
+    let result = upfirdn(&x, &h, p, q)?;
     Ok(Value::Vector(result))
 }
 

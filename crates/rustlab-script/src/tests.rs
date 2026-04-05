@@ -2766,6 +2766,53 @@ mod ml_tests {
     }
 }
 
+// ── upfirdn scripting builtin ─────────────────────────────────────────────────
+#[cfg(test)]
+mod upfirdn_script_tests {
+    use crate::{Evaluator};
+    use crate::eval::value::Value;
+
+    fn run(src: &str) -> Evaluator {
+        let src = format!("{}\n", src);
+        let tokens = crate::lexer::tokenize(&src).unwrap();
+        let stmts = crate::parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts).unwrap();
+        ev
+    }
+
+    fn get_vec(ev: &Evaluator, name: &str) -> Vec<f64> {
+        match ev.get(name).unwrap() {
+            Value::Vector(v) => v.iter().map(|c| c.re).collect(),
+            other => panic!("expected vector for '{name}', got {other:?}"),
+        }
+    }
+
+    fn close(a: f64, b: f64) -> bool { (a - b).abs() < 1e-10 }
+
+    #[test]
+    fn upfirdn_identity() {
+        let ev = run("y = upfirdn([1,2,3], [1], 1, 1)");
+        let y = get_vec(&ev, "y");
+        assert_eq!(y, vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn upfirdn_upsample_by_2() {
+        let ev = run("y = upfirdn([1,2], [1], 2, 1)");
+        let y = get_vec(&ev, "y");
+        assert!(close(y[0], 1.0) && close(y[1], 0.0) && close(y[2], 2.0));
+    }
+
+    #[test]
+    fn upfirdn_downsample_by_2() {
+        let ev = run("y = upfirdn([1,2,3,4], [1], 1, 2)");
+        let y = get_vec(&ev, "y");
+        assert_eq!(y.len(), 2);
+        assert!(close(y[0], 1.0) && close(y[1], 3.0));
+    }
+}
+
 // ── For loop, IndexAssign, abs(matrix), chained indexing ─────────────────────
 #[cfg(test)]
 mod lang_ext_tests {

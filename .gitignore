@@ -25,3 +25,6 @@ prompts/
 *.svg
 *.npz
 *.npy
+
+# Generated example outputs
+examples/*.csv
