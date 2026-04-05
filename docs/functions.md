@@ -60,6 +60,15 @@ Inverse sine in radians, element-wise. Accepts scalar, complex, vector, or matri
 Inverse tangent in radians (single-argument), element-wise. Accepts scalar, complex, vector, or matrix.
 For the two-argument form see `atan2(y, x)`.
 
+### `tanh(x)`
+Hyperbolic tangent, element-wise. Accepts scalar, complex, vector, or matrix.
+```
+tanh(0.0)          # → 0.0
+tanh(1.0)          # → ~0.762
+tanh([-1, 0, 1])   # → [~-0.762, 0.0, ~0.762]
+```
+- Saturates toward ±1 for large |x|; used as a classic neural network activation.
+
 ### `sqrt(x)`
 Square root, element-wise. Accepts scalar, complex, vector, or matrix.
 
@@ -146,6 +155,15 @@ argmin([3.0, 1.0, 4.0, 1.5])   # → 2
 argmax([3.0, 1.0, 4.0, 1.5])   # → 3
 ```
 
+### `sort(v)`
+Sort a vector ascending by real part. Imaginary components are preserved.
+```
+sort([3.0, 1.0, 2.0])         # → [1.0, 2.0, 3.0]
+sort([3.0, -1.0, 0.5])        # → [-1.0, 0.5, 3.0]
+```
+- Returns a scalar unchanged.
+- Useful for top-K sampling: sort logits descending, slice, apply softmax.
+
 ### `trapz(v)` / `trapz(x, v)`
 Trapezoidal numerical integration. With one argument, assumes unit spacing between samples.
 With two arguments, uses `x` as the sample positions.
@@ -204,6 +222,14 @@ layernorm(v, 1e-8)                           # custom epsilon
 - Output has zero mean and variance ≈ 1.0 for any non-constant input.
 - Single scalar input returns `0.0`.
 
+### `tanh(x)` (activation context)
+Hyperbolic tangent used as a classic bounded activation function. See also `tanh` in the Math section.
+```
+tanh([-2.0, 0.0, 2.0])   # → [~-0.964, 0.0, ~0.964]
+```
+- Output range (−1, 1); zero-centered, unlike sigmoid.
+- Used in RNNs, LSTMs, and side-by-side activation comparisons with ReLU/GELU.
+
 ---
 
 ## Array Construction
@@ -245,11 +271,16 @@ Returns a 2-element vector `[rows, cols]`. Vectors return `[1, n]`.
 noise = rand(512)
 ```
 
-### `randn(n)`
-`n` samples from the standard normal distribution (μ=0, σ=1).
+### `randn(n)` / `randn(m, n)`
+Samples from the standard normal distribution (μ=0, σ=1).
+- `randn(n)` — returns a length-n vector.
+- `randn(m, n)` — returns an m×n matrix.
 ```
-noise = randn(1024) * 0.1   # low-level Gaussian noise
+noise = randn(1024) * 0.1       # length-1024 noise vector
+W = randn(64, 128)              # weight matrix for a linear layer
+W = randn(128, 64) * 0.02       # Xavier-style small-weight init
 ```
+All values are real (zero imaginary part).
 
 ### `randi(imax)` / `randi(imax, n)` / `randi([lo, hi], n)`
 Random integers.
@@ -671,6 +702,67 @@ factor(360)   # → [2, 2, 2, 3, 3, 5]
 ```
 - `n` must be a positive integer scalar.
 - `factor(0)` and `factor(-3)` produce a type error.
+
+---
+
+## Matrix
+
+### `eye(n)`
+Returns an n×n identity matrix.
+```
+eye(3)   # → 3×3 identity
+```
+
+### `reshape(A, m, n)`
+Reshape a vector or matrix into an m×n matrix using column-major order (standard for matrix languages).
+```
+reshape([1,2,3,4,5,6], 2, 3)   # → 2×3 matrix, columns filled first
+reshape(M, 1, numel(M))         # flatten any matrix to a row vector
+reshape(v, len(v), 1)           # column vector → n×1 matrix
+```
+- Total elements must be preserved: `numel(A)` must equal `m * n`.
+- If `m == 1` or `n == 1`, returns a vector instead of a matrix.
+
+### `repmat(A, m, n)`
+Tile matrix `A` m times vertically and n times horizontally.
+```
+repmat([1,2;3,4], 2, 3)   # → 4×6 tiled matrix
+repmat(eye(2), 1, 4)       # → 2×8 block-identity
+```
+
+### `transpose(A)` / `A.'`
+Non-conjugate transpose — swaps rows and columns without conjugating imaginary parts.
+```
+transpose([1+j, 2; 3, 4-j])   # same as writing A.'
+```
+- Use `conj(transpose(A))` or `A'` notation for Hermitian (conjugate) transpose.
+
+### `diag(v)` / `diag(M)`
+- `diag(v)` — creates an n×n diagonal matrix from vector `v`.
+- `diag(M)` — extracts the main diagonal of matrix `M` as a vector.
+```
+diag([1, 2, 3])         # → 3×3 diagonal matrix
+diag([1,2;3,4])         # → [1, 4]
+```
+
+### `horzcat(A, B, ...)` / `[A B]`
+Concatenate matrices (or vectors) side by side. All inputs must have the same number of rows.
+```
+horzcat(eye(2), ones(2,3))   # → 2×5 matrix
+```
+
+### `vertcat(A, B, ...)` / `[A; B]`
+Stack matrices vertically. All inputs must have the same number of columns.
+```
+vertcat(eye(2), zeros(3,2))  # → 5×2 matrix
+```
+
+### `rank(M)`
+Numerical rank of a matrix (number of singular values above a tolerance threshold).
+```
+rank(eye(4))          # → 4
+rank([1,2;2,4])       # → 1  (linearly dependent rows)
+```
 
 ---
 

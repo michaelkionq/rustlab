@@ -81,6 +81,7 @@ impl BuiltinRegistry {
         r.register("acos",  builtin_acos);
         r.register("asin",  builtin_asin);
         r.register("atan",  builtin_atan);
+        r.register("tanh",  builtin_tanh);
         r.register("sqrt",  builtin_sqrt);
         r.register("exp",   builtin_exp);
         r.register("log",    builtin_log);
@@ -105,6 +106,7 @@ impl BuiltinRegistry {
         r.register("cumsum",   builtin_cumsum);
         r.register("argmin",   builtin_argmin);
         r.register("argmax",   builtin_argmax);
+        r.register("sort",     builtin_sort);
         r.register("trapz",    builtin_trapz);
         r.register("len",      builtin_len);
         r.register("length",   builtin_len);   // alias for len
@@ -442,6 +444,10 @@ fn builtin_asin(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 fn builtin_atan(args: Vec<Value>) -> Result<Value, ScriptError> {
     apply_scalar_fn_to_value("atan", args, f64::atan, |c: Complex<f64>| c.atan())
+}
+
+fn builtin_tanh(args: Vec<Value>) -> Result<Value, ScriptError> {
+    apply_scalar_fn_to_value("tanh", args, f64::tanh, |c: Complex<f64>| c.tanh())
 }
 
 fn builtin_sqrt(args: Vec<Value>) -> Result<Value, ScriptError> {
@@ -821,6 +827,20 @@ fn builtin_argmax(args: Vec<Value>) -> Result<Value, ScriptError> {
         }
         Value::Scalar(_) => Ok(Value::Scalar(1.0)),
         _ => Err(ScriptError::Type("argmax: argument must be a non-empty vector".to_string())),
+    }
+}
+
+/// sort(v) — sort a vector ascending by real part; preserves imaginary components.
+fn builtin_sort(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("sort", &args, 1)?;
+    match &args[0] {
+        Value::Vector(v) => {
+            let mut sorted: Vec<C64> = v.iter().copied().collect();
+            sorted.sort_by(|a, b| a.re.partial_cmp(&b.re).unwrap_or(std::cmp::Ordering::Equal));
+            Ok(Value::Vector(Array1::from_vec(sorted)))
+        }
+        Value::Scalar(_) => Ok(args[0].clone()),
+        _ => Err(ScriptError::Type("sort: argument must be a vector or scalar".to_string())),
     }
 }
 

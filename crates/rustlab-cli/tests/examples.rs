@@ -35,6 +35,11 @@ fn run_example(name: &str) -> std::process::ExitStatus {
     // dir is dropped here → temp directory deleted automatically
 }
 
+fn run_example_ok(name: &str) {
+    let status = run_example(name);
+    assert!(status.success(), "example '{name}' exited with {status}");
+}
+
 // ── Non-interactive examples ───────────────────────────────────────────────
 
 #[test]
@@ -51,8 +56,27 @@ fn example_save_load() {
 
 #[test]
 fn example_firpm() {
-    let status = run_example("firpm");
-    assert!(status.success(), "example 'firpm' exited with {status}");
+    run_example_ok("firpm");
+}
+
+#[test]
+fn example_ml_activations() {
+    run_example_ok("ml_activations");
+}
+
+#[test]
+fn example_matrix_ops() {
+    run_example_ok("matrix_ops");
+}
+
+#[test]
+fn example_stats() {
+    run_example_ok("stats");
+}
+
+#[test]
+fn example_trig_special() {
+    run_example_ok("trig_special");
 }
 
 #[test]
