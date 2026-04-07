@@ -649,6 +649,10 @@ impl Value {
                         num: poly_mul(n1, n2),
                         den: poly_mul(d1, d2),
                     }),
+                    Div | ElemDiv => Ok(Value::TransferFn {
+                        num: poly_mul(n1, d2),
+                        den: poly_mul(d1, n2),
+                    }),
                     _ => Err(format!("operator {:?} not defined between two tf values", op)),
                 }
             }
@@ -963,7 +967,13 @@ impl fmt::Display for Value {
                 } else if den.len() == 1 {
                     write!(f, "{} / {}", ns, ds)
                 } else {
-                    write!(f, "{} / ({})", ns, ds)
+                    // Parenthesise multi-term numerator to avoid ambiguity
+                    let ns_display = if ns.contains(' ') {
+                        format!("({})", ns)
+                    } else {
+                        ns
+                    };
+                    write!(f, "{} / ({})", ns_display, ds)
                 }
             }
         }
