@@ -54,6 +54,13 @@ impl Evaluator {
         self.env.retain(|k, _| BUILTIN_CONSTS.contains(&k.as_str()));
     }
 
+    /// Return names of all user-defined functions, sorted.
+    pub fn user_fn_names(&self) -> Vec<&str> {
+        let mut names: Vec<&str> = self.user_fns.keys().map(|k| k.as_str()).collect();
+        names.sort();
+        names
+    }
+
     /// Return all user-defined variables, sorted by name.
     /// Excludes built-in constants (j, pi, e).
     pub fn vars(&self) -> Vec<(&str, &Value)> {

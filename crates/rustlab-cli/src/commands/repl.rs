@@ -407,7 +407,8 @@ fn whos_preview(v: &rustlab_script::Value) -> String {
 
 fn print_whos(ev: &rustlab_script::Evaluator) {
     let vars = ev.vars();
-    if vars.is_empty() {
+    let fns  = ev.user_fn_names();
+    if vars.is_empty() && fns.is_empty() {
         println!("  (no variables defined)");
         return;
     }
@@ -421,6 +422,10 @@ fn print_whos(ev: &rustlab_script::Evaluator) {
             whos_size(val),
             whos_preview(val),
         );
+    }
+    for name in &fns {
+        println!("  {:<16}  {:<10}  {:<8}  {}",
+            name, "function", "", "<user-defined>");
     }
     println!();
 }
