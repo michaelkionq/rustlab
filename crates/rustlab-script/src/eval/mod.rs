@@ -207,14 +207,43 @@ impl Evaluator {
                 self.env.remove("end");
 
                 if idx_vals.len() == 1 {
-                    // Single-index: vector assignment (auto-create/grow)
-                    let idx = idx_vals[0].to_scalar()
-                        .map_err(ScriptError::Type)? as usize;
+                    let idx = idx_vals[0].to_scalar().map_err(ScriptError::Type)? as usize;
                     if idx < 1 {
                         return Err(ScriptError::Runtime(
                             "index assignment: index must be >= 1".to_string()
                         ));
                     }
+                    // Single-index matrix row assignment: M(i) = row_vector
+                    let is_matrix_row_assign = matches!(self.env.get(name.as_str()), Some(Value::Matrix(_)))
+                        && matches!(&val, Value::Vector(_));
+                    if is_matrix_row_assign {
+                        let row_data = match &val { Value::Vector(v) => v.clone(), _ => unreachable!() };
+                        match self.env.get_mut(name.as_str()) {
+                            Some(Value::Matrix(m)) => {
+                                if idx > m.nrows() {
+                                    return Err(ScriptError::Runtime(format!(
+                                        "index assignment: row {} out of bounds for {}×{} matrix",
+                                        idx, m.nrows(), m.ncols()
+                                    )));
+                                }
+                                if row_data.len() != m.ncols() {
+                                    return Err(ScriptError::Runtime(format!(
+                                        "index assignment: row vector length {} does not match matrix columns {}",
+                                        row_data.len(), m.ncols()
+                                    )));
+                                }
+                                for (col, &v) in row_data.iter().enumerate() {
+                                    m[[idx - 1, col]] = v;
+                                }
+                                if !suppress && !self.in_function {
+                                    println!("{}({}) = [{}]", name, idx,
+                                        row_data.iter().map(|c| format!("{}", Value::Complex(*c))).collect::<Vec<_>>().join(", "));
+                                }
+                            }
+                            _ => unreachable!(),
+                        }
+                    } else {
+                    // Single-index: vector assignment (auto-create/grow)
                     let assign_val = match &val {
                         Value::Scalar(n)  => Complex::new(*n, 0.0),
                         Value::Complex(c) => *c,
@@ -246,6 +275,7 @@ impl Evaluator {
                     if !suppress && !self.in_function {
                         println!("{}({}) = {}", name, idx, Value::Complex(assign_val));
                     }
+                    } // end else scalar assignment
                 } else if idx_vals.len() == 2 {
                     // Two-index: matrix assignment
                     let row = idx_vals[0].to_scalar().map_err(ScriptError::Type)? as usize;

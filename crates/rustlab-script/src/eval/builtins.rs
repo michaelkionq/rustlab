@@ -822,8 +822,12 @@ fn builtin_min(args: Vec<Value>) -> Result<Value, ScriptError> {
             let m = v.iter().map(|c| c.re).fold(f64::INFINITY, f64::min);
             Ok(Value::Scalar(m))
         }
+        Value::Matrix(m) if !m.is_empty() => {
+            let v = m.iter().map(|c| c.re).fold(f64::INFINITY, f64::min);
+            Ok(Value::Scalar(v))
+        }
         Value::Scalar(s) => Ok(Value::Scalar(*s)),
-        _ => Err(ScriptError::Type("min: argument must be a non-empty vector or scalar".to_string())),
+        _ => Err(ScriptError::Type("min: argument must be a non-empty vector, matrix, or scalar".to_string())),
     }
 }
 
@@ -834,8 +838,12 @@ fn builtin_max(args: Vec<Value>) -> Result<Value, ScriptError> {
             let m = v.iter().map(|c| c.re).fold(f64::NEG_INFINITY, f64::max);
             Ok(Value::Scalar(m))
         }
+        Value::Matrix(m) if !m.is_empty() => {
+            let v = m.iter().map(|c| c.re).fold(f64::NEG_INFINITY, f64::max);
+            Ok(Value::Scalar(v))
+        }
         Value::Scalar(s) => Ok(Value::Scalar(*s)),
-        _ => Err(ScriptError::Type("max: argument must be a non-empty vector or scalar".to_string())),
+        _ => Err(ScriptError::Type("max: argument must be a non-empty vector, matrix, or scalar".to_string())),
     }
 }
 
@@ -844,11 +852,17 @@ fn builtin_mean(args: Vec<Value>) -> Result<Value, ScriptError> {
     match &args[0] {
         Value::Vector(v) if !v.is_empty() => {
             let sum: Complex<f64> = v.iter().copied().sum();
-            Ok(Value::Complex(sum / v.len() as f64))
+            let result = sum / v.len() as f64;
+            if result.im.abs() < 1e-12 { Ok(Value::Scalar(result.re)) } else { Ok(Value::Complex(result)) }
+        }
+        Value::Matrix(m) if !m.is_empty() => {
+            let sum: Complex<f64> = m.iter().copied().sum();
+            let result = sum / m.len() as f64;
+            if result.im.abs() < 1e-12 { Ok(Value::Scalar(result.re)) } else { Ok(Value::Complex(result)) }
         }
         Value::Scalar(s) => Ok(Value::Scalar(*s)),
         Value::Complex(c) => Ok(Value::Complex(*c)),
-        _ => Err(ScriptError::Type("mean: argument must be a non-empty vector or scalar".to_string())),
+        _ => Err(ScriptError::Type("mean: argument must be a non-empty vector, matrix, or scalar".to_string())),
     }
 }
 
