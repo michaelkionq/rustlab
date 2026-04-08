@@ -43,7 +43,9 @@ rustlab/
 │   ├── bandpass.r
 │   └── vectors.r
 └── docs/
-    └── examples.md         # annotated walkthroughs of each example script
+    ├── examples.md         # annotated walkthroughs of each example script
+    ├── functions.md        # full function reference with signatures and examples
+    └── quickref.md         # concise capability index kept in sync with actual builtins
 ```
 
 **Dependency order (no cycles):**
@@ -188,7 +190,20 @@ Do not run `git commit` or `git push` automatically, even when work is complete 
 
 `llms.txt` at the repo root is a short pointer to `docs/functions.md`; it does not need content updates. Do not treat docs updates as optional cleanup.
 
-### 6. Update `AGENTS.md` after every new feature
+### 6. Keep `docs/quickref.md` current
+
+`docs/quickref.md` is the concise capability index used by AI agents to discover what rustlab can do. It must stay in sync with the actual registered builtins. Update it in the same commit as any change that affects it:
+
+- **New builtin function** — add it to the appropriate section (Math, Statistics, DSP, etc.).
+- **New language construct** — add it to the Language table.
+- **New category** (e.g. a new toolbox) — add a new section.
+- **Removed or renamed function** — remove or rename the entry immediately; stale entries mislead other agents.
+
+Do not list functions that are not implemented. `quickref.md` must reflect reality, not intentions.
+
+**Periodic accuracy check:** At the start of any session that touches builtins or language features, quickly verify that `quickref.md` still matches `r.register(...)` calls in `crates/rustlab-script/src/eval/builtins.rs`. If entries are stale or missing, fix them in the same commit.
+
+### 7. Update `AGENTS.md` after every new feature
 
 After implementing any new feature, update `AGENTS.md` in the same commit:
 
@@ -201,7 +216,7 @@ After implementing any new feature, update `AGENTS.md` in the same commit:
 
 `AGENTS.md` is the agent's primary orientation document. Keeping it current means the next session starts with accurate context instead of having to re-discover what changed.
 
-### 7. Never commit secrets or sensitive information
+### 8. Never commit secrets or sensitive information
 
 Before staging any file, check that it does not contain:
 - SSH private keys (any `-----BEGIN ... PRIVATE KEY-----` block)
@@ -400,8 +415,8 @@ primary     = NUMBER | STRING | IDENT
 | `sqrt` | `sqrt(x)` | Square root (element-wise) |
 | `exp` | `exp(x)` | e^x (element-wise) |
 | `log` | `log(x)` | Natural log (element-wise) |
-| `zeros` | `zeros(n)` | Complex zero vector of length n |
-| `ones` | `ones(n)` | Complex ones vector of length n |
+| `zeros` | `zeros(n)` / `zeros(n, m)` | Complex zero vector of length n, or n×m zero matrix |
+| `ones` | `ones(n)` / `ones(n, m)` | Complex ones vector of length n, or n×m ones matrix |
 | `linspace` | `linspace(start, stop, n)` | Real vector of n points |
 | `len` | `len(v)` | Number of elements |
 | `length` | `length(v)` | Alias for `len` |

@@ -13,7 +13,7 @@ rustlab-dsp              = { path = "../rustlab-dsp" }
 rustlab-plot             = { path = "../rustlab-plot" }
 rustlab-script           = { path = "../rustlab-script" }
 clap                     = { version = "4", features = ["derive"] }
-rustyline                = "14"
+rustyline                = { version = "14", features = ["derive"] }
 anyhow.workspace         = true
 num-complex.workspace    = true
 ndarray.workspace        = true

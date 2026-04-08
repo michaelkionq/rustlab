@@ -90,6 +90,13 @@ impl BuiltinRegistry {
         r.register("log10",  builtin_log10);
         r.register("log2",   builtin_log2);
         r.register("atan2",  builtin_atan2);
+        r.register("sinh",   builtin_sinh);
+        r.register("cosh",   builtin_cosh);
+        r.register("floor",  builtin_floor);
+        r.register("ceil",   builtin_ceil);
+        r.register("round",  builtin_round);
+        r.register("sign",   builtin_sign);
+        r.register("mod",    builtin_mod);
         r.register("meshgrid", builtin_meshgrid);
         // Array construction
         r.register("zeros",    builtin_zeros);
@@ -482,6 +489,67 @@ fn builtin_atan(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 fn builtin_tanh(args: Vec<Value>) -> Result<Value, ScriptError> {
     apply_scalar_fn_to_value("tanh", args, f64::tanh, |c: Complex<f64>| c.tanh())
+}
+
+fn builtin_sinh(args: Vec<Value>) -> Result<Value, ScriptError> {
+    apply_scalar_fn_to_value("sinh", args, f64::sinh, |c: Complex<f64>| c.sinh())
+}
+
+fn builtin_cosh(args: Vec<Value>) -> Result<Value, ScriptError> {
+    apply_scalar_fn_to_value("cosh", args, f64::cosh, |c: Complex<f64>| c.cosh())
+}
+
+// floor/ceil/round: apply to real and imaginary parts independently.
+fn builtin_floor(args: Vec<Value>) -> Result<Value, ScriptError> {
+    apply_scalar_fn_to_value("floor", args,
+        f64::floor,
+        |c: Complex<f64>| Complex::new(c.re.floor(), c.im.floor()))
+}
+
+fn builtin_ceil(args: Vec<Value>) -> Result<Value, ScriptError> {
+    apply_scalar_fn_to_value("ceil", args,
+        f64::ceil,
+        |c: Complex<f64>| Complex::new(c.re.ceil(), c.im.ceil()))
+}
+
+fn builtin_round(args: Vec<Value>) -> Result<Value, ScriptError> {
+    apply_scalar_fn_to_value("round", args,
+        f64::round,
+        |c: Complex<f64>| Complex::new(c.re.round(), c.im.round()))
+}
+
+// sign: real → -1/0/+1; complex → z/|z| (or 0 if z==0).
+fn builtin_sign(args: Vec<Value>) -> Result<Value, ScriptError> {
+    fn sign_real(x: f64) -> f64 {
+        if x == 0.0 { 0.0 } else { x.signum() }
+    }
+    fn sign_complex(c: Complex<f64>) -> Complex<f64> {
+        let m = c.norm();
+        if m == 0.0 { Complex::new(0.0, 0.0) } else { c / m }
+    }
+    apply_scalar_fn_to_value("sign", args, sign_real, sign_complex)
+}
+
+// mod(a, m): a - m*floor(a/m), element-wise on real and imaginary parts.
+fn builtin_mod(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("mod", &args, 2)?;
+    fn mod_f64(a: f64, m: f64) -> f64 { a - m * (a / m).floor() }
+    fn mod_c64(a: Complex<f64>, m: f64) -> Complex<f64> {
+        Complex::new(mod_f64(a.re, m), mod_f64(a.im, m))
+    }
+    let m = match &args[1] {
+        Value::Scalar(n) => *n,
+        Value::Complex(c) if c.im == 0.0 => c.re,
+        other => return Err(ScriptError::Type(format!(
+            "mod: second argument must be a real scalar, got {}", other.type_name()))),
+    };
+    match &args[0] {
+        Value::Scalar(a)  => Ok(Value::Scalar(mod_f64(*a, m))),
+        Value::Complex(a) => Ok(Value::Complex(mod_c64(*a, m))),
+        Value::Vector(v)  => Ok(Value::Vector(v.mapv(|c| mod_c64(c, m)))),
+        Value::Matrix(mx) => Ok(Value::Matrix(mx.mapv(|c| mod_c64(c, m)))),
+        other => Err(ScriptError::Type(format!("mod: unsupported type {}", other.type_name()))),
+    }
 }
 
 fn builtin_sqrt(args: Vec<Value>) -> Result<Value, ScriptError> {

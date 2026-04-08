@@ -1,5 +1,9 @@
 use anyhow::Result;
-use rustyline::{error::ReadlineError, DefaultEditor};
+use rustyline::completion::{Completer, FilenameCompleter, Pair};
+use rustyline::hint::HistoryHinter;
+use rustyline::{CompletionType, Config, Context, Editor};
+use rustyline::highlight::Highlighter;
+use rustyline::{error::ReadlineError, Helper, Hinter, Validator};
 use rustlab_script::{lexer, parser, Evaluator};
 
 // ─── Help text ────────────────────────────────────────────────────────────────
@@ -28,16 +32,28 @@ const HELP: &[HelpEntry] = &[
     HelpEntry { name: "asin",   brief: "Inverse sine",    detail: "asin(x)  — element-wise arcsin in radians, accepts scalar, complex, vector, or matrix" },
     HelpEntry { name: "atan",   brief: "Inverse tangent", detail: "atan(x)  — element-wise arctan in radians, accepts scalar, complex, vector, or matrix\n  For the 2-argument form use atan2(y, x)." },
     HelpEntry { name: "tanh",   brief: "Hyperbolic tangent", detail: "tanh(x)  — element-wise hyperbolic tangent, accepts scalar, complex, vector, or matrix\n  tanh(0.0)  → 0.0\n  tanh(1.0)  → ~0.762\n  tanh([-1,0,1])  → [~-0.762, 0.0, ~0.762]" },
+    HelpEntry { name: "sinh",   brief: "Hyperbolic sine",     detail: "sinh(x)  — element-wise, accepts scalar, complex, vector, or matrix" },
+    HelpEntry { name: "cosh",   brief: "Hyperbolic cosine",   detail: "cosh(x)  — element-wise, accepts scalar, complex, vector, or matrix" },
+    HelpEntry { name: "floor",  brief: "Round toward −∞ (element-wise)",
+        detail: "floor(x)  — largest integer ≤ x; applied to real and imaginary parts independently\n  floor(3.7)         → 3.0\n  floor(-2.3)        → -3.0\n  floor(2.9 + 1.4i)  → 2.0 + 1.0i" },
+    HelpEntry { name: "ceil",   brief: "Round toward +∞ (element-wise)",
+        detail: "ceil(x)  — smallest integer ≥ x; applied to real and imaginary parts independently\n  ceil(3.2)          → 4.0\n  ceil(-2.7)         → -2.0" },
+    HelpEntry { name: "round",  brief: "Round to nearest integer (element-wise)",
+        detail: "round(x)  — rounds half away from zero; applied to real and imaginary parts independently\n  round(2.5)         → 3.0\n  round(2.4)         → 2.0\n  round(-2.5)        → -3.0" },
+    HelpEntry { name: "sign",   brief: "Sign / unit direction (element-wise)",
+        detail: "sign(x)  — for real: -1, 0, or +1\n           for complex: z/|z| (unit direction), or 0 if z==0\n  sign(-5.0)         → -1.0\n  sign(0.0)          → 0.0\n  sign(3 + 4i)       → 0.6 + 0.8i" },
+    HelpEntry { name: "mod",    brief: "Modulo  a − m·floor(a/m)  (element-wise)",
+        detail: "mod(x, m)  — x: scalar/vector/matrix; m: real scalar\n  Always returns a result with the same sign as m (like Python %).\n  mod(7, 3)          → 1.0\n  mod(-1, 3)         → 2.0\n  mod([0:5], 3)      → [0, 1, 2, 0, 1, 2]" },
     HelpEntry { name: "sqrt",   brief: "Square root",   detail: "sqrt(x)  — element-wise, accepts scalar, complex, vector, or matrix" },
     HelpEntry { name: "exp",    brief: "Exponential",   detail: "exp(x)  — element-wise, accepts scalar, complex, vector, or matrix" },
     HelpEntry { name: "log",    brief: "Natural log",   detail: "log(x)  — element-wise (natural log), accepts scalar, complex, vector, or matrix" },
     HelpEntry { name: "log10",  brief: "Base-10 log",   detail: "log10(x)  — element-wise base-10 logarithm, accepts scalar, complex, vector, or matrix" },
     HelpEntry { name: "log2",   brief: "Base-2 log",    detail: "log2(x)  — element-wise base-2 logarithm, accepts scalar, complex, vector, or matrix" },
     // Array / stats
-    HelpEntry { name: "zeros",    brief: "Vector of zeros",
-        detail: "zeros(n)  — returns a length-n complex zero vector" },
-    HelpEntry { name: "ones",     brief: "Vector of ones",
-        detail: "ones(n)  — returns a length-n complex one vector" },
+    HelpEntry { name: "zeros",    brief: "Zero vector or matrix",
+        detail: "zeros(n)     — length-n complex zero vector\nzeros(n, m)  — n×m complex zero matrix" },
+    HelpEntry { name: "ones",     brief: "Ones vector or matrix",
+        detail: "ones(n)      — length-n complex ones vector\nones(n, m)   — n×m complex ones matrix" },
     HelpEntry { name: "linspace", brief: "Linearly spaced vector",
         detail: "linspace(start, stop, n)  — n evenly spaced real values from start to stop" },
     HelpEntry { name: "rand",  brief: "Uniform random vector  [0, 1)",
@@ -494,7 +510,7 @@ fn print_help_list() {
     println!("  {}", "-".repeat(60));
 
     let categories = [
-        ("Math",             &["abs","angle","real","imag","conj","cos","sin","acos","asin","atan","tanh","sqrt","exp","log","log10","log2"][..]),
+        ("Math",             &["abs","angle","real","imag","conj","cos","sin","acos","asin","atan","atan2","tanh","sinh","cosh","sqrt","exp","log","log10","log2","floor","ceil","round","sign","mod"][..]),
         ("ML / Activation",  &["softmax","relu","gelu","layernorm","tanh"]),
         ("Array / Stats",    &["zeros","ones","linspace","rand","randn","randi",
                                "min","max","sum","cumsum","argmin","argmax","sort","trapz",
@@ -553,13 +569,125 @@ fn print_help_detail(topic: &str) {
     }
 }
 
+// ─── Tab completion helper ────────────────────────────────────────────────────
+
+#[derive(Helper, Hinter, Validator)]
+struct ReplHelper {
+    file_completer: FilenameCompleter,
+    #[rustyline(Hinter)]
+    hinter: HistoryHinter,
+    /// Workspace identifiers (vars + user fns) — refreshed after each eval.
+    names: Vec<String>,
+}
+
+impl ReplHelper {
+    fn new() -> Self {
+        Self {
+            file_completer: FilenameCompleter::new(),
+            hinter: HistoryHinter::new(),
+            names: Vec::new(),
+        }
+    }
+
+    fn sync(&mut self, ev: &Evaluator) {
+        self.names = ev.vars().iter().map(|(n, _)| n.to_string()).collect();
+        self.names.extend(ev.user_fn_names().iter().map(|n| n.to_string()));
+        self.names.sort();
+    }
+}
+
+impl Highlighter for ReplHelper {
+    fn highlight_hint<'h>(&self, hint: &'h str) -> std::borrow::Cow<'h, str> {
+        // Dim the inline history hint so it reads as a ghost suggestion.
+        std::borrow::Cow::Owned(format!("\x1b[2m{hint}\x1b[0m"))
+    }
+}
+
+/// Returns true when the cursor is inside an unclosed double-quoted string,
+/// meaning Tab should complete a file path.
+fn inside_string(s: &str) -> bool {
+    s.chars().filter(|&c| c == '"').count() % 2 == 1
+}
+
+/// Builtin names drawn from the help table, for identifier completion.
+fn builtin_names() -> Vec<&'static str> {
+    HELP.iter().map(|e| e.name).collect()
+}
+
+impl Completer for ReplHelper {
+    type Candidate = Pair;
+
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        ctx: &Context<'_>,
+    ) -> rustyline::Result<(usize, Vec<Pair>)> {
+        let s = &line[..pos];
+
+        // ── run <path>  or  ls/cd <path> — filesystem, no quotes ─────────────
+        let is_path_cmd = s.starts_with("run ")
+            || s.starts_with("ls ")
+            || s.starts_with("cd ");
+        if is_path_cmd || inside_string(s) {
+            return self.file_completer.complete(line, pos, ctx);
+        }
+
+        // ── help <topic> ──────────────────────────────────────────────────────
+        let help_prefix = s
+            .strip_prefix("help ")
+            .or_else(|| s.strip_prefix("? "));
+        if let Some(rest) = help_prefix {
+            let candidates = builtin_names()
+                .into_iter()
+                .filter(|n| n.starts_with(rest))
+                .map(|n| Pair { display: n.to_string(), replacement: n.to_string() })
+                .collect();
+            return Ok((pos - rest.len(), candidates));
+        }
+
+        // ── bare identifier — workspace vars/fns + builtins ───────────────────
+        let word_start = s
+            .rfind(|c: char| !c.is_alphanumeric() && c != '_')
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        let prefix = &s[word_start..];
+
+        if prefix.is_empty() {
+            return Ok((pos, vec![]));
+        }
+
+        let builtins = builtin_names();
+        let mut candidates: Vec<Pair> = self
+            .names
+            .iter()
+            .filter(|n| n.starts_with(prefix))
+            .map(|n| Pair { display: n.clone(), replacement: n.clone() })
+            .collect();
+        for name in builtins {
+            if name.starts_with(prefix) && !self.names.iter().any(|n| n == name) {
+                candidates.push(Pair {
+                    display: name.to_string(),
+                    replacement: name.to_string(),
+                });
+            }
+        }
+        candidates.sort_by(|a, b| a.replacement.cmp(&b.replacement));
+        Ok((word_start, candidates))
+    }
+}
+
 // ─── REPL ─────────────────────────────────────────────────────────────────────
 
 pub fn execute() -> Result<()> {
     println!("rustlab {} — type 'help' or '?' for help, 'exit' or Ctrl+D to quit", env!("CARGO_PKG_VERSION"));
     println!("Tip: end a line with ; to suppress output\n");
 
-    let mut rl = DefaultEditor::new()?;
+    let config = Config::builder()
+        .completion_type(CompletionType::List)
+        .build();
+    let mut rl = Editor::with_config(config)?;
+    rl.set_helper(Some(ReplHelper::new()));
     let mut ev = Evaluator::new();
 
     let hist_path = std::env::var_os("HOME")
@@ -601,6 +729,7 @@ pub fn execute() -> Result<()> {
                 // clear
                 if trimmed == "clear" {
                     ev.clear_vars();
+                    if let Some(h) = rl.helper_mut() { h.sync(&ev); }
                     continue;
                 }
 
@@ -623,6 +752,7 @@ pub fn execute() -> Result<()> {
                             }
                         }
                     }
+                    if let Some(h) = rl.helper_mut() { h.sync(&ev); }
                     continue;
                 }
 
@@ -684,6 +814,7 @@ pub fn execute() -> Result<()> {
                                 eprintln!("error: {}", e);
                             }
                         }
+                        if let Some(h) = rl.helper_mut() { h.sync(&ev); }
                     }
                     Err(e) => eprintln!("error: {}", e),
                 }

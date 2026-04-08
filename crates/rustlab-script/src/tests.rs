@@ -2986,3 +2986,98 @@ mod lang_ext_tests {
         assert_eq!(get_scalar(&ev, "b"), 2.0);
     }
 }
+
+#[cfg(test)]
+mod math_builtins_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+
+    fn run(src: &str) -> Evaluator {
+        let src = format!("{src}\n");
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts { ev.exec_stmt(stmt).unwrap(); }
+        ev
+    }
+    fn get_scalar(ev: &Evaluator, name: &str) -> f64 {
+        match ev.get(name).unwrap() {
+            Value::Scalar(n) => *n,
+            other => panic!("expected scalar for '{name}', got {other:?}"),
+        }
+    }
+
+    // ── sinh / cosh ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn sinh_zero() { assert_eq!(get_scalar(&run("y = sinh(0.0)"), "y"), 0.0); }
+
+    #[test]
+    fn cosh_zero() { assert_eq!(get_scalar(&run("y = cosh(0.0)"), "y"), 1.0); }
+
+    #[test]
+    fn sinh_cosh_identity() {
+        // cosh²(x) - sinh²(x) = 1
+        let ev = run("x = 1.5\nc = cosh(x)\ns = sinh(x)\nd = c*c - s*s");
+        let d = get_scalar(&ev, "d");
+        assert!((d - 1.0).abs() < 1e-12, "cosh²-sinh²={d}");
+    }
+
+    // ── floor / ceil / round ─────────────────────────────────────────────────
+
+    #[test]
+    fn floor_positive() { assert_eq!(get_scalar(&run("y = floor(3.7)"), "y"), 3.0); }
+
+    #[test]
+    fn floor_negative() { assert_eq!(get_scalar(&run("y = floor(-2.3)"), "y"), -3.0); }
+
+    #[test]
+    fn ceil_positive()  { assert_eq!(get_scalar(&run("y = ceil(3.2)"), "y"), 4.0); }
+
+    #[test]
+    fn ceil_negative()  { assert_eq!(get_scalar(&run("y = ceil(-2.7)"), "y"), -2.0); }
+
+    #[test]
+    fn round_half_up()  { assert_eq!(get_scalar(&run("y = round(2.5)"), "y"), 3.0); }
+
+    #[test]
+    fn round_down()     { assert_eq!(get_scalar(&run("y = round(2.4)"), "y"), 2.0); }
+
+    // ── sign ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn sign_positive()  { assert_eq!(get_scalar(&run("y = sign(5.0)"), "y"),  1.0); }
+
+    #[test]
+    fn sign_negative()  { assert_eq!(get_scalar(&run("y = sign(-3.0)"), "y"), -1.0); }
+
+    #[test]
+    fn sign_zero()      { assert_eq!(get_scalar(&run("y = sign(0.0)"), "y"),  0.0); }
+
+    // ── mod ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn mod_basic() { assert_eq!(get_scalar(&run("y = mod(7.0, 3.0)"), "y"), 1.0); }
+
+    #[test]
+    fn mod_negative_same_sign_as_m() {
+        // mod(-1, 3) = 2 (Python-style, always in [0, m))
+        let y = get_scalar(&run("y = mod(-1.0, 3.0)"), "y");
+        assert!((y - 2.0).abs() < 1e-12, "mod(-1,3)={y}");
+    }
+
+    #[test]
+    fn mod_vector_element_wise() {
+        // mod([0,1,2,3,4,5], 3) → [0,1,2,0,1,2]
+        let ev = run("v = mod(0:5, 3.0)");
+        match ev.get("v").unwrap() {
+            Value::Vector(v) => {
+                let expected = [0.0, 1.0, 2.0, 0.0, 1.0, 2.0];
+                for (i, (&got, &exp)) in v.iter().zip(expected.iter()).enumerate() {
+                    assert!((got.re - exp).abs() < 1e-12, "v({i})={} expected {exp}", got.re);
+                }
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+}

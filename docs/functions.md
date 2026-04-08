@@ -100,6 +100,65 @@ log2(1024)   # → 10.0
 ```
 Useful for computing bit depths and octave-spaced frequency grids.
 
+### `sinh(x)`
+Hyperbolic sine, element-wise. Accepts scalar, complex, vector, or matrix.
+```
+sinh(0.0)   # → 0.0
+sinh(1.0)   # → ~1.175
+```
+
+### `cosh(x)`
+Hyperbolic cosine, element-wise. Accepts scalar, complex, vector, or matrix.
+```
+cosh(0.0)   # → 1.0
+cosh(1.0)   # → ~1.543
+```
+Identity: `cosh(x)^2 - sinh(x)^2 = 1`.
+
+### `floor(x)`
+Largest integer ≤ x, applied to real and imaginary parts independently.
+```
+floor(3.7)         # → 3.0
+floor(-2.3)        # → -3.0
+floor(2.9 + 1.4i)  # → 2.0 + 1.0i
+floor([1.1, 2.9])  # → [1.0, 2.0]
+```
+
+### `ceil(x)`
+Smallest integer ≥ x, applied to real and imaginary parts independently.
+```
+ceil(3.2)    # → 4.0
+ceil(-2.7)   # → -2.0
+```
+
+### `round(x)`
+Round to nearest integer (half away from zero), applied to real and imaginary parts independently.
+```
+round(2.5)    # → 3.0
+round(2.4)    # → 2.0
+round(-2.5)   # → -3.0
+```
+
+### `sign(x)`
+Sign / unit direction, element-wise.
+- Real scalar: returns −1, 0, or +1.
+- Complex: returns `z / |z|` (unit vector in the direction of z), or 0+0i when z is zero.
+```
+sign(-5.0)    # → -1.0
+sign(0.0)     # → 0.0
+sign(3 + 4i)  # → 0.6 + 0.8i
+```
+
+### `mod(x, m)`
+Modulo: `x − m·floor(x/m)`, element-wise. The result always has the same sign as `m` (Python-style, not C-style).
+- `x`: scalar, complex, vector, or matrix.
+- `m`: real scalar.
+```
+mod(7.0, 3.0)    # → 1.0
+mod(-1.0, 3.0)   # → 2.0
+mod(0:5, 3.0)    # → [0, 1, 2, 0, 1, 2]
+```
+
 ---
 
 ## Statistics
@@ -244,16 +303,18 @@ tanh([-2.0, 0.0, 2.0])   # → [~-0.964, 0.0, ~0.964]
 
 ## Array Construction
 
-### `zeros(n)`
-Returns a length-n complex zero vector.
+### `zeros(n)` / `zeros(n, m)`
+Returns a length-n complex zero vector, or an n×m zero matrix when two arguments are given.
 ```
-zeros(4)   # → [0+0j, 0+0j, 0+0j, 0+0j]
+zeros(4)      # → [0+0j, 0+0j, 0+0j, 0+0j]
+zeros(2, 3)   # → 2×3 matrix of zeros
 ```
 
-### `ones(n)`
-Returns a length-n complex one vector.
+### `ones(n)` / `ones(n, m)`
+Returns a length-n complex ones vector, or an n×m matrix of ones when two arguments are given.
 ```
-ones(3)   # → [1+0j, 1+0j, 1+0j]
+ones(3)       # → [1+0j, 1+0j, 1+0j]
+ones(2, 3)    # → 2×3 matrix of ones
 ```
 
 ### `linspace(start, stop, n)`
