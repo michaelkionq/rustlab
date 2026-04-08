@@ -29,6 +29,7 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `;` | Suppress output on a statement |
 | `#` | Comment |
 | `for i = 1:n` … `end` | For loop; also iterates over a vector |
+| `if expr` … `elseif expr` … `else` … `end` | Conditional; `elseif` and `else` are optional; nesting supported |
 | `function [out] = name(args)` … `end` | User-defined function |
 | `return` | Early return from a function |
 | `s.field` | Struct field access |
