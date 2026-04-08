@@ -323,7 +323,9 @@ fn push_line_series(x: Vec<f64>, y: Vec<f64>, label: &str, title: &str, color: O
     FIGURE.with(|fig| {
         let mut fig = fig.borrow_mut();
         if !fig.hold {
-            fig.current_mut().series.clear();
+            let sp = fig.current_mut();
+            sp.series.clear();
+            sp.title.clear();
         }
         let color = color.unwrap_or_else(|| fig.next_color());
         let sp = fig.current_mut();
@@ -343,7 +345,9 @@ fn push_stem_series(x: Vec<f64>, y: Vec<f64>, label: &str, title: &str, color: O
     FIGURE.with(|fig| {
         let mut fig = fig.borrow_mut();
         if !fig.hold {
-            fig.current_mut().series.clear();
+            let sp = fig.current_mut();
+            sp.series.clear();
+            sp.title.clear();
         }
         let color = color.unwrap_or_else(|| fig.next_color());
         let sp = fig.current_mut();
@@ -374,7 +378,9 @@ pub fn push_xy_bar(x: Vec<f64>, y: Vec<f64>, label: &str, title: &str, color: Op
     FIGURE.with(|fig| {
         let mut fig = fig.borrow_mut();
         if !fig.hold {
-            fig.current_mut().series.clear();
+            let sp = fig.current_mut();
+            sp.series.clear();
+            sp.title.clear();
         }
         let color = color.unwrap_or_else(|| fig.next_color());
         let sp = fig.current_mut();
@@ -395,7 +401,9 @@ pub fn push_xy_scatter(x: Vec<f64>, y: Vec<f64>, label: &str, title: &str, color
     FIGURE.with(|fig| {
         let mut fig = fig.borrow_mut();
         if !fig.hold {
-            fig.current_mut().series.clear();
+            let sp = fig.current_mut();
+            sp.series.clear();
+            sp.title.clear();
         }
         let color = color.unwrap_or_else(|| fig.next_color());
         let sp = fig.current_mut();
@@ -433,7 +441,7 @@ pub fn plot_complex(data: &CVector, title: &str) -> Result<(), PlotError> {
     if data.is_empty() { return Err(PlotError::EmptyData); }
     FIGURE.with(|fig| {
         let mut fig = fig.borrow_mut();
-        if !fig.hold { fig.current_mut().series.clear(); }
+        if !fig.hold { let sp = fig.current_mut(); sp.series.clear(); sp.title.clear(); }
         let sp = fig.current_mut();
         if !title.is_empty() && sp.title.is_empty() { sp.title = title.to_string(); }
         let x: Vec<f64> = (0..data.len()).map(|i| i as f64).collect();

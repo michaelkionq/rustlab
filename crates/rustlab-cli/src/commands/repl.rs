@@ -267,8 +267,8 @@ const HELP: &[HelpEntry] = &[
         detail: "1:5       → [1, 2, 3, 4, 5]\n0:0.5:2   → [0, 0.5, 1.0, 1.5, 2.0]\nUse v(end) for last element." },
     HelpEntry { name: "index", brief: "1-based indexing: v(i)  or  v(1:3)",
         detail: "v(1)      — first element\nv(end)    — last element\nv(2:4)    — elements 2 through 4" },
-    HelpEntry { name: "clear", brief: "Remove all variables from the session",
-        detail: "clear  — deletes every user-defined variable; built-in constants (j, pi, e) are kept" },
+    HelpEntry { name: "clear", brief: "Remove all variables and functions from the session",
+        detail: "clear  — deletes every user-defined variable and function; built-in constants (j, pi, e) are kept" },
     // Structs
     HelpEntry { name: "struct", brief: "Create a struct from field-value pairs",
         detail: "struct(\"x\", 1, \"y\", 2)  — creates a struct with fields x=1, y=2\n  Access: s.x\n  Assign: s.z = 3  (auto-creates struct if s is undefined)" },

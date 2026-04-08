@@ -48,10 +48,11 @@ impl Evaluator {
         self.env.get(name)
     }
 
-    /// Remove all user-defined variables, keeping built-in constants (j, pi, e).
+    /// Remove all user-defined variables and functions, keeping built-in constants (j, pi, e).
     pub fn clear_vars(&mut self) {
         const BUILTIN_CONSTS: &[&str] = &["i", "j", "pi", "e"];
         self.env.retain(|k, _| BUILTIN_CONSTS.contains(&k.as_str()));
+        self.user_fns.clear();
     }
 
     /// Return names of all user-defined functions, sorted.
