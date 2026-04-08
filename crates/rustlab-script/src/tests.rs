@@ -2766,6 +2766,53 @@ mod ml_tests {
     }
 }
 
+// ── median builtin ───────────────────────────────────────────────────────────
+#[cfg(test)]
+mod median_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+
+    fn eval_str(src: &str) -> Evaluator {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts { ev.exec_stmt(stmt).unwrap(); }
+        ev
+    }
+
+    fn get_scalar(ev: &Evaluator, name: &str) -> f64 {
+        match ev.get(name).unwrap() {
+            Value::Scalar(s) => *s,
+            other => panic!("expected Scalar for '{name}', got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn median_odd_length() {
+        let ev = eval_str("m = median([3.0, 1.0, 2.0])");
+        assert!((get_scalar(&ev, "m") - 2.0).abs() < 1e-12, "median of [1,2,3] should be 2");
+    }
+
+    #[test]
+    fn median_even_length() {
+        let ev = eval_str("m = median([4.0, 1.0, 3.0, 2.0])");
+        assert!((get_scalar(&ev, "m") - 2.5).abs() < 1e-12, "median of [1,2,3,4] should be 2.5");
+    }
+
+    #[test]
+    fn median_single_element() {
+        let ev = eval_str("m = median([7.0])");
+        assert!((get_scalar(&ev, "m") - 7.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn median_scalar_passthrough() {
+        let ev = eval_str("m = median(5.0)");
+        assert!((get_scalar(&ev, "m") - 5.0).abs() < 1e-12);
+    }
+}
+
 // ── upfirdn scripting builtin ─────────────────────────────────────────────────
 #[cfg(test)]
 mod upfirdn_script_tests {

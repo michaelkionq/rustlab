@@ -188,7 +188,20 @@ Do not run `git commit` or `git push` automatically, even when work is complete 
 
 `llms.txt` at the repo root is a short pointer to `docs/functions.md`; it does not need content updates. Do not treat docs updates as optional cleanup.
 
-### 6. Never commit secrets or sensitive information
+### 6. Update `AGENTS.md` after every new feature
+
+After implementing any new feature, update `AGENTS.md` in the same commit:
+
+- **New builtin function** — add it to the "All builtin functions" table in the Scripting Language Reference section.
+- **New language construct** — add it to the Grammar or Key language behaviours table.
+- **New crate or module** — add it to Repository Layout and the relevant Crate Details section.
+- **New workflow rule or convention** — add it to the appropriate section (Workflow Rules, Error Handling, Design Decisions).
+- **New CLI subcommand** — add it to the `rustlab-cli` Crate Details section.
+- **New Common Task pattern** — add a how-to entry under Common Tasks.
+
+`AGENTS.md` is the agent's primary orientation document. Keeping it current means the next session starts with accurate context instead of having to re-discover what changed.
+
+### 7. Never commit secrets or sensitive information
 
 Before staging any file, check that it does not contain:
 - SSH private keys (any `-----BEGIN ... PRIVATE KEY-----` block)
@@ -403,6 +416,7 @@ primary     = NUMBER | STRING | IDENT
 | `fir_bandpass` | `fir_bandpass(taps, low_hz, high_hz, sr, window)` | FIR coefficient Vector |
 | `butterworth_lowpass` | `butterworth_lowpass(order, cutoff_hz, sr)` | IIR b-coefficient Vector |
 | `butterworth_highpass` | `butterworth_highpass(order, cutoff_hz, sr)` | IIR b-coefficient Vector |
+| `median` | `median(v)` | Median of real parts; scalar for odd length, average of two middles for even |
 | `convolve` | `convolve(x, h)` | Convolved Vector (length = len(x)+len(h)-1) |
 
 Window names: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`

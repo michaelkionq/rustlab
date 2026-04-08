@@ -123,6 +123,15 @@ mean([1.0, 2.0, 3.0])   # → 2.0
 mean(randn(1000))        # → ≈ 0.0
 ```
 
+### `median(v)`
+Median value, computed on real parts. For even-length vectors returns the average of the two middle elements.
+```
+median([3.0, 1.0, 2.0])         # → 2.0
+median([4.0, 1.0, 3.0, 2.0])   # → 2.5
+```
+- Scalar input returns the scalar unchanged.
+- Complex vectors: imaginary parts are ignored; result is always a real scalar.
+
 ### `std(v)`
 Sample standard deviation (Bessel-corrected, N−1 denominator).
 ```

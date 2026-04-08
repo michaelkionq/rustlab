@@ -101,6 +101,7 @@ impl BuiltinRegistry {
         r.register("histogram", builtin_histogram);
         r.register("savehist",  builtin_savehist);
         r.register("mean",     builtin_mean);
+        r.register("median",   builtin_median);
         r.register("std",      builtin_std);
         r.register("min",      builtin_min);
         r.register("max",      builtin_max);
@@ -780,6 +781,25 @@ fn builtin_mean(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Scalar(s) => Ok(Value::Scalar(*s)),
         Value::Complex(c) => Ok(Value::Complex(*c)),
         _ => Err(ScriptError::Type("mean: argument must be a non-empty vector or scalar".to_string())),
+    }
+}
+
+fn builtin_median(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("median", &args, 1)?;
+    match &args[0] {
+        Value::Vector(v) if !v.is_empty() => {
+            let mut reals: Vec<f64> = v.iter().map(|c| c.re).collect();
+            reals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let n = reals.len();
+            let m = if n % 2 == 1 {
+                reals[n / 2]
+            } else {
+                (reals[n / 2 - 1] + reals[n / 2]) / 2.0
+            };
+            Ok(Value::Scalar(m))
+        }
+        Value::Scalar(s) => Ok(Value::Scalar(*s)),
+        _ => Err(ScriptError::Type("median: argument must be a non-empty vector or scalar".to_string())),
     }
 }
 
