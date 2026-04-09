@@ -435,6 +435,7 @@ primary     = NUMBER | STRING | IDENT
 | `convolve` | `convolve(x, h)` | Convolved Vector (length = len(x)+len(h)-1) |
 | `filtfilt` | `filtfilt(b, a, x)` | Zero-phase forward-backward IIR filter; use `a=[1]` for FIR |
 | `prod` | `prod(v)` | Product of all elements (Vector or Matrix); returns Scalar |
+| `firpmq` | `firpmq(n_taps, bands, desired [, weights [, bits [, n_iter]]])` | Integer-coefficient Parks-McClellan; defaults bits=16, n_iter=8. Returns integer-valued taps. For unit-gain passband, `sum(h_int)` equals the scale factor — use `freqz(h_int / sum(h_int), ...)` to verify. |
 
 Window names: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`
 

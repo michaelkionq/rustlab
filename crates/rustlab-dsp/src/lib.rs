@@ -16,7 +16,7 @@ pub use fir::kaiser::{
     fir_bandpass_kaiser, fir_highpass_kaiser, fir_lowpass_kaiser,
     fir_notch, freqz, kaiser_beta, kaiser_num_taps,
 };
-pub use fir::pm::firpm;
+pub use fir::pm::{firpm, firpmq};
 pub use fixed::{QFmtSpec, quantize_scalar, quantize_vec, qadd, qmul, qconv, snr_db};
 pub use iir::butterworth::{butterworth_highpass, butterworth_lowpass, IirFilter};
 pub use upfirdn::upfirdn;

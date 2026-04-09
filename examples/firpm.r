@@ -51,3 +51,39 @@ savedb(Hz_w, "firpm_weighted_response.svg", "PM Weighted Low-pass Frequency Resp
 h_kai = fir_lowpass_kaiser(0.25 * fs, 400.0, 60.0, fs)
 print("Kaiser tap count for similar LP spec:")
 print(length(h_kai))
+
+# -- 5. Integer-coefficient low-pass: 8-bit and 16-bit comparison
+#    firpmq iterates Remez with quantized coefs so rounding error is absorbed.
+#    The returned coefficients are integer-valued (e.g. 127, -256).
+#    To normalize for freqz: for a unit-gain passband, sum(h_int) == scale,
+#    so divide by sum(h_int) to recover the unit-gain float response.
+
+h_int8 = firpmq(63,
+                [0.0, 0.20, 0.30, 1.0],
+                [1.0, 1.0,  0.0, 0.0],
+                [],
+                8)
+
+print("Integer LP (8-bit, 63 taps):")
+print("  peak coefficient (should be 127):")
+print(max(abs(h_int8)))
+print("  scale factor:")
+print(sum(h_int8))
+
+Hz_int8 = freqz(h_int8 / sum(h_int8), 512, fs)
+savedb(Hz_int8, "firpm_int8_response.svg", "Integer LP Frequency Response (8-bit)")
+
+h_int16 = firpmq(63,
+                 [0.0, 0.20, 0.30, 1.0],
+                 [1.0, 1.0,  0.0, 0.0],
+                 [],
+                 16)
+
+print("Integer LP (16-bit, 63 taps):")
+print("  peak coefficient (should be 32767):")
+print(max(abs(h_int16)))
+print("  scale factor:")
+print(sum(h_int16))
+
+Hz_int16 = freqz(h_int16 / sum(h_int16), 512, fs)
+savedb(Hz_int16, "firpm_int16_response.svg", "Integer LP Frequency Response (16-bit)")

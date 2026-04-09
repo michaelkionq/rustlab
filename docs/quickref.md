@@ -163,6 +163,7 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `fir_notch(center_hz, bw_hz, sr, taps, window)` | FIR notch filter |
 | `firpm(n_taps, bands, desired)` | Parks-McClellan optimal equiripple FIR |
 | `firpm(n_taps, bands, desired, weights)` | Parks-McClellan with per-band weights |
+| `firpmq(n_taps, bands, desired [, weights [, bits [, n_iter]]])` | Integer-coefficient Parks-McClellan (default bits=16, n_iter=8); returns integer taps. For unit-gain passband use `freqz(h / sum(h), ...)` to normalize. |
 | `freqz(h, n_points, sr)` | Complex frequency response → 2×n matrix |
 | `upfirdn(x, h, p, q)` | Upsample·filter·downsample via polyphase decomposition |
 | `window(name, n)` | Window vector; names: `"hann"` `"hamming"` `"blackman"` `"rectangular"` `"kaiser"` |

@@ -5,7 +5,7 @@ use rustlab_core::{C64, CVector, CMatrix};
 use rustlab_dsp::{
     fir_lowpass, fir_highpass, fir_bandpass,
     fir_lowpass_kaiser, fir_highpass_kaiser, fir_bandpass_kaiser,
-    fir_notch, freqz, firpm,
+    fir_notch, freqz, firpm, firpmq,
     fft, ifft, fftshift, fftfreq,
     butterworth_lowpass, butterworth_highpass, IirFilter,
     upfirdn,
@@ -65,7 +65,8 @@ impl BuiltinRegistry {
         r.register("fir_notch",           builtin_fir_notch);
         r.register("freqz",               builtin_freqz);
         // Parks-McClellan optimal FIR
-        r.register("firpm", builtin_firpm);
+        r.register("firpm",  builtin_firpm);
+        r.register("firpmq", builtin_firpmq);
         // Fixed-point quantization
         r.register("qfmt",     builtin_qfmt);
         r.register("quantize", builtin_quantize);
@@ -1251,6 +1252,50 @@ fn builtin_firpm(args: Vec<Value>) -> Result<Value, ScriptError> {
     };
 
     let filter = firpm(n_taps, &bands_f, &desired_f, &weights_f)
+        .map_err(ScriptError::Dsp)?;
+    Ok(cvector_to_value(filter.coefficients))
+}
+
+/// firpmq(n_taps, bands, desired [, weights [, bits [, n_iter]]])
+///
+/// Design an integer-coefficient equiripple FIR filter.
+/// Defaults: weights = uniform, bits = 16, n_iter = 8.
+///
+/// Returns integer-valued coefficients (e.g. 127.0, -512.0).
+/// Divide by (2^(bits-1) - 1) to normalize to unit gain for freqz.
+fn builtin_firpmq(args: Vec<Value>) -> Result<Value, ScriptError> {
+    if args.len() < 3 || args.len() > 6 {
+        return Err(ScriptError::Runtime(
+            "firpmq: expected 3–6 arguments: (n_taps, bands, desired [, weights [, bits [, n_iter]]])".into()
+        ));
+    }
+    let n_taps  = args[0].to_usize().map_err(ScriptError::Type)?;
+    let bands   = args[1].to_cvector().map_err(ScriptError::Type)?;
+    let desired = args[2].to_cvector().map_err(ScriptError::Type)?;
+
+    let bands_f:   Vec<f64> = bands.iter().map(|c| c.re).collect();
+    let desired_f: Vec<f64> = desired.iter().map(|c| c.re).collect();
+
+    let weights_f: Vec<f64> = if args.len() >= 4 {
+        let w = args[3].to_cvector().map_err(ScriptError::Type)?;
+        w.iter().map(|c| c.re).collect()
+    } else {
+        vec![]
+    };
+
+    let bits = if args.len() >= 5 {
+        args[4].to_usize().map_err(ScriptError::Type)? as u32
+    } else {
+        16
+    };
+
+    let n_iter = if args.len() >= 6 {
+        args[5].to_usize().map_err(ScriptError::Type)?
+    } else {
+        8
+    };
+
+    let filter = firpmq(n_taps, &bands_f, &desired_f, &weights_f, bits, n_iter)
         .map_err(ScriptError::Dsp)?;
     Ok(cvector_to_value(filter.coefficients))
 }

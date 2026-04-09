@@ -186,6 +186,120 @@ pub fn firpm(
     Ok(FirFilter { coefficients })
 }
 
+// ── Quantized integer-coefficient design ─────────────────────────────────────
+
+/// Design an integer-coefficient equiripple FIR filter.
+///
+/// Runs Parks-McClellan and then iteratively refines so that rounding the
+/// coefficients to `bits`-bit integers stays as close as possible to the
+/// minimax optimum.
+///
+/// Returns a `FirFilter` whose coefficients are integer-valued (stored as
+/// `f64`, e.g. `127.0`, `-256.0`).  Divide by `(2^(bits-1) − 1)` to
+/// recover the unit-gain floating-point response.
+///
+/// # Parameters
+///
+/// Same as [`firpm`], plus:
+///
+/// - `bits` — coefficient word length (2–32).  Coefficients will be in
+///   `[−2^(bits-1), 2^(bits-1)−1]`.
+/// - `n_iter` — number of iterative-compensation passes.  0 = plain round
+///   with no refinement; 4–8 iterations are usually sufficient.
+pub fn firpmq(
+    n_taps:  usize,
+    bands:   &[f64],
+    desired: &[f64],
+    weights: &[f64],
+    bits:    u32,
+    n_iter:  usize,
+) -> Result<FirFilter, DspError> {
+
+    if !(2..=32).contains(&bits) {
+        return Err(DspError::InvalidPmSpec(
+            format!("firpmq: bits must be in [2, 32], got {bits}")
+        ));
+    }
+
+    let i_max = (1i64 << (bits - 1)) as f64 - 1.0; // e.g. 32 767 for 16-bit
+
+    // ── Initial float design ──────────────────────────────────────────────────
+    let h0 = firpm(n_taps, bands, desired, weights)?;
+    let n   = h0.coefficients.len();
+    let mut h_float: Vec<f64> = h0.coefficients.iter().map(|c| c.re).collect();
+
+    // Scale so that max(|h|) maps to i_max.
+    let peak: f64 = h_float.iter().map(|&x| x.abs()).fold(0.0_f64, f64::max);
+    if peak < 1e-30 {
+        return Err(DspError::InvalidPmSpec("firpmq: all-zero filter".into()));
+    }
+    let scale = i_max / peak;
+
+    // ── Initial round ─────────────────────────────────────────────────────────
+    let mut h_int: Vec<f64> = h_float.iter()
+        .map(|&x| (x * scale).round().clamp(-i_max, i_max))
+        .collect();
+
+    // ── Iterative quantization-error compensation ─────────────────────────────
+    //
+    // Each pass computes the frequency-response error introduced by rounding
+    // and pre-distorts the desired response to compensate.  After k iterations
+    // the remaining rounding error shrinks toward zero.
+    let cur_weights = if weights.is_empty() {
+        vec![1.0; bands.len() / 2]
+    } else {
+        weights.to_vec()
+    };
+
+    for _ in 0..n_iter {
+        // Residual = fractional part lost to rounding, in integer-scaled units.
+        let residual: Vec<f64> = h_float.iter().zip(h_int.iter())
+            .map(|(&f, &i)| f * scale - i)
+            .collect();
+
+        // Evaluate the residual's frequency response at each band edge and
+        // add it back to the desired target (pre-distortion).
+        let adjusted_desired: Vec<f64> = bands.iter().zip(desired.iter())
+            .map(|(&freq, &d)| d + eval_fir_response(&residual, freq) / scale)
+            .collect();
+
+        let h_new = match firpm(n, bands, &adjusted_desired, &cur_weights) {
+            Ok(f)  => f,
+            Err(_) => break,
+        };
+        h_float = h_new.coefficients.iter().map(|c| c.re).collect();
+        h_int   = h_float.iter()
+            .map(|&x| (x * scale).round().clamp(-i_max, i_max))
+            .collect();
+    }
+
+    // ── Enforce symmetry ──────────────────────────────────────────────────────
+    // firpm always produces a symmetric (Type-I) filter; rounding independently
+    // on each side can break it at the ±0.5 boundary.  Average and re-round.
+    let m = (n - 1) / 2;
+    for k in 0..m {
+        let avg = ((h_int[k] + h_int[n - 1 - k]) / 2.0).round();
+        h_int[k]         = avg;
+        h_int[n - 1 - k] = avg;
+    }
+
+    let coefficients = Array1::from_iter(h_int.iter().map(|&i| Complex::new(i, 0.0)));
+    Ok(FirFilter { coefficients })
+}
+
+/// Evaluate the real-valued frequency response of a (symmetric) FIR tap
+/// vector `h` at normalized frequency `f` ∈ [0, 1] (where 1 = Nyquist).
+///
+/// Uses the exact DTFT sum:
+/// `H(f) = Σ_k h[k] · cos((k − m) · π · f)`, valid for any real h.
+fn eval_fir_response(h: &[f64], f: f64) -> f64 {
+    let omega = PI * f;
+    let m     = (h.len() as f64 - 1.0) / 2.0;
+    h.iter().enumerate()
+        .map(|(k, &hk)| hk * ((k as f64 - m) * omega).cos())
+        .sum()
+}
+
 // ── Grid construction ─────────────────────────────────────────────────────────
 
 /// Build the dense frequency grid by distributing `n_grid` points

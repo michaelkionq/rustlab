@@ -712,6 +712,42 @@ mod pm_tests {
         let result = firpm(31, &[0.0, 0.4, 0.5, 1.0], &[1.0, 1.0, 0.0], &[1.0, 1.0]);
         assert!(result.is_err(), "mismatched desired length should return Err");
     }
+
+    #[test]
+    fn firpmq_integer_coefficients() {
+        use crate::fir::pm::firpmq;
+        let f = firpmq(31, &[0.0, 0.4, 0.5, 1.0], &[1.0, 1.0, 0.0, 0.0], &[1.0, 1.0], 16, 8).unwrap();
+        let h: Vec<f64> = f.coefficients.iter().map(|c| c.re).collect();
+        // All coefficients must be integers (no fractional part)
+        for &v in &h {
+            assert!((v - v.round()).abs() < 1e-9, "non-integer coefficient: {v}");
+        }
+        // Max absolute value must not exceed 2^15 - 1 = 32767
+        let peak = h.iter().map(|&x| x.abs()).fold(0.0_f64, f64::max);
+        assert!(peak <= 32767.0, "coefficient out of 16-bit range: {peak}");
+        // Symmetric
+        let n = h.len();
+        for i in 0..n / 2 {
+            assert_eq!(h[i], h[n - 1 - i], "symmetry broken at i={i}");
+        }
+    }
+
+    #[test]
+    fn firpmq_passband_gain_near_unity() {
+        use crate::fir::pm::{firpm, firpmq};
+        // The integer filter's DC gain, normalized the same way as the float filter, should be ~1.
+        // Normalization: scale = i_max / peak_float, so dc_gain = sum(h_int) / scale
+        //              = sum(h_int) * peak_float / i_max
+        let float_f = firpm(31, &[0.0, 0.4, 0.5, 1.0], &[1.0, 1.0, 0.0, 0.0], &[1.0, 1.0]).unwrap();
+        let peak_float: f64 = float_f.coefficients.iter().map(|c| c.re.abs()).fold(0.0_f64, f64::max);
+
+        let f = firpmq(31, &[0.0, 0.4, 0.5, 1.0], &[1.0, 1.0, 0.0, 0.0], &[1.0, 1.0], 16, 8).unwrap();
+        let h: Vec<f64> = f.coefficients.iter().map(|c| c.re).collect();
+        let i_max = 32767.0_f64;
+        // DC gain of integer filter: sum(h_int) / scale = sum(h_int) * peak_float / i_max
+        let dc_gain: f64 = h.iter().sum::<f64>() * peak_float / i_max;
+        assert!((dc_gain - 1.0).abs() < 0.03, "DC gain deviates from unity: {dc_gain}");
+    }
 }
 
 // ─── Kaiser FIR tests ──────────────────────────────────────────────────────
