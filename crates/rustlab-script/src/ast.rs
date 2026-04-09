@@ -63,6 +63,10 @@ pub enum Expr {
     /// `expr(args)` — index or call on the result of an arbitrary expression
     /// Used for chained indexing: `f(a, b)(i)` → `Index { expr: Call{f,[a,b]}, args: [i] }`
     Index { expr: Box<Expr>, args: Vec<Expr> },
+    /// `@(params) body` — anonymous function (lambda); captures env at creation time
+    Lambda { params: Vec<String>, body: Box<Expr> },
+    /// `@name` — handle to a named function (user-defined or builtin)
+    FuncHandle(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

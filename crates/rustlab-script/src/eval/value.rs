@@ -4,7 +4,7 @@ use ndarray::{Array1, Array2};
 use num_complex::Complex;
 use rustlab_core::{C64, CMatrix, CVector};
 use rustlab_dsp::fixed::QFmtSpec;
-use crate::ast::BinOp;
+use crate::ast::{BinOp, Expr};
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -29,6 +29,14 @@ pub enum Value {
     TransferFn { num: Vec<f64>, den: Vec<f64> },
     /// Continuous-time state-space model: ẋ = Ax + Bu, y = Cx + Du.
     StateSpace { a: CMatrix, b: CMatrix, c: CMatrix, d: CMatrix },
+    /// Anonymous function: `@(params) expr`. Captures the environment lexically at creation time.
+    Lambda {
+        params:       Vec<String>,
+        body:         Box<Expr>,
+        captured_env: HashMap<String, Value>,
+    },
+    /// Handle to a named function: `@name`. Dispatch happens at call time.
+    FuncHandle(String),
 }
 
 impl Value {
@@ -61,6 +69,8 @@ impl Value {
             Value::None => "none",
             Value::TransferFn { .. } => "tf",
             Value::StateSpace { .. } => "ss",
+            Value::Lambda { .. } => "lambda",
+            Value::FuncHandle(_) => "function_handle",
         }
     }
 
@@ -950,6 +960,8 @@ impl fmt::Display for Value {
             }
             Value::All  => write!(f, ":"),
             Value::None => write!(f, "None"),
+            Value::Lambda { params, .. } => write!(f, "@({}) <expr>", params.join(", ")),
+            Value::FuncHandle(name) => write!(f, "@{}", name),
             Value::StateSpace { a, b, c, d } => {
                 write!(f, "ss<{}-state, {} input, {} output>",
                     a.nrows(), b.ncols(), c.nrows())?;

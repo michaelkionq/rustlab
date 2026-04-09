@@ -29,6 +29,7 @@ pub enum Token {
     AmpAmp,   // &&
     PipePipe, // ||
     Bang,     // !
+    At,        // @
     // Delimiters
     Eq,       // =
     LParen,
@@ -98,6 +99,7 @@ pub fn tokenize(source: &str) -> Result<Vec<Spanned>, ScriptError> {
                 tokens.push(Spanned { token: Token::BangEq,  line }); pos += 2;
             }
             '!' => { tokens.push(Spanned { token: Token::Bang,      line }); pos += 1; }
+            '@' => { tokens.push(Spanned { token: Token::At,        line }); pos += 1; }
             '<' if pos + 1 < chars.len() && chars[pos + 1] == '=' => {
                 tokens.push(Spanned { token: Token::LtEq,    line }); pos += 2;
             }

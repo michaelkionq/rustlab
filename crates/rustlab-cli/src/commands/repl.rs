@@ -357,6 +357,8 @@ fn whos_type(v: &rustlab_script::Value) -> &'static str {
         Value::None       => "none",
         Value::TransferFn { .. } => "tf",
         Value::StateSpace { .. } => "ss",
+        Value::Lambda { .. }  => "lambda",
+        Value::FuncHandle(_)  => "function_handle",
     }
 }
 
@@ -418,6 +420,8 @@ fn whos_preview(v: &rustlab_script::Value) -> String {
             "{}-state, {} input, {} output",
             a.nrows(), b.ncols(), c.nrows()
         ),
+        Value::Lambda { params, .. } => format!("@({}) <expr>", params.join(", ")),
+        Value::FuncHandle(name) => format!("@{}", name),
     }
 }
 

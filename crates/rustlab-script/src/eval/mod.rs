@@ -370,6 +370,23 @@ impl Evaluator {
                 Value::binop(*op, l, r).map_err(ScriptError::Type)
             }
             Expr::Call { name, args } => {
+                // Evaluator-level higher-order functions (need &mut self to call back in).
+                if name == "arrayfun" && args.len() == 2 {
+                    let func_val = self.eval_expr(&args[0])?;
+                    let input    = self.eval_expr(&args[1])?;
+                    return self.eval_arrayfun(func_val, input);
+                }
+                if name == "feval" && !args.is_empty() {
+                    let name_val = self.eval_expr(&args[0])?;
+                    let fn_name  = name_val.to_str().map_err(|_| ScriptError::Runtime(
+                        "feval: first argument must be a string function name".to_string()
+                    ))?;
+                    let rest: Vec<Value> = args[1..].iter()
+                        .map(|a| self.eval_expr(a))
+                        .collect::<Result<_, _>>()?;
+                    return self.eval_feval(&fn_name, rest);
+                }
+
                 // If the name refers to a vector/matrix in the environment, this is indexing.
                 if matches!(self.env.get(name.as_str()), Some(Value::Vector(_)) | Some(Value::Matrix(_))) {
                     let container = self.env[name.as_str()].clone();
@@ -417,6 +434,25 @@ impl Evaluator {
                         .map(|a| self.eval_expr(a))
                         .collect::<Result<_, _>>()?;
                     self.eval_user_fn(func, vals)
+                } else if let Some(env_val) = self.env.get(name.as_str()).cloned() {
+                    // Lambda or FuncHandle stored in a variable, e.g. `f = @(x) x^2; f(3)`
+                    match env_val {
+                        Value::Lambda { params, body, captured_env } => {
+                            let arg_vals: Vec<Value> = args.iter()
+                                .map(|a| self.eval_expr(a))
+                                .collect::<Result<_, _>>()?;
+                            self.eval_lambda_call(&params, &body, captured_env, arg_vals)
+                        }
+                        Value::FuncHandle(target) => {
+                            self.eval_expr(&Expr::Call { name: target, args: args.clone() })
+                        }
+                        _ => {
+                            let vals: Vec<Value> = args.iter()
+                                .map(|a| self.eval_expr(a))
+                                .collect::<Result<_, _>>()?;
+                            self.builtins.call(name, vals)
+                        }
+                    }
                 } else {
                     let vals: Vec<Value> = args.iter()
                         .map(|a| self.eval_expr(a))
@@ -475,6 +511,22 @@ impl Evaluator {
                 self.env.remove("end");
                 container.index(idx_vals).map_err(ScriptError::Runtime)
             }
+            Expr::Lambda { params, body } => {
+                Ok(Value::Lambda {
+                    params:       params.clone(),
+                    body:         body.clone(),
+                    captured_env: self.env.clone(),
+                })
+            }
+            Expr::FuncHandle(name) => {
+                // If the name is a lambda stored in env, capture it directly so it
+                // remains callable when passed into a function's clean scope.
+                if let Some(Value::Lambda { .. }) = self.env.get(name.as_str()) {
+                    Ok(self.env[name.as_str()].clone())
+                } else {
+                    Ok(Value::FuncHandle(name.clone()))
+                }
+            }
             Expr::Field { object, field } => {
                 let obj = self.eval_expr(object)?;
                 match obj {
@@ -498,6 +550,135 @@ impl Evaluator {
                 }
             }
         }
+    }
+
+    /// Apply a callable (Lambda or FuncHandle) to each element of a vector or
+    /// each row of a matrix.
+    ///
+    /// - All-scalar outputs → `Value::Vector`
+    /// - All-vector outputs of equal length → `Value::Matrix` (one row per input element)
+    /// - Mixed or inconsistent output shapes → runtime error
+    fn eval_arrayfun(&mut self, func: Value, input: Value) -> Result<Value, ScriptError> {
+        let elements: Vec<Value> = match &input {
+            Value::Vector(v) => v.iter().map(|&c| {
+                if c.im == 0.0 { Value::Scalar(c.re) } else { Value::Complex(c) }
+            }).collect(),
+            Value::Scalar(n) => vec![Value::Scalar(*n)],
+            Value::Complex(c) => vec![Value::Complex(*c)],
+            other => return Err(ScriptError::Runtime(format!(
+                "arrayfun: second argument must be a vector or scalar, got {}", other.type_name()
+            ))),
+        };
+
+        let mut results: Vec<Value> = Vec::with_capacity(elements.len());
+        for elem in elements {
+            let out = self.call_callable(func.clone(), vec![elem])?;
+            results.push(out);
+        }
+
+        // Determine output shape from first result
+        match results.first() {
+            None => Ok(Value::Vector(Array1::from_vec(vec![]))),
+            Some(Value::Scalar(_)) | Some(Value::Complex(_)) => {
+                // All must be scalar/complex → assemble into a vector
+                let mut out = Vec::with_capacity(results.len());
+                for (i, r) in results.into_iter().enumerate() {
+                    match r {
+                        Value::Scalar(n) => out.push(Complex::new(n, 0.0)),
+                        Value::Complex(c) => out.push(c),
+                        other => return Err(ScriptError::Runtime(format!(
+                            "arrayfun: element {} returned {}, expected scalar", i + 1, other.type_name()
+                        ))),
+                    }
+                }
+                Ok(Value::Vector(Array1::from_vec(out)))
+            }
+            Some(Value::Vector(first_v)) => {
+                // All must be vectors of the same length → assemble into a matrix (rows)
+                let row_len = first_v.len();
+                let nrows = results.len();
+                let mut flat: Vec<C64> = Vec::with_capacity(nrows * row_len);
+                for (i, r) in results.into_iter().enumerate() {
+                    match r {
+                        Value::Vector(v) => {
+                            if v.len() != row_len {
+                                return Err(ScriptError::Runtime(format!(
+                                    "arrayfun: element {} returned vector of length {}, expected {}",
+                                    i + 1, v.len(), row_len
+                                )));
+                            }
+                            flat.extend(v.iter().copied());
+                        }
+                        other => return Err(ScriptError::Runtime(format!(
+                            "arrayfun: element {} returned {}, expected vector", i + 1, other.type_name()
+                        ))),
+                    }
+                }
+                let m = ndarray::Array2::from_shape_vec((nrows, row_len), flat)
+                    .map_err(|e| ScriptError::Runtime(e.to_string()))?;
+                Ok(Value::Matrix(m))
+            }
+            Some(other) => Err(ScriptError::Runtime(format!(
+                "arrayfun: function returned unsupported type {}", other.type_name()
+            ))),
+        }
+    }
+
+    /// Call a function by string name — dispatches to user_fns, env lambdas, then builtins.
+    fn eval_feval(&mut self, name: &str, args: Vec<Value>) -> Result<Value, ScriptError> {
+        if let Some(func) = self.user_fns.get(name).cloned() {
+            return self.eval_user_fn(func, args);
+        }
+        if let Some(env_val) = self.env.get(name).cloned() {
+            if let Value::Lambda { params, body, captured_env } = env_val {
+                return self.eval_lambda_call(&params, &body, captured_env, args);
+            }
+        }
+        self.builtins.call(name, args)
+    }
+
+    /// Invoke any callable value (Lambda or FuncHandle) with the given args.
+    /// Used by `eval_arrayfun` and any future higher-order functions.
+    fn call_callable(&mut self, func: Value, args: Vec<Value>) -> Result<Value, ScriptError> {
+        match func {
+            Value::Lambda { params, body, captured_env } => {
+                self.eval_lambda_call(&params, &body, captured_env, args)
+            }
+            Value::FuncHandle(name) => {
+                self.eval_feval(&name, args)
+            }
+            other => Err(ScriptError::Runtime(format!(
+                "arrayfun: first argument must be a lambda or function handle, got {}", other.type_name()
+            ))),
+        }
+    }
+
+    /// Call a lambda value with its captured environment.
+    /// `arrayfun` and `feval` also use this path for Lambda values.
+    fn eval_lambda_call(
+        &mut self,
+        params: &[String],
+        body: &Expr,
+        captured_env: HashMap<String, Value>,
+        args: Vec<Value>,
+    ) -> Result<Value, ScriptError> {
+        if args.len() != params.len() {
+            return Err(ScriptError::Runtime(format!(
+                "lambda expects {} argument(s), got {}", params.len(), args.len()
+            )));
+        }
+        // Save outer env; install captured env + parameter bindings
+        let saved_env = std::mem::replace(&mut self.env, captured_env);
+        let saved_in_fn = self.in_function;
+        self.in_function = true;
+        for (name, val) in params.iter().zip(args) {
+            self.env.insert(name.clone(), val);
+        }
+        let result = self.eval_expr(body);
+        // Restore outer env
+        self.env = saved_env;
+        self.in_function = saved_in_fn;
+        result
     }
 
     /// Call a user-defined function with scope isolation.

@@ -726,6 +726,30 @@ impl Parser {
                 let inner = self.parse_primary()?;
                 Ok(Expr::UnaryNot(Box::new(inner)))
             }
+            Token::At => {
+                self.advance(); // consume '@'
+                if self.peek_token() == &Token::LParen {
+                    // @(params) body_expr
+                    self.advance(); // consume '('
+                    let params = if self.peek_token() == &Token::RParen {
+                        vec![]
+                    } else {
+                        self.parse_param_list()?
+                    };
+                    self.expect(&Token::RParen)?;
+                    let body = self.parse_range_expr()?;
+                    Ok(Expr::Lambda { params, body: Box::new(body) })
+                } else {
+                    // @name
+                    match self.peek_token().clone() {
+                        Token::Ident(name) => { self.advance(); Ok(Expr::FuncHandle(name)) }
+                        other => Err(ScriptError::Parse {
+                            line: self.current_line(),
+                            msg: format!("expected function name or '(' after '@', got {:?}", other),
+                        }),
+                    }
+                }
+            }
             // `end` used as an index variable inside subscripts (e.g. v(end), v(2:end))
             Token::End => {
                 self.advance();

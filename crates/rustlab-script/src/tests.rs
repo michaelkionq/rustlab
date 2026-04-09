@@ -3080,4 +3080,223 @@ mod math_builtins_tests {
             other => panic!("expected vector, got {other:?}"),
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Lambda / anonymous function tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn lambda_basic_square() {
+        let ev = run("f = @(x) x^2;\ny = f(3);");
+        match ev.get("y").unwrap() {
+            Value::Scalar(n) => assert!((*n - 9.0).abs() < 1e-12, "expected 9, got {n}"),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lambda_zero_arg() {
+        let ev = run("f = @(x) x^2;\ny = f(0);");
+        match ev.get("y").unwrap() {
+            Value::Scalar(n) => assert!((*n).abs() < 1e-12, "expected 0, got {n}"),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lambda_multi_arg() {
+        let ev = run("g = @(x, y) sqrt(x^2 + y^2);\nd = g(3, 4);");
+        match ev.get("d").unwrap() {
+            Value::Scalar(n) => assert!((*n - 5.0).abs() < 1e-12, "expected 5, got {n}"),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lambda_lexical_capture() {
+        // Lambda should capture `a` at creation time (a=5), not at call time (a=99)
+        let ev = run("a = 5;\nh = @(x) x + a;\na = 99;\ny = h(1);");
+        match ev.get("y").unwrap() {
+            Value::Scalar(n) => assert!((*n - 6.0).abs() < 1e-12, "expected 6 (captured a=5), got {n}"),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lambda_vector_body() {
+        // Lambda applied to a vector via element-wise op
+        let ev = run("scale = @(x) x .* 2;\nv = scale([1, 2, 3]);");
+        match ev.get("v").unwrap() {
+            Value::Vector(v) => {
+                let expected = [2.0, 4.0, 6.0];
+                for (i, (&got, &exp)) in v.iter().zip(expected.iter()).enumerate() {
+                    assert!((got.re - exp).abs() < 1e-12, "v({i})={} expected {exp}", got.re);
+                }
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lambda_calls_builtin() {
+        let ev = run("mysin = @(x) sin(x);\ny = mysin(pi/2);");
+        match ev.get("y").unwrap() {
+            Value::Scalar(n) => assert!((*n - 1.0).abs() < 1e-10, "expected 1, got {n}"),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lambda_composed() {
+        // sq(inc(2)) = (2+1)^2 = 9
+        let ev = run("sq = @(x) x^2;\ninc = @(x) x + 1;\ny = sq(inc(2));");
+        match ev.get("y").unwrap() {
+            Value::Scalar(n) => assert!((*n - 9.0).abs() < 1e-12, "expected 9, got {n}"),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lambda_is_lambda_value() {
+        let ev = run("f = @(x) x + 1;");
+        assert!(matches!(ev.get("f").unwrap(), Value::Lambda { .. }));
+    }
+
+    #[test]
+    fn funchandle_to_builtin() {
+        let ev = run("h = @sin;\ny = h(pi/2);");
+        match ev.get("y").unwrap() {
+            Value::Scalar(n) => assert!((*n - 1.0).abs() < 1e-10, "expected 1, got {n}"),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn funchandle_is_funchandle_value() {
+        let ev = run("h = @sin;");
+        assert!(matches!(ev.get("h").unwrap(), Value::FuncHandle(_)));
+    }
+
+    #[test]
+    fn funchandle_to_user_fn() {
+        let ev = run(
+            "function y = double_it(x)\n  y = x * 2;\nend\nd = @double_it;\ny = d(7);"
+        );
+        match ev.get("y").unwrap() {
+            Value::Scalar(n) => assert!((*n - 14.0).abs() < 1e-12, "expected 14, got {n}"),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lambda_passed_to_user_fn() {
+        // Passing a lambda as an argument to a named function
+        let ev = run(
+            "function y = apply_twice(f, x)\n  y = f(f(x));\nend\nsq = @(x) x^2;\ny = apply_twice(sq, 2);"
+        );
+        match ev.get("y").unwrap() {
+            // (2^2)^2 = 16
+            Value::Scalar(n) => assert!((*n - 16.0).abs() < 1e-12, "expected 16, got {n}"),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // arrayfun tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn arrayfun_lambda_scalar_output() {
+        // @(x) x^2 over [1,2,3,4] → [1,4,9,16]
+        let ev = run("f = @(x) x^2;\nv = arrayfun(f, [1, 2, 3, 4]);");
+        match ev.get("v").unwrap() {
+            Value::Vector(v) => {
+                let expected = [1.0, 4.0, 9.0, 16.0];
+                for (i, (&got, &exp)) in v.iter().zip(expected.iter()).enumerate() {
+                    assert!((got.re - exp).abs() < 1e-12, "v({i})={} expected {exp}", got.re);
+                }
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn arrayfun_funchandle_scalar_output() {
+        // @sqrt over [1,4,9,16] → [1,2,3,4]
+        let ev = run("v = arrayfun(@sqrt, [1, 4, 9, 16]);");
+        match ev.get("v").unwrap() {
+            Value::Vector(v) => {
+                let expected = [1.0, 2.0, 3.0, 4.0];
+                for (i, (&got, &exp)) in v.iter().zip(expected.iter()).enumerate() {
+                    assert!((got.re - exp).abs() < 1e-12, "v({i})={} expected {exp}", got.re);
+                }
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn arrayfun_vector_output_builds_matrix() {
+        // @(x) [x, x^2] over [1,2,3] → 3×2 matrix [[1,1],[2,4],[3,9]]
+        let ev = run("f = @(x) [x, x^2];\nM = arrayfun(f, [1, 2, 3]);");
+        match ev.get("M").unwrap() {
+            Value::Matrix(m) => {
+                assert_eq!(m.nrows(), 3);
+                assert_eq!(m.ncols(), 2);
+                let expected = [[1.0, 1.0], [2.0, 4.0], [3.0, 9.0]];
+                for r in 0..3 {
+                    for c in 0..2 {
+                        assert!((m[[r, c]].re - expected[r][c]).abs() < 1e-12,
+                            "M[{r},{c}]={} expected {}", m[[r,c]].re, expected[r][c]);
+                    }
+                }
+            }
+            other => panic!("expected matrix, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn arrayfun_single_scalar_input() {
+        let ev = run("v = arrayfun(@(x) x * 3, 5);");
+        match ev.get("v").unwrap() {
+            Value::Vector(v) => {
+                assert_eq!(v.len(), 1);
+                assert!((v[0].re - 15.0).abs() < 1e-12);
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // feval tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn feval_builtin() {
+        let ev = run("y = feval(\"sin\", pi/2);");
+        match ev.get("y").unwrap() {
+            Value::Scalar(n) => assert!((*n - 1.0).abs() < 1e-10, "expected 1, got {n}"),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn feval_user_fn() {
+        let ev = run(
+            "function y = triple(x)\n  y = x * 3;\nend\ny = feval(\"triple\", 4);"
+        );
+        match ev.get("y").unwrap() {
+            Value::Scalar(n) => assert!((*n - 12.0).abs() < 1e-12, "expected 12, got {n}"),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn feval_env_lambda() {
+        let ev = run("sq = @(x) x^2;\ny = feval(\"sq\", 5);");
+        match ev.get("y").unwrap() {
+            Value::Scalar(n) => assert!((*n - 25.0).abs() < 1e-12, "expected 25, got {n}"),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+    }
 }
