@@ -7,42 +7,47 @@
 # desired : target amplitude at each band edge (piecewise-linear)
 # weights : one value per band (default = 1.0 for each)
 
-# -- 1. Low-pass: 63-tap, cutoff 0.25 Nyquist
+fs = 8000.0
+
+# -- 1. Low-pass: 63-tap, cutoff 0.25 Nyquist (1 kHz)
 #    Pass [0, 0.20], transition (0.20, 0.30), stop [0.30, 1.0]
 h_lp = firpm(63,
              [0.0, 0.20, 0.30, 1.0],
-             [1.0, 1.0,  0.0, 0.0]);
+             [1.0, 1.0,  0.0, 0.0])
 
-print("Low-pass (63 taps):");
-print("  tap count =");
-print(length(h_lp));
-print("  max coefficient =");
-print(max(real(h_lp)));
+print("Low-pass (63 taps):")
+print("  tap count =")
+print(length(h_lp))
 
-# -- 2. Band-pass: 79-tap, pass-band 0.30-0.50 Nyquist
+Hz_lp = freqz(h_lp, 512, fs)
+savedb(Hz_lp, "firpm_lp_response.svg", "PM Low-pass Frequency Response")
+
+# -- 2. Band-pass: 79-tap, pass-band 0.30-0.50 Nyquist (2.4-4 kHz)
 h_bp = firpm(79,
              [0.0, 0.25, 0.30, 0.50, 0.55, 1.0],
-             [0.0, 0.0,  1.0,  1.0,  0.0,  0.0]);
+             [0.0, 0.0,  1.0,  1.0,  0.0,  0.0])
 
-print("Band-pass (79 taps):");
-print("  tap count =");
-print(length(h_bp));
-print("  max coefficient =");
-print(max(real(h_bp)));
+print("Band-pass (79 taps):")
+print("  tap count =")
+print(length(h_bp))
+
+Hz_bp = freqz(h_bp, 512, fs)
+savedb(Hz_bp, "firpm_bp_response.svg", "PM Band-pass Frequency Response")
 
 # -- 3. Weighted low-pass: 51-tap, 10x heavier stop-band constraint
 h_w = firpm(51,
             [0.0, 0.25, 0.35, 1.0],
             [1.0, 1.0,  0.0, 0.0],
-            [1.0, 10.0]);
+            [1.0, 10.0])
 
-print("Weighted low-pass (51 taps):");
-print("  tap count =");
-print(length(h_w));
-print("  max coefficient =");
-print(max(real(h_w)));
+print("Weighted low-pass (51 taps):")
+print("  tap count =")
+print(length(h_w))
+
+Hz_w = freqz(h_w, 512, fs)
+savedb(Hz_w, "firpm_weighted_response.svg", "PM Weighted Low-pass Frequency Response")
 
 # -- 4. Tap count comparison: Parks-McClellan vs Kaiser for same spec
-h_kai = fir_lowpass_kaiser(0.25 * 8000.0, 400.0, 60.0, 8000.0);
-print("Kaiser tap count for similar LP spec:");
-print(length(h_kai));
+h_kai = fir_lowpass_kaiser(0.25 * fs, 400.0, 60.0, fs)
+print("Kaiser tap count for similar LP spec:")
+print(length(h_kai))

@@ -433,6 +433,8 @@ primary     = NUMBER | STRING | IDENT
 | `butterworth_highpass` | `butterworth_highpass(order, cutoff_hz, sr)` | IIR b-coefficient Vector |
 | `median` | `median(v)` | Median of real parts; scalar for odd length, average of two middles for even |
 | `convolve` | `convolve(x, h)` | Convolved Vector (length = len(x)+len(h)-1) |
+| `filtfilt` | `filtfilt(b, a, x)` | Zero-phase forward-backward IIR filter; use `a=[1]` for FIR |
+| `prod` | `prod(v)` | Product of all elements (Vector or Matrix); returns Scalar |
 
 Window names: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`
 

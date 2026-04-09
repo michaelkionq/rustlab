@@ -88,6 +88,7 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | Function | Description |
 |---|---|
 | `sum(v)` | Sum all elements |
+| `prod(v)` | Product of all elements |
 | `cumsum(v)` | Cumulative sum |
 | `min(v)`, `max(v)` | Min / max value |
 | `argmin(v)`, `argmax(v)` | 1-based index of min / max |
@@ -130,6 +131,7 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `laguerre(n, alpha, x)` | Associated Laguerre polynomial $L_n^\alpha(x)$, element-wise |
 | `legendre(l, m, x)` | Associated Legendre polynomial $P_l^m(x)$, element-wise |
 | `convolve(x, h)` | Linear convolution (output length = len(x)+len(h)-1) |
+| `filtfilt(b, a, x)` | Zero-phase forward-backward IIR filter; use `a=[1]` for FIR |
 | `factor(n)` | Prime factorization |
 
 ---

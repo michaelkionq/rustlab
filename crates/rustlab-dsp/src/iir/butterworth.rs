@@ -34,7 +34,7 @@ impl IirFilter {
 
     /// Apply this filter to a real-valued signal (as complex with zero imaginary part).
     /// Uses direct-form II transposed implementation.
-    fn apply_real(&self, input: &[f64]) -> Vec<f64> {
+    pub(crate) fn apply_real(&self, input: &[f64]) -> Vec<f64> {
         let nb = self.b.len();
         let na = self.a.len();
         let state_len = nb.max(na) - 1;
@@ -52,6 +52,15 @@ impl IirFilter {
             }
         }
         output
+    }
+
+    /// Zero-phase forward-backward filter. Applies the filter twice (forward then
+    /// reversed) so phase distortion cancels and the effective order doubles.
+    pub fn filtfilt(&self, x: &[f64]) -> Vec<f64> {
+        let y_fwd: Vec<f64> = self.apply_real(x);
+        let mut y_rev: Vec<f64> = y_fwd.into_iter().rev().collect();
+        y_rev = self.apply_real(&y_rev);
+        y_rev.into_iter().rev().collect()
     }
 }
 

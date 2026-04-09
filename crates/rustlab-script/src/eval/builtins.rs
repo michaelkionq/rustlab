@@ -7,7 +7,7 @@ use rustlab_dsp::{
     fir_lowpass_kaiser, fir_highpass_kaiser, fir_bandpass_kaiser,
     fir_notch, freqz, firpm,
     fft, ifft, fftshift, fftfreq,
-    butterworth_lowpass, butterworth_highpass,
+    butterworth_lowpass, butterworth_highpass, IirFilter,
     upfirdn,
     WindowFunction,
     QFmtSpec, quantize_scalar, snr_db,
@@ -49,6 +49,7 @@ impl BuiltinRegistry {
         r.register("butterworth_lowpass",  builtin_butterworth_lowpass);
         r.register("butterworth_highpass", builtin_butterworth_highpass);
         r.register("convolve",             builtin_convolve);
+        r.register("filtfilt",             builtin_filtfilt);
         r.register("upfirdn",              builtin_upfirdn);
         r.register("window",               builtin_window);
         // FFT
@@ -113,6 +114,7 @@ impl BuiltinRegistry {
         r.register("min",      builtin_min);
         r.register("max",      builtin_max);
         r.register("sum",      builtin_sum);
+        r.register("prod",     builtin_prod);
         r.register("cumsum",   builtin_cumsum);
         r.register("argmin",   builtin_argmin);
         r.register("argmax",   builtin_argmax);
@@ -327,6 +329,26 @@ fn builtin_convolve(args: Vec<Value>) -> Result<Value, ScriptError> {
     let x = args[0].to_cvector().map_err(ScriptError::Type)?;
     let h = args[1].to_cvector().map_err(ScriptError::Type)?;
     let result = convolve(&x, &h)?;
+    Ok(Value::Vector(result))
+}
+
+/// filtfilt(b, a, x) — zero-phase forward-backward filter.
+/// Applies filter(b,a) forward then backward so phase distortion cancels.
+/// b and a are the numerator/denominator coefficients (a[0] must be 1).
+fn builtin_filtfilt(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("filtfilt", &args, 3)?;
+    let b_cv = args[0].to_cvector().map_err(ScriptError::Type)?;
+    let a_cv = args[1].to_cvector().map_err(ScriptError::Type)?;
+    let x_cv = args[2].to_cvector().map_err(ScriptError::Type)?;
+    let b: Vec<f64> = b_cv.iter().map(|c| c.re).collect();
+    let a: Vec<f64> = a_cv.iter().map(|c| c.re).collect();
+    let x: Vec<f64> = x_cv.iter().map(|c| c.re).collect();
+    if b.is_empty() || a.is_empty() {
+        return Err(ScriptError::Type("filtfilt: b and a must be non-empty".to_string()));
+    }
+    let filt = IirFilter::new(b, a);
+    let y = filt.filtfilt(&x);
+    let result: CVector = Array1::from_iter(y.into_iter().map(|v| Complex::new(v, 0.0)));
     Ok(Value::Vector(result))
 }
 
@@ -915,6 +937,24 @@ fn builtin_sum(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Scalar(n)  => Ok(Value::Scalar(*n)),
         Value::Complex(c) => Ok(Value::Complex(*c)),
         other => Err(ScriptError::Type(format!("sum: unsupported type {}", other.type_name()))),
+    }
+}
+
+/// prod(v) — product of all elements. Returns Complex if any imaginary part is non-negligible.
+fn builtin_prod(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("prod", &args, 1)?;
+    match &args[0] {
+        Value::Vector(v) if !v.is_empty() => {
+            let p: C64 = v.iter().copied().fold(Complex::new(1.0, 0.0), |acc, x| acc * x);
+            if p.im.abs() < 1e-12 { Ok(Value::Scalar(p.re)) } else { Ok(Value::Complex(p)) }
+        }
+        Value::Matrix(m) if !m.is_empty() => {
+            let p: C64 = m.iter().copied().fold(Complex::new(1.0, 0.0), |acc, x| acc * x);
+            if p.im.abs() < 1e-12 { Ok(Value::Scalar(p.re)) } else { Ok(Value::Complex(p)) }
+        }
+        Value::Scalar(n)  => Ok(Value::Scalar(*n)),
+        Value::Complex(c) => Ok(Value::Complex(*c)),
+        other => Err(ScriptError::Type(format!("prod: unsupported type {}", other.type_name()))),
     }
 }
 
