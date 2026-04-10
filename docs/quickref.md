@@ -32,6 +32,12 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `if expr` … `elseif expr` … `else` … `end` | Conditional; `elseif` and `else` are optional; nesting supported |
 | `function [out] = name(args)` … `end` | User-defined function |
 | `return` | Early return from a function |
+| `@(x, y) expr` | Anonymous function (lambda); captures current env by snapshot |
+| `@name` | Function handle — reference to a builtin or user function |
+| `arrayfun(f, v)` | Apply callable to each element; scalar results → Vector, vector results → Matrix |
+| `feval("name", args...)` | Call function by string name |
+| `profile(fn1, fn2)` | Enable call profiling for named functions; `profile()` tracks all |
+| `profile_report()` | Print profiling table to stderr immediately |
 | `s.field` | Struct field access |
 | `s.field = val` | Struct field assignment (auto-creates struct) |
 

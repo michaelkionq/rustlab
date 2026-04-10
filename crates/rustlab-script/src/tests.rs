@@ -3300,3 +3300,138 @@ mod math_builtins_tests {
         }
     }
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// Profiling tests
+// ───────────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod profiling_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+
+    /// Run source, then return (evaluator, profile_report).
+    fn run_profiled(src: &str, names: Option<Vec<&str>>) -> (Evaluator, Vec<(String, crate::eval::FnStats)>) {
+        let tokens = lexer::tokenize(src).expect("lex");
+        let stmts  = parser::parse(tokens).expect("parse");
+        let mut ev = Evaluator::new();
+        ev.enable_profiling(names.map(|v| v.iter().map(|s| s.to_string()).collect()));
+        ev.run(&stmts).expect("eval");
+        let report = ev.take_profile();
+        (ev, report)
+    }
+
+    fn find<'a>(report: &'a [(String, crate::eval::FnStats)], name: &str)
+        -> Option<&'a crate::eval::FnStats>
+    {
+        report.iter().find(|(n, _)| n == name).map(|(_, s)| s)
+    }
+
+    #[test]
+    fn selective_tracks_only_named_function() {
+        // profile(sin) — sin is tracked; cos is not
+        let (_, report) = run_profiled(
+            "for k = 1:10\n  sin(k);\n  cos(k);\nend",
+            Some(vec!["sin"]),
+        );
+        let sin_stats = find(&report, "sin").expect("sin should be in report");
+        assert_eq!(sin_stats.call_count, 10, "sin called 10 times");
+        assert!(sin_stats.total_ns > 0, "sin total_ns > 0");
+        assert!(find(&report, "cos").is_none(), "cos should NOT be tracked");
+    }
+
+    #[test]
+    fn track_all_with_none_whitelist() {
+        let (_, report) = run_profiled(
+            "sin(1.0);\ncos(1.0);",
+            None, // track everything
+        );
+        assert!(find(&report, "sin").is_some(), "sin tracked");
+        assert!(find(&report, "cos").is_some(), "cos tracked");
+    }
+
+    #[test]
+    fn call_count_matches_loop_iterations() {
+        let (_, report) = run_profiled(
+            "for k = 1:25\n  abs(k);\nend",
+            Some(vec!["abs"]),
+        );
+        let s = find(&report, "abs").expect("abs tracked");
+        assert_eq!(s.call_count, 25);
+    }
+
+    #[test]
+    fn io_bytes_populated() {
+        // sin(scalar) → 8 bytes in, 8 bytes out
+        let (_, report) = run_profiled("sin(1.0);", Some(vec!["sin"]));
+        let s = find(&report, "sin").expect("sin tracked");
+        assert_eq!(s.input_bytes, 8);
+        assert_eq!(s.output_bytes, 8);
+    }
+
+    #[test]
+    fn no_data_when_profiling_disabled() {
+        let tokens = lexer::tokenize("sin(1.0);").unwrap();
+        let stmts  = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts).unwrap();
+        assert!(!ev.has_profile_data(), "no data when profiling not enabled");
+    }
+
+    #[test]
+    fn lambda_tracked_under_variable_name() {
+        // f = @(x) x^2; f(3) — should appear as "f", not "<lambda>"
+        let (_, report) = run_profiled(
+            "f = @(x) x^2;\nf(3);",
+            Some(vec!["f"]),
+        );
+        let s = find(&report, "f").expect("lambda tracked as 'f'");
+        assert_eq!(s.call_count, 1);
+        assert!(s.total_ns > 0);
+    }
+
+    #[test]
+    fn arrayfun_inner_calls_not_tracked_separately() {
+        // arrayfun(@sin, v) — sin is called N times as a callback.
+        // With profile(arrayfun, sin): arrayfun tracked; sin NOT (higher_order_depth suppresses it).
+        let (_, report) = run_profiled(
+            "arrayfun(@sin, 1:5);",
+            Some(vec!["arrayfun", "sin"]),
+        );
+        let af = find(&report, "arrayfun").expect("arrayfun tracked");
+        assert_eq!(af.call_count, 1, "arrayfun called once");
+        // sin should not appear — suppressed by higher_order_depth
+        assert!(find(&report, "sin").is_none(), "sin inner calls suppressed");
+    }
+
+    #[test]
+    fn user_fn_tracked_inner_builtins_suppressed() {
+        let src = "function y = myabs(x)\n  y = abs(x);\nend\nmyabs(3);";
+        let (_, report) = run_profiled(src, Some(vec!["myabs", "abs"]));
+        let mf = find(&report, "myabs").expect("myabs tracked");
+        assert_eq!(mf.call_count, 1);
+        // abs is called inside myabs — higher_order_depth suppresses it
+        assert!(find(&report, "abs").is_none(), "inner abs suppressed");
+    }
+
+    #[test]
+    fn in_script_profile_call_activates_profiling() {
+        // profile(sin) inside the script — evaluator should record sin
+        let tokens = lexer::tokenize("profile(sin)\nsin(1.0);").unwrap();
+        let stmts  = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts).unwrap();
+        let report = ev.take_profile();
+        let s = report.iter().find(|(n, _)| n == "sin");
+        assert!(s.is_some(), "in-script profile(sin) activated tracking");
+        assert_eq!(s.unwrap().1.call_count, 1);
+    }
+
+    #[test]
+    fn vector_io_bytes_correct() {
+        // fft(v) where v is length 16 → input 16*16=256 bytes, output 256 bytes
+        let (_, report) = run_profiled("fft(ones(16));", Some(vec!["fft"]));
+        let s = find(&report, "fft").expect("fft tracked");
+        assert_eq!(s.input_bytes,  16 * 16, "16-element complex vector = 256 bytes");
+        assert_eq!(s.output_bytes, 16 * 16);
+    }
+}

@@ -1,4 +1,5 @@
 pub mod builtins;
+pub mod profile;
 pub mod value;
 
 use std::collections::HashMap;
@@ -9,9 +10,11 @@ use crate::ast::{Expr, Stmt};
 use crate::error::ScriptError;
 pub use value::Value;
 pub use builtins::BuiltinRegistry;
+pub use profile::FnStats;
 
 #[derive(Clone)]
 struct UserFn {
+    name:       String,
     params:     Vec<String>,
     return_var: Option<String>,
     body:       Vec<Stmt>,
@@ -23,6 +26,7 @@ pub struct Evaluator {
     user_fns:      HashMap<String, UserFn>,
     /// True while executing a user-defined function body — suppresses auto-print of assignments.
     in_function:   bool,
+    profiler:      profile::Profiler,
 }
 
 impl Evaluator {
@@ -40,6 +44,7 @@ impl Evaluator {
             builtins:    BuiltinRegistry::with_defaults(),
             user_fns:    HashMap::new(),
             in_function: false,
+            profiler:    profile::Profiler::default(),
         }
     }
 
@@ -74,6 +79,30 @@ impl Evaluator {
         entries
     }
 
+    /// Enable profiling. `names = None` tracks all functions; `Some(v)` tracks only the listed names.
+    pub fn enable_profiling(&mut self, names: Option<Vec<String>>) {
+        self.profiler.enable(names);
+    }
+
+    /// True if any profiling data has been recorded.
+    pub fn has_profile_data(&self) -> bool { self.profiler.has_data() }
+
+    /// Drain the profiling stats and return report rows sorted by total time.
+    pub fn take_profile(&mut self) -> Vec<(String, FnStats)> {
+        self.profiler.take_report()
+    }
+
+    /// Run statements and auto-print any profiling report to stderr at the end.
+    /// Use this instead of `run` for top-level script execution.
+    pub fn run_script(&mut self, stmts: &[Stmt]) -> Result<(), ScriptError> {
+        let result = self.run(stmts);
+        if self.profiler.has_data() {
+            let rows = self.profiler.take_report();
+            profile::print_report(&rows);
+        }
+        result
+    }
+
     pub fn run(&mut self, stmts: &[Stmt]) -> Result<(), ScriptError> {
         for stmt in stmts {
             self.exec_stmt(stmt)?;
@@ -92,6 +121,7 @@ impl Evaluator {
             }
             Stmt::FunctionDef { name, params, return_var, body } => {
                 self.user_fns.insert(name.clone(), UserFn {
+                    name:       name.clone(),
                     params:     params.clone(),
                     return_var: return_var.clone(),
                     body:       body.clone(),
@@ -370,7 +400,26 @@ impl Evaluator {
                 Value::binop(*op, l, r).map_err(ScriptError::Type)
             }
             Expr::Call { name, args } => {
-                // Evaluator-level higher-order functions (need &mut self to call back in).
+                // ── In-script profiling control ───────────────────────────
+                if name == "profile" {
+                    // profile(fft, myfun) or profile() — args are bare Var names or strings
+                    let names: Vec<String> = args.iter().map(|a| match a {
+                        Expr::Var(n) | Expr::Str(n) => Ok(n.clone()),
+                        _ => Err(ScriptError::Runtime(
+                            "profile: arguments must be function names (e.g. profile(fft, myfun))".to_string()
+                        )),
+                    }).collect::<Result<_, _>>()?;
+                    let whitelist = if names.is_empty() { None } else { Some(names) };
+                    self.profiler.enable(whitelist);
+                    return Ok(Value::None);
+                }
+                if name == "profile_report" && args.is_empty() {
+                    let rows = self.profiler.take_report();
+                    profile::print_report(&rows);
+                    return Ok(Value::None);
+                }
+
+                // ── Evaluator-level higher-order functions ────────────────
                 if name == "arrayfun" && args.len() == 2 {
                     let func_val = self.eval_expr(&args[0])?;
                     let input    = self.eval_expr(&args[1])?;
@@ -441,7 +490,8 @@ impl Evaluator {
                             let arg_vals: Vec<Value> = args.iter()
                                 .map(|a| self.eval_expr(a))
                                 .collect::<Result<_, _>>()?;
-                            self.eval_lambda_call(&params, &body, captured_env, arg_vals)
+                            // Pass the variable name so profiler records it as "f", not "<lambda>"
+                            self.eval_lambda_call(name, &params, &body, captured_env, arg_vals)
                         }
                         Value::FuncHandle(target) => {
                             self.eval_expr(&Expr::Call { name: target, args: args.clone() })
@@ -450,14 +500,14 @@ impl Evaluator {
                             let vals: Vec<Value> = args.iter()
                                 .map(|a| self.eval_expr(a))
                                 .collect::<Result<_, _>>()?;
-                            self.builtins.call(name, vals)
+                            self.call_builtin_tracked(name, vals)
                         }
                     }
                 } else {
                     let vals: Vec<Value> = args.iter()
                         .map(|a| self.eval_expr(a))
                         .collect::<Result<_, _>>()?;
-                    self.builtins.call(name, vals)
+                    self.call_builtin_tracked(name, vals)
                 }
             }
             Expr::Matrix(rows) => {
@@ -559,6 +609,20 @@ impl Evaluator {
     /// - All-vector outputs of equal length → `Value::Matrix` (one row per input element)
     /// - Mixed or inconsistent output shapes → runtime error
     fn eval_arrayfun(&mut self, func: Value, input: Value) -> Result<Value, ScriptError> {
+        let tracking = self.profiler.should_track("arrayfun");
+        let in_bytes: u64 = if tracking { Self::value_bytes(&input) } else { 0 };
+        let t0 = if tracking { Some(std::time::Instant::now()) } else { None };
+
+        let result = self.eval_arrayfun_inner(func, input);
+
+        if let (Some(t0), Ok(ref v)) = (t0, &result) {
+            let ns = t0.elapsed().as_nanos() as u64;
+            self.profiler.record("arrayfun", ns, in_bytes, Self::value_bytes(v));
+        }
+        result
+    }
+
+    fn eval_arrayfun_inner(&mut self, func: Value, input: Value) -> Result<Value, ScriptError> {
         let elements: Vec<Value> = match &input {
             Value::Vector(v) => v.iter().map(|&c| {
                 if c.im == 0.0 { Value::Scalar(c.re) } else { Value::Complex(c) }
@@ -631,21 +695,26 @@ impl Evaluator {
         }
         if let Some(env_val) = self.env.get(name).cloned() {
             if let Value::Lambda { params, body, captured_env } = env_val {
-                return self.eval_lambda_call(&params, &body, captured_env, args);
+                return self.eval_lambda_call(name, &params, &body, captured_env, args);
             }
         }
-        self.builtins.call(name, args)
+        self.call_builtin_tracked(name, args)
     }
 
     /// Invoke any callable value (Lambda or FuncHandle) with the given args.
-    /// Used by `eval_arrayfun` and any future higher-order functions.
+    /// Used by `eval_arrayfun` — inner calls are not tracked individually (outer captures total).
     fn call_callable(&mut self, func: Value, args: Vec<Value>) -> Result<Value, ScriptError> {
         match func {
             Value::Lambda { params, body, captured_env } => {
-                self.eval_lambda_call(&params, &body, captured_env, args)
+                // Empty call_name suppresses per-call profiling; outer arrayfun captures total time.
+                self.eval_lambda_call("", &params, &body, captured_env, args)
             }
             Value::FuncHandle(name) => {
-                self.eval_feval(&name, args)
+                // Suppress inner tracking — outer (arrayfun) captures total time.
+                self.profiler.enter_higher_order();
+                let result = self.eval_feval(&name, args);
+                self.profiler.exit_higher_order();
+                result
             }
             other => Err(ScriptError::Runtime(format!(
                 "arrayfun: first argument must be a lambda or function handle, got {}", other.type_name()
@@ -654,9 +723,13 @@ impl Evaluator {
     }
 
     /// Call a lambda value with its captured environment.
-    /// `arrayfun` and `feval` also use this path for Lambda values.
+    ///
+    /// `call_name` is the variable name at the call site (e.g. `"f"` for `f(3)`).
+    /// Pass `""` when invoking as a callback (arrayfun inner calls) — profiling is suppressed
+    /// and the outer higher-order function's time captures the total cost instead.
     fn eval_lambda_call(
         &mut self,
+        call_name: &str,
         params: &[String],
         body: &Expr,
         captured_env: HashMap<String, Value>,
@@ -667,17 +740,30 @@ impl Evaluator {
                 "lambda expects {} argument(s), got {}", params.len(), args.len()
             )));
         }
+
+        // Profiling: check before entering scope (while higher_order_depth is still outer value)
+        let tracking = !call_name.is_empty() && self.profiler.should_track(call_name);
+        let in_bytes: u64 = if tracking { args.iter().map(Self::value_bytes).sum() } else { 0 };
+        let t0 = if tracking { Some(std::time::Instant::now()) } else { None };
+
         // Save outer env; install captured env + parameter bindings
         let saved_env = std::mem::replace(&mut self.env, captured_env);
         let saved_in_fn = self.in_function;
         self.in_function = true;
-        for (name, val) in params.iter().zip(args) {
-            self.env.insert(name.clone(), val);
+        self.profiler.enter_higher_order(); // suppress inner function call recording
+        for (pname, val) in params.iter().zip(args) {
+            self.env.insert(pname.clone(), val);
         }
         let result = self.eval_expr(body);
         // Restore outer env
         self.env = saved_env;
         self.in_function = saved_in_fn;
+        self.profiler.exit_higher_order();
+
+        if let (true, Some(t0), Ok(ref v)) = (tracking, t0, &result) {
+            let ns = t0.elapsed().as_nanos() as u64;
+            self.profiler.record(call_name, ns, in_bytes, Self::value_bytes(v));
+        }
         result
     }
 
@@ -688,10 +774,17 @@ impl Evaluator {
                 "function expects {} argument(s), got {}", func.params.len(), args.len()
             )));
         }
+
+        // Profiling: check before entering scope
+        let tracking = self.profiler.should_track(&func.name);
+        let in_bytes: u64 = if tracking { args.iter().map(Self::value_bytes).sum() } else { 0 };
+        let t0 = if tracking { Some(std::time::Instant::now()) } else { None };
+
         // Save outer env and function flag
         let saved_env = std::mem::take(&mut self.env);
         let saved_in_fn = self.in_function;
         self.in_function = true;
+        self.profiler.enter_higher_order(); // suppress inner call recordings
         // Seed with built-in constants
         for name in &["i", "j", "pi", "e"] {
             if let Some(v) = saved_env.get(*name) {
@@ -703,11 +796,11 @@ impl Evaluator {
             self.env.insert(param.clone(), val);
         }
         // Run body — EarlyReturn is not an error, just early exit
-        let run_result = self.run(&func.body);
-        if let Err(ScriptError::EarlyReturn) = run_result {
-            // normal early return — continue to extract return value
-        } else {
-            run_result?;
+        let mut body_err: Option<ScriptError> = None;
+        match self.run(&func.body) {
+            Err(ScriptError::EarlyReturn) => {}  // normal early return
+            Err(e) => { body_err = Some(e); }
+            Ok(()) => {}
         }
         // Extract return value from function scope
         let ret_val = if let Some(ref ret) = func.return_var {
@@ -718,7 +811,43 @@ impl Evaluator {
         // Restore outer env and function flag
         self.env = saved_env;
         self.in_function = saved_in_fn;
+        self.profiler.exit_higher_order();
+
+        // Record if tracking and no error
+        if let (true, Some(t0), None) = (tracking, t0, &body_err) {
+            let ns = t0.elapsed().as_nanos() as u64;
+            self.profiler.record(&func.name, ns, in_bytes, Self::value_bytes(&ret_val));
+        }
+
+        if let Some(e) = body_err { return Err(e); }
         Ok(ret_val)
+    }
+
+    /// Call a builtin, recording timing and IO bytes if profiling is active for this name.
+    fn call_builtin_tracked(&mut self, name: &str, vals: Vec<Value>) -> Result<Value, ScriptError> {
+        if !self.profiler.should_track(name) {
+            return self.builtins.call(name, vals);
+        }
+        let in_bytes: u64 = vals.iter().map(Self::value_bytes).sum();
+        let t0     = std::time::Instant::now();
+        let result = self.builtins.call(name, vals);
+        let ns     = t0.elapsed().as_nanos() as u64;
+        if let Ok(ref v) = result {
+            self.profiler.record(name, ns, in_bytes, Self::value_bytes(v));
+        }
+        result
+    }
+
+    /// Approximate byte size of a Value for IO throughput accounting.
+    /// Only numeric types are counted; strings, structs, etc. return 0.
+    fn value_bytes(v: &Value) -> u64 {
+        match v {
+            Value::Scalar(_)  => 8,
+            Value::Complex(_) => 16,
+            Value::Vector(v)  => (v.len() * 16) as u64,
+            Value::Matrix(m)  => (m.nrows() * m.ncols() * 16) as u64,
+            _                 => 0,
+        }
     }
 }
 

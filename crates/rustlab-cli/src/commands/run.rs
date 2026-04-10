@@ -5,6 +5,11 @@ use anyhow::{Context, Result};
 pub struct RunArgs {
     /// Path to a .r script file
     pub script: std::path::PathBuf,
+
+    /// Profile all function calls and print a report to stderr on exit.
+    /// For selective profiling, add profile(fn1, fn2) inside the script instead.
+    #[arg(long)]
+    pub profile: bool,
 }
 
 pub fn execute(args: RunArgs) -> Result<()> {
@@ -16,5 +21,9 @@ pub fn execute(args: RunArgs) -> Result<()> {
         std::env::set_current_dir(dir)
             .with_context(|| format!("failed to chdir to {:?}", dir))?;
     }
-    rustlab_script::run(&source).map_err(|e| anyhow::anyhow!("{}", e))
+    if args.profile {
+        rustlab_script::run_profiled(&source).map_err(|e| anyhow::anyhow!("{}", e))
+    } else {
+        rustlab_script::run(&source).map_err(|e| anyhow::anyhow!("{}", e))
+    }
 }

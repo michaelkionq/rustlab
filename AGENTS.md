@@ -314,15 +314,20 @@ cargo install --path crates/rustlab-cli   # → ~/.cargo/bin/rustlab
 **Key files:**
 - `src/lexer.rs` — hand-written lexer → `Vec<Spanned<Token>>`
 - `src/parser.rs` — recursive-descent parser → `Vec<Stmt>`
-- `src/ast.rs` — `Stmt` (Assign, Expr, FunctionDef, FieldAssign, Return), `Expr` (Number, Str, Var, BinOp, UnaryMinus, Call, Matrix, Range, Transpose, Field), `BinOp`
-- `src/eval/mod.rs` — `Evaluator` struct: holds `env: HashMap<String, Value>`, `builtins: BuiltinRegistry`, `user_fns: HashMap<String, UserFn>`, `in_function: bool`
-- `src/eval/value.rs` — `Value` enum: `Scalar(f64)`, `Complex(C64)`, `Vector(CVector)`, `Matrix(CMatrix)`, `Str(String)`, `Struct(HashMap<String,Value>)`, `Bool(bool)`, `QFmt`, `All`, `None`
+- `src/ast.rs` — `Stmt` (Assign, Expr, FunctionDef, FieldAssign, Return), `Expr` (Number, Str, Var, BinOp, UnaryMinus, Call, Matrix, Range, Transpose, Field, Lambda, FuncHandle), `BinOp`
+- `src/eval/mod.rs` — `Evaluator` struct: holds `env`, `builtins`, `user_fns`, `in_function`, `profiler: profile::Profiler`; public API: `run()`, `run_script()`, `enable_profiling()`, `has_profile_data()`, `take_profile()`
+- `src/eval/value.rs` — `Value` enum: `Scalar(f64)`, `Complex(C64)`, `Vector(CVector)`, `Matrix(CMatrix)`, `Str(String)`, `Struct(HashMap<String,Value>)`, `Bool(bool)`, `Lambda { params, body, captured_env }`, `FuncHandle(String)`, `QFmt`, `All`, `None`
 - `src/eval/builtins.rs` — `BuiltinRegistry`: `HashMap<String, BuiltinFn>` where `BuiltinFn = fn(Vec<Value>) -> Result<Value, ScriptError>`
-- `src/lib.rs` — public entry point: `run(source: &str)`, `Evaluator`
+- `src/eval/profile.rs` — `Profiler` struct (opt-in, zero overhead when disabled); `print_report()` prints table to stderr
+- `src/lib.rs` — public entry points: `run(source)`, `run_profiled(source)`
 
 **Pre-populated environment constants:** `j = Complex(0,1)`, `pi = 3.14159…`, `e = 2.71828…`
 
-**How `Call` nodes are evaluated:** At eval time, if the name exists in `env` as a `Vector` or `Matrix`, it is treated as 1-based indexing — `end` is temporarily bound to the vector length. Otherwise it is a `BuiltinRegistry` call.
+**How `Call` nodes are evaluated:** At eval time, if the name exists in `env` as a `Vector` or `Matrix`, it is treated as 1-based indexing — `end` is temporarily bound to the vector length. If the name holds a `Lambda`, it is called with its captured environment. Otherwise it is a `BuiltinRegistry` call.
+
+**Lambda / anonymous functions:** `@(x, y) expr` creates a `Value::Lambda` that captures the current env by snapshot. `@name` creates a `Value::FuncHandle` that lazily resolves to a lambda clone (if `name` holds a lambda) or dispatches to a builtin/user function. `arrayfun(f, v)` maps any callable over a vector, returning a `Vector` (all scalar outputs) or a `Matrix` (all vector outputs of equal length). `feval("name", args...)` calls a function by string name.
+
+**Profiling:** `profile(fn1, fn2)` inside a script enables selective tracking of named functions. `profile()` with no args tracks all calls. `profile_report()` prints a mid-script report to stderr. `--profile` CLI flag (on `rustlab run`) tracks all calls without modifying the script. `Profiler` uses a `higher_order_depth` counter so inner callbacks inside `arrayfun` or user functions are not recorded individually — only the outer call's total time is captured. Zero overhead when disabled.
 
 **Adding a new builtin function:**
 1. Write `fn builtin_foo(args: Vec<Value>) -> Result<Value, ScriptError>` in `src/eval/builtins.rs`
@@ -383,6 +388,8 @@ primary     = NUMBER | STRING | IDENT
             | "[" range_row (";" range_row)* "]"
             | "(" range_expr ")"
             | "-" primary
+            | "@" "(" params ")" expr           # anonymous function (lambda)
+            | "@" IDENT                         # function handle
 ```
 
 ### Key language behaviours
@@ -397,6 +404,11 @@ primary     = NUMBER | STRING | IDENT
 | Indexed assign | `v(i) = val`, `M(r,c) = val` | Vectors auto-created/grown; matrices must exist |
 | Chained index | `f(a,b)(i)` | Index return value of any call without a temp variable |
 | For loop | `for i = 1:n ... end` | Iterates over range or vector; loop var stays in scope |
+| Lambda | `f = @(x) x^2` | Creates anonymous function; captures env by snapshot at creation |
+| Function handle | `@sin`, `@myFn` | Reference to builtin or user-defined function |
+| Higher-order | `arrayfun(@sin, v)` | Maps callable over vector; scalar outputs → Vector, vector outputs → Matrix |
+| Dynamic call | `feval("name", args...)` | Call function by string name |
+| Profile | `profile(fn1, fn2)` / `profile()` | Track named functions (or all); `profile_report()` prints mid-script |
 | Concatenation | `[v1, v2]` | Vectors inside `[...]` are flattened |
 | Transpose | `v'` | Conjugate transpose |
 | Element-wise | `.*` `./` `.^` | Always element-wise on vectors/matrices |
@@ -436,6 +448,10 @@ primary     = NUMBER | STRING | IDENT
 | `filtfilt` | `filtfilt(b, a, x)` | Zero-phase forward-backward IIR filter; use `a=[1]` for FIR |
 | `prod` | `prod(v)` | Product of all elements (Vector or Matrix); returns Scalar |
 | `firpmq` | `firpmq(n_taps, bands, desired [, weights [, bits [, n_iter]]])` | Integer-coefficient Parks-McClellan; defaults bits=16, n_iter=8. Returns integer-valued taps. For unit-gain passband, `sum(h_int)` equals the scale factor — use `freqz(h_int / sum(h_int), ...)` to verify. |
+| `arrayfun` | `arrayfun(f, v)` | Apply callable `f` to each element of `v`; scalar outputs → Vector, vector outputs → Matrix |
+| `feval` | `feval("name", args...)` | Call function by string name |
+| `profile` | `profile(fn1, ...)` / `profile()` | Enable selective (or all-function) call profiling in-script |
+| `profile_report` | `profile_report()` | Print profiling table to stderr immediately |
 
 Window names: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`
 

@@ -64,5 +64,16 @@ pub fn run(source: &str) -> Result<(), ScriptError> {
     let tokens = lexer::tokenize(source)?;
     let stmts  = parser::parse(tokens)?;
     let mut ev = Evaluator::new();
-    ev.run(&stmts)
+    ev.run_script(&stmts)
+}
+
+/// Execute a `.r` script with `--profile`-style tracking of all function calls.
+/// Equivalent to calling `profile()` at the top of the script.
+/// The profiling report is printed to stderr at the end.
+pub fn run_profiled(source: &str) -> Result<(), ScriptError> {
+    let tokens = lexer::tokenize(source)?;
+    let stmts  = parser::parse(tokens)?;
+    let mut ev = Evaluator::new();
+    ev.enable_profiling(None);
+    ev.run_script(&stmts)
 }
