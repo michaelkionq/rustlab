@@ -1022,7 +1022,7 @@ dependencies = [
 
 [[package]]
 name = "rustlab-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -1038,7 +1038,7 @@ dependencies = [
 
 [[package]]
 name = "rustlab-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ndarray",
  "ndarray-linalg",
@@ -1048,7 +1048,7 @@ dependencies = [
 
 [[package]]
 name = "rustlab-dsp"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ndarray",
  "num-complex",
@@ -1058,7 +1058,7 @@ dependencies = [
 
 [[package]]
 name = "rustlab-plot"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "crossterm",
  "ndarray",
@@ -1071,7 +1071,7 @@ dependencies = [
 
 [[package]]
 name = "rustlab-script"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "ndarray",
