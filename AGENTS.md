@@ -452,6 +452,15 @@ primary     = NUMBER | STRING | IDENT
 | `feval` | `feval("name", args...)` | Call function by string name |
 | `profile` | `profile(fn1, ...)` / `profile()` | Enable selective (or all-function) call profiling in-script |
 | `profile_report` | `profile_report()` | Print profiling table to stderr immediately |
+| `logspace` | `logspace(a, b, n)` | n log-spaced points from 10^a to 10^b |
+| `rk4` | `rk4(f, x0, t)` | Fixed-step 4th-order Runge-Kutta; f(x,t)→x_dot; returns vector (1-state) or n×T matrix |
+| `lyap` | `lyap(A, Q)` | Solve A*X + X*A' + Q = 0 (Kronecker vectorization; n≤50 practical) |
+| `gram` | `gram(A, B, "c")` / `gram(A, C, "o")` | Controllability or observability Gramian via lyap |
+| `care` | `care(A, B, Q, R)` | Continuous Algebraic Riccati Equation → P |
+| `dare` | `dare(A, B, Q, R)` | Discrete Algebraic Riccati Equation → P |
+| `place` | `place(A, B, poles)` | Ackermann pole placement (SISO only) → gain vector K |
+| `freqresp` | `freqresp(A, B, C, D, w)` | H(jω) at each ω; SISO → complex vector, MIMO → complex matrix |
+| `svd` | `svd(A)` | Jacobi SVD (real); returns Tuple [U, sigma_vector, V] |
 
 Window names: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`
 

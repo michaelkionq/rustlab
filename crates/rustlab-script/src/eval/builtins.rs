@@ -200,6 +200,15 @@ impl BuiltinRegistry {
         // Optimal control (Phase 5)
         r.register("lqr",    builtin_lqr);
         r.register("rlocus", builtin_rlocus);
+        // Controls bootcamp
+        r.register("logspace",  builtin_logspace);
+        r.register("lyap",      builtin_lyap);
+        r.register("gram",      builtin_gram);
+        r.register("care",      builtin_care);
+        r.register("dare",      builtin_dare);
+        r.register("place",     builtin_place);
+        r.register("freqresp",  builtin_freqresp);
+        r.register("svd",       builtin_svd);
         // Struct construction
         r.register("struct",    builtin_struct);
         // Type inspection
@@ -4494,4 +4503,380 @@ fn extract_xy_path_title(args: &[Value], name: &str) -> Result<(Vec<f64>, Vec<f6
         }
         _ => Err(ScriptError::Type(format!("{name}: wrong number of arguments"))),
     }
+}
+
+// ─── Controls Bootcamp builtins ───────────────────────────────────────────────
+
+/// logspace(a, b, n) — n log-spaced points from 10^a to 10^b (MATLAB convention).
+fn builtin_logspace(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("logspace", &args, 3)?;
+    let a = args[0].to_scalar().map_err(|_| ScriptError::Type(
+        "logspace: a must be a real scalar".to_string()))?;
+    let b = args[1].to_scalar().map_err(|_| ScriptError::Type(
+        "logspace: b must be a real scalar".to_string()))?;
+    let n = match &args[2] {
+        Value::Scalar(s) => (*s as usize).max(1),
+        other => return Err(ScriptError::Type(format!(
+            "logspace: n must be a scalar, got {}", other.type_name()))),
+    };
+    let vals: CVector = Array1::from_iter((0..n).map(|i| {
+        let t = if n == 1 { 0.0 } else { i as f64 / (n - 1) as f64 };
+        Complex::new(10.0_f64.powf(a + t * (b - a)), 0.0)
+    }));
+    Ok(Value::Vector(vals))
+}
+
+/// lyap(A, Q) — solves A*X + X*A' + Q = 0 for X via Kronecker vectorization.
+fn builtin_lyap(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("lyap", &args, 2)?;
+    let a = to_cmatrix_arg(&args[0], "lyap", "A")?;
+    let q = to_cmatrix_arg(&args[1], "lyap", "Q")?;
+    let x = lyap_solve(&a, &q).map_err(ScriptError::Runtime)?;
+    Ok(Value::Matrix(x))
+}
+
+/// Internal Lyapunov solver: A*X + X*A' + Q = 0.
+fn lyap_solve(a: &CMatrix, q: &CMatrix) -> Result<CMatrix, String> {
+    let n = a.nrows();
+    if a.ncols() != n {
+        return Err(format!("lyap: A must be square (got {}×{})", n, a.ncols()));
+    }
+    if q.nrows() != n || q.ncols() != n {
+        return Err(format!("lyap: Q must be {}×{} (got {}×{})", n, n, q.nrows(), q.ncols()));
+    }
+    if n > 50 {
+        eprintln!("lyap: warning: n={} — Kronecker approach is O(n^4); consider smaller systems", n);
+    }
+    let n2 = n * n;
+    let mut km: CMatrix = Array2::zeros((n2, n2));
+    for i in 0..n {
+        for j in 0..n {
+            for k in 0..n {
+                // AX term: K[i*n+k, j*n+k] += A[i,j]
+                km[[i * n + k, j * n + k]] += a[[i, j]];
+                // XA' term: K[i*n+k, i*n+j] += conj(A[k,j])
+                km[[i * n + k, i * n + j]] += a[[k, j]].conj();
+            }
+        }
+    }
+    let mut q_col: CMatrix = Array2::zeros((n2, 1));
+    for i in 0..n {
+        for j in 0..n {
+            q_col[[i * n + j, 0]] = q[[i, j]];
+        }
+    }
+    let km_inv = matrix_inv(&km).map_err(|e| format!(
+        "lyap: coefficient matrix singular ({e}); system may be unstable"))?;
+    let x_col = mat_mul_cx(&km_inv, &q_col.mapv(|c| -c));
+    let mut x: CMatrix = Array2::zeros((n, n));
+    for i in 0..n {
+        for j in 0..n {
+            x[[i, j]] = x_col[[i * n + j, 0]];
+        }
+    }
+    Ok(x)
+}
+
+/// gram(A, B, type) — controllability ("c") or observability ("o") Gramian via lyap.
+/// For "c": A*W + W*A' + B*B' = 0  (B is n×m input matrix)
+/// For "o": A'*W + W*A + C'*C = 0  (C is p×n output matrix)
+/// If C is passed as a vector it is treated as a 1×n row (1 output).
+fn builtin_gram(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("gram", &args, 3)?;
+    let a = to_cmatrix_arg(&args[0], "gram", "A")?;
+    let kind = args[2].to_str().map_err(ScriptError::Type)?;
+    let n = a.nrows();
+
+    let w = match kind.as_str() {
+        "c" => {
+            let b = to_cmatrix_arg(&args[1], "gram", "B")?;
+            let bt: CMatrix = b.t().mapv(|c| c.conj()).to_owned();
+            lyap_solve(&a, &mat_mul_cx(&b, &bt)).map_err(ScriptError::Runtime)?
+        }
+        "o" => {
+            // C may arrive as a column vector (from script [1,0]) — transpose to row
+            let c_raw = to_cmatrix_arg(&args[1], "gram", "C")?;
+            let c: CMatrix = if c_raw.nrows() == n && c_raw.ncols() != n {
+                // Looks like it came in as a column — treat as 1×n row
+                c_raw.t().mapv(|x| x.conj()).to_owned()
+            } else {
+                c_raw
+            };
+            let at: CMatrix = a.t().mapv(|x| x.conj()).to_owned();
+            let ct: CMatrix = c.t().mapv(|x| x.conj()).to_owned();
+            lyap_solve(&at, &mat_mul_cx(&ct, &c)).map_err(ScriptError::Runtime)?
+        }
+        other => return Err(ScriptError::Type(format!(
+            "gram: type must be \"c\" or \"o\", got {:?}", other))),
+    };
+    Ok(Value::Matrix(w))
+}
+
+/// Internal CARE solver: A'P + PA - PBR⁻¹B'P + Q = 0 via Hamiltonian eigendecomposition.
+fn solve_care(a: &CMatrix, b: &CMatrix, q: &CMatrix, r: &CMatrix) -> Result<CMatrix, ScriptError> {
+    let n = a.nrows();
+    let r_inv = matrix_inv(r)
+        .map_err(|e| ScriptError::Type(format!("care: R is singular: {}", e)))?;
+    let bt: CMatrix = b.t().mapv(|c| c.conj()).to_owned();
+    let g = mat_mul_cx(&mat_mul_cx(b, &r_inv), &bt);
+
+    let two_n = 2 * n;
+    let mut ham: CMatrix = Array2::zeros((two_n, two_n));
+    for i in 0..n {
+        for j in 0..n {
+            ham[[i,     j    ]] =  a[[i, j]];
+            ham[[i,     n + j]] = -g[[i, j]];
+            ham[[n + i, j    ]] = -q[[i, j]];
+            ham[[n + i, n + j]] = -a[[j, i]].conj();
+        }
+    }
+    let all_eigs = eig_hessenberg(&hessenberg_reduce(&ham))
+        .map_err(|e| ScriptError::Type(format!("care: Hamiltonian eig failed: {}", e)))?;
+    let mut stable: Vec<C64> = all_eigs.iter().filter(|e| e.re < -1e-10).cloned().collect();
+    if stable.len() < n {
+        return Err(ScriptError::Type(format!(
+            "care: only {} stable eigenvalues (need {}); system not stabilizable",
+            stable.len(), n)));
+    }
+    stable.sort_by(|a, b| a.re.partial_cmp(&b.re).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut v_mat: CMatrix = Array2::zeros((two_n, n));
+    for (col, &lam) in stable[..n].iter().enumerate() {
+        let v = inverse_iteration_cx(&ham, lam, 40)?;
+        for i in 0..two_n { v_mat[[i, col]] = v[i]; }
+    }
+    let mut v1: CMatrix = Array2::zeros((n, n));
+    let mut v2: CMatrix = Array2::zeros((n, n));
+    for i in 0..n { for j in 0..n {
+        v1[[i,j]] = v_mat[[i,     j]];
+        v2[[i,j]] = v_mat[[n + i, j]];
+    }}
+    let p_cx = mat_mul_cx(&v2, &matrix_inv(&v1)
+        .map_err(|e| ScriptError::Type(format!("care: eigenvector matrix singular: {}", e)))?);
+    let mut p: CMatrix = Array2::zeros((n, n));
+    for i in 0..n { for j in 0..n {
+        let v = (p_cx[[i,j]] + p_cx[[j,i]].conj()) / 2.0;
+        p[[i,j]] = Complex::new(v.re, 0.0);
+    }}
+    Ok(p)
+}
+
+/// care(A, B, Q, R) — solves A'P + PA - PBR⁻¹B'P + Q = 0 for P.
+fn builtin_care(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("care", &args, 4)?;
+    let a = to_cmatrix_arg(&args[0], "care", "A")?;
+    let b = to_cmatrix_arg(&args[1], "care", "B")?;
+    let q = to_cmatrix_arg(&args[2], "care", "Q")?;
+    let r = to_cmatrix_arg(&args[3], "care", "R")?;
+    Ok(Value::Matrix(solve_care(&a, &b, &q, &r)?))
+}
+
+/// dare(A, B, Q, R) — solves P = A'PA - A'PB*(R+B'PB)⁻¹*B'PA + Q via value iteration.
+fn builtin_dare(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("dare", &args, 4)?;
+    let a  = to_cmatrix_arg(&args[0], "dare", "A")?;
+    let b  = to_cmatrix_arg(&args[1], "dare", "B")?;
+    let q  = to_cmatrix_arg(&args[2], "dare", "Q")?;
+    let r  = to_cmatrix_arg(&args[3], "dare", "R")?;
+    let n  = a.nrows();
+    if a.ncols() != n { return Err(ScriptError::Type("dare: A must be square".to_string())); }
+    let at: CMatrix = a.t().mapv(|c| c.conj()).to_owned();
+    let bt: CMatrix = b.t().mapv(|c| c.conj()).to_owned();
+    let mut p = q.clone();
+    for _ in 0..1000 {
+        let pb    = mat_mul_cx(&p, &b);
+        let s_inv = matrix_inv(&(r.clone() + mat_mul_cx(&bt, &pb)))
+            .map_err(|e| ScriptError::Type(format!("dare: (R+B'PB) singular: {}", e)))?;
+        let pa    = mat_mul_cx(&p, &a);
+        let k     = mat_mul_cx(&s_inv, &mat_mul_cx(&bt, &pa));
+        let p_new = mat_mul_cx(&at, &pa) - mat_mul_cx(&mat_mul_cx(&at, &pb), &k) + q.clone();
+        let diff: f64 = (0..n).flat_map(|i| (0..n).map(move |j| (i,j)))
+            .map(|(i,j)| (p_new[[i,j]] - p[[i,j]]).norm()).fold(0.0_f64, f64::max);
+        p = p_new;
+        if diff < 1e-10 { break; }
+    }
+    Ok(Value::Matrix(p))
+}
+
+/// place(A, B, poles) — Ackermann's formula (SISO only).
+/// Returns K (length-n vector) such that eig(A - B*K) ≈ poles.
+fn builtin_place(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("place", &args, 3)?;
+    let a = to_cmatrix_arg(&args[0], "place", "A")?;
+    let b = to_cmatrix_arg(&args[1], "place", "B")?;
+    let poles = args[2].to_cvector().map_err(ScriptError::Type)?;
+    let n = a.nrows();
+    if a.ncols() != n { return Err(ScriptError::Type("place: A must be square".to_string())); }
+    if b.ncols() != 1 { return Err(ScriptError::Type(format!(
+        "place: only SISO supported (B must be n×1, got n×{})", b.ncols()))); }
+    if b.nrows() != n { return Err(ScriptError::Type(format!(
+        "place: B rows={} but A is {}×{}", b.nrows(), n, n))); }
+    if poles.len() != n { return Err(ScriptError::Type(format!(
+        "place: {} poles but A is {}×{}", poles.len(), n, n))); }
+
+    // Controllability matrix
+    let mut cols: Vec<CMatrix> = vec![b.clone()];
+    for _ in 1..n { cols.push(a.dot(cols.last().unwrap())); }
+    let ctrb_data: Vec<C64> = (0..n)
+        .flat_map(|r| cols.iter().map(move |col| col[[r, 0]])).collect();
+    let ctrb_inv = matrix_inv(
+        &Array2::from_shape_vec((n, n), ctrb_data).map_err(|e| ScriptError::Runtime(e.to_string()))?)
+        .map_err(|e| ScriptError::Type(format!("place: not controllable: {}", e)))?;
+
+    // Characteristic polynomial from desired poles
+    let mut poly: Vec<C64> = vec![Complex::new(1.0, 0.0)];
+    for &r in poles.iter() {
+        let mut new_poly = vec![Complex::new(0.0, 0.0); poly.len() + 1];
+        for (k, &c) in poly.iter().enumerate() {
+            new_poly[k] += c;
+            new_poly[k + 1] -= r * c;
+        }
+        poly = new_poly;
+    }
+
+    // Evaluate p(A) via Horner
+    let mut pa: CMatrix = Array2::eye(n);
+    for k in 1..=n {
+        pa = mat_mul_cx(&pa, &a);
+        let ck = poly[k];
+        for i in 0..n { pa[[i, i]] += ck; }
+    }
+
+    // K = e_n' * inv(ctrb) * p(A)
+    let mut en: CMatrix = Array2::zeros((1, n));
+    en[[0, n - 1]] = Complex::new(1.0, 0.0);
+    let k_mat = mat_mul_cx(&mat_mul_cx(&en, &ctrb_inv), &pa);
+    Ok(Value::Vector(Array1::from_iter((0..n).map(|j| k_mat[[0, j]]))))
+}
+
+/// freqresp(A, B, C, D, w) — H(jω) = C*(jω*I-A)^{-1}*B + D evaluated at each ω in w.
+/// Returns complex vector (SISO) or complex matrix outputs×freqs (MIMO).
+/// C may be passed as a vector (treated as a 1×n row output matrix).
+fn builtin_freqresp(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("freqresp", &args, 5)?;
+    let a = to_cmatrix_arg(&args[0], "freqresp", "A")?;
+    let b = to_cmatrix_arg(&args[1], "freqresp", "B")?;
+    let c_raw = to_cmatrix_arg(&args[2], "freqresp", "C")?;
+    let n = a.nrows();
+    // If C came in as a vector it becomes n×1; treat as 1×n row instead.
+    let c = if c_raw.nrows() == n && c_raw.ncols() == 1 {
+        c_raw.t().mapv(|x| x.conj()).to_owned()
+    } else {
+        c_raw
+    };
+    let d = to_cmatrix_arg(&args[3], "freqresp", "D")?;
+    let w_val = args[4].to_cvector().map_err(ScriptError::Type)?;
+    let np = c.nrows();
+    let nw = w_val.len();
+    if a.ncols() != n { return Err(ScriptError::Type("freqresp: A must be square".to_string())); }
+    let eye_n: CMatrix = Array2::eye(n);
+    let mut h_mat: CMatrix = Array2::zeros((np, nw));
+    for (k, &w_c) in w_val.iter().enumerate() {
+        let jw = Complex::new(0.0, w_c.re);
+        let mut jwia: CMatrix = eye_n.mapv(|x| x * jw);
+        for i in 0..n { for j in 0..n { jwia[[i,j]] -= a[[i,j]]; } }
+        let jwia_inv = matrix_inv(&jwia).map_err(|e| ScriptError::Runtime(format!(
+            "freqresp: singular at ω={:.4}: {}", w_c.re, e)))?;
+        let cb = mat_mul_cx(&c, &mat_mul_cx(&jwia_inv, &b));
+        for p in 0..np { h_mat[[p, k]] = cb[[p, 0]] + d[[p, 0]]; }
+    }
+    if np == 1 { Ok(Value::Vector(h_mat.row(0).to_owned())) } else { Ok(Value::Matrix(h_mat)) }
+}
+
+/// svd(A) — one-sided Jacobi SVD (real matrices; imaginary part discarded with warning).
+/// Returns Tuple [U, sigma_vector, V] where A ≈ U * diag(sigma) * V'.
+fn builtin_svd(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("svd", &args, 1)?;
+    let m = to_cmatrix_arg(&args[0], "svd", "A")?;
+    let max_im: f64 = m.iter().map(|c| c.im.abs()).fold(0.0_f64, f64::max);
+    let max_re: f64 = m.iter().map(|c| c.re.abs()).fold(0.0_f64, f64::max);
+    if max_im > 1e-10 * max_re.max(1e-300) {
+        eprintln!("svd: warning: imaginary part discarded (max |im|={:.3e})", max_im);
+    }
+    let rows = m.nrows();
+    let cols = m.ncols();
+    let ar: Vec<Vec<f64>> = (0..rows).map(|i| (0..cols).map(|j| m[[i,j]].re).collect()).collect();
+    let (u_r, sv, v_r) = jacobi_svd(&ar, rows, cols);
+    let ns = rows.min(cols);
+    Ok(Value::Tuple(vec![
+        Value::Matrix(Array2::from_shape_fn((rows, rows), |(i,j)| Complex::new(u_r[i][j], 0.0))),
+        Value::Vector(Array1::from_iter(sv[..ns].iter().map(|&s| Complex::new(s, 0.0)))),
+        Value::Matrix(Array2::from_shape_fn((cols, cols), |(i,j)| Complex::new(v_r[i][j], 0.0))),
+    ]))
+}
+
+/// One-sided Jacobi SVD for a real rows×cols matrix.
+/// Returns (U rows×rows, singular_values, V cols×cols).
+fn jacobi_svd(a: &[Vec<f64>], rows: usize, cols: usize) -> (Vec<Vec<f64>>, Vec<f64>, Vec<Vec<f64>>) {
+    let mut b = a.to_vec();
+    let mut v: Vec<Vec<f64>> = (0..cols).map(|j| {
+        let mut row = vec![0.0; cols]; row[j] = 1.0; row
+    }).collect();
+    let eps = f64::EPSILON;
+    for _ in 0..100 * cols * cols {
+        let mut converged = true;
+        for p in 0..cols {
+            for q in (p + 1)..cols {
+                let alpha: f64 = (0..rows).map(|i| b[i][p] * b[i][p]).sum();
+                let beta:  f64 = (0..rows).map(|i| b[i][q] * b[i][q]).sum();
+                let gamma: f64 = (0..rows).map(|i| b[i][p] * b[i][q]).sum();
+                if gamma.abs() <= eps * (alpha * beta).sqrt() { continue; }
+                converged = false;
+                let zeta = (beta - alpha) / (2.0 * gamma);
+                let t = if zeta >= 0.0 {
+                    1.0 / (zeta + (1.0 + zeta * zeta).sqrt())
+                } else {
+                    -1.0 / (-zeta + (1.0 + zeta * zeta).sqrt())
+                };
+                let c = 1.0 / (1.0 + t * t).sqrt();
+                let s = c * t;
+                for i in 0..rows {
+                    let bp = b[i][p]; let bq = b[i][q];
+                    b[i][p] = c * bp + s * bq;
+                    b[i][q] = -s * bp + c * bq;
+                }
+                for i in 0..cols {
+                    let vp = v[i][p]; let vq = v[i][q];
+                    v[i][p] = c * vp + s * vq;
+                    v[i][q] = -s * vp + c * vq;
+                }
+            }
+        }
+        if converged { break; }
+    }
+    let mut pairs: Vec<(f64, usize)> = (0..cols).map(|j| (
+        (0..rows).map(|i| b[i][j] * b[i][j]).sum::<f64>().sqrt(), j
+    )).collect();
+    pairs.sort_by(|a, b_| b_.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut u: Vec<Vec<f64>> = vec![vec![0.0; rows]; rows];
+    let mut sv = vec![0.0; cols];
+    let mut v_out: Vec<Vec<f64>> = vec![vec![0.0; cols]; cols];
+    for (new_j, &(sigma, old_j)) in pairs.iter().enumerate() {
+        sv[new_j] = sigma;
+        for i in 0..rows { u[i][new_j] = if sigma > 0.0 { b[i][old_j] / sigma } else { 0.0 }; }
+        for i in 0..cols { v_out[i][new_j] = v[i][old_j]; }
+    }
+    // Fill remaining U columns (Gram-Schmidt)
+    if rows > cols {
+        let mut basis: Vec<Vec<f64>> = (0..cols).map(|j| (0..rows).map(|i| u[i][j]).collect()).collect();
+        'gs: for e in 0..rows {
+            let mut cand = vec![0.0; rows]; cand[e] = 1.0;
+            for bv in &basis {
+                let dot: f64 = cand.iter().zip(bv).map(|(a,b)| a*b).sum();
+                for i in 0..rows { cand[i] -= dot * bv[i]; }
+            }
+            let norm: f64 = cand.iter().map(|x| x*x).sum::<f64>().sqrt();
+            if norm > 1e-10 {
+                for x in &mut cand { *x /= norm; }
+                let idx = basis.len();
+                if idx < rows {
+                    for i in 0..rows { u[i][idx] = cand[i]; }
+                    basis.push(cand);
+                    if basis.len() == rows { break 'gs; }
+                }
+            }
+        }
+    }
+    (u, sv, v_out)
 }

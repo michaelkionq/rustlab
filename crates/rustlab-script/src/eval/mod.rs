@@ -425,6 +425,12 @@ impl Evaluator {
                     let input    = self.eval_expr(&args[1])?;
                     return self.eval_arrayfun(func_val, input);
                 }
+                if name == "rk4" && args.len() == 3 {
+                    let func_val = self.eval_expr(&args[0])?;
+                    let x0       = self.eval_expr(&args[1])?;
+                    let t_val    = self.eval_expr(&args[2])?;
+                    return self.eval_rk4(func_val, x0, t_val);
+                }
                 if name == "feval" && !args.is_empty() {
                     let name_val = self.eval_expr(&args[0])?;
                     let fn_name  = name_val.to_str().map_err(|_| ScriptError::Runtime(
@@ -685,6 +691,88 @@ impl Evaluator {
             Some(other) => Err(ScriptError::Runtime(format!(
                 "arrayfun: function returned unsupported type {}", other.type_name()
             ))),
+        }
+    }
+
+    /// Fixed-step 4th-order Runge-Kutta integrator.
+    /// `rk4(f, x0, t)` — f(x, t) returns x_dot; x0 is initial state; t is time vector.
+    /// Returns an n×length(t) matrix where column k is the state at t[k].
+    fn eval_rk4(&mut self, func: Value, x0: Value, t_val: Value) -> Result<Value, ScriptError> {
+        use num_complex::Complex;
+        use ndarray::Array2;
+
+        let t_vec = t_val.to_cvector().map_err(|e| ScriptError::Runtime(format!("rk4: t must be a vector: {}", e)))?;
+        let nt = t_vec.len();
+        if nt < 2 {
+            return Err(ScriptError::Runtime("rk4: t must have at least 2 points".to_string()));
+        }
+
+        // x0 can be a scalar, vector (column), or 1×1 matrix
+        let state0: Vec<f64> = match &x0 {
+            Value::Scalar(s)  => vec![*s],
+            Value::Vector(v)  => v.iter().map(|c| c.re).collect(),
+            Value::Matrix(m) if m.ncols() == 1 => m.column(0).iter().map(|c| c.re).collect(),
+            other => return Err(ScriptError::Runtime(format!(
+                "rk4: x0 must be a scalar or column vector, got {}", other.type_name()))),
+        };
+        let nx = state0.len();
+
+        // Output: nx × nt matrix
+        let mut result: Vec<Vec<f64>> = vec![vec![0.0; nt]; nx];
+        for i in 0..nx { result[i][0] = state0[i]; }
+
+        // Helper: call f(x, t) and return x_dot as Vec<f64>
+        let call_f = |ev: &mut Evaluator, x_state: &[f64], t_scalar: f64, func: &Value| -> Result<Vec<f64>, ScriptError> {
+            let x_arg = if nx == 1 {
+                Value::Scalar(x_state[0])
+            } else {
+                // column vector as Matrix nx×1
+                let col: ndarray::Array2<num_complex::Complex<f64>> = Array2::from_shape_fn((nx, 1), |(i, _)| Complex::new(x_state[i], 0.0));
+                Value::Matrix(col)
+            };
+            let t_arg = Value::Scalar(t_scalar);
+            let out = ev.call_callable(func.clone(), vec![x_arg, t_arg])?;
+            match out {
+                Value::Scalar(s)  => Ok(vec![s]),
+                Value::Vector(v)  => Ok(v.iter().map(|c| c.re).collect()),
+                Value::Matrix(m) if m.ncols() == 1 => Ok(m.column(0).iter().map(|c| c.re).collect()),
+                other => Err(ScriptError::Runtime(format!(
+                    "rk4: f must return a scalar or column vector, got {}", other.type_name()))),
+            }
+        };
+
+        let mut x = state0.clone();
+        for k in 0..(nt - 1) {
+            let tk  = t_vec[k].re;
+            let tk1 = t_vec[k + 1].re;
+            let h   = tk1 - tk;
+
+            let k1 = call_f(self, &x, tk, &func)?;
+            let x2: Vec<f64> = x.iter().zip(&k1).map(|(xi, ki)| xi + 0.5 * h * ki).collect();
+            let k2 = call_f(self, &x2, tk + 0.5 * h, &func)?;
+            let x3: Vec<f64> = x.iter().zip(&k2).map(|(xi, ki)| xi + 0.5 * h * ki).collect();
+            let k3 = call_f(self, &x3, tk + 0.5 * h, &func)?;
+            let x4: Vec<f64> = x.iter().zip(&k3).map(|(xi, ki)| xi + h * ki).collect();
+            let k4 = call_f(self, &x4, tk1, &func)?;
+
+            for i in 0..nx {
+                x[i] += h / 6.0 * (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i]);
+                result[i][k + 1] = x[i];
+            }
+        }
+
+        // Build nx×nt matrix (row i = state component i over time)
+        let mut out_mat: ndarray::Array2<num_complex::Complex<f64>> = Array2::zeros((nx, nt));
+        for i in 0..nx {
+            for k in 0..nt {
+                out_mat[[i, k]] = Complex::new(result[i][k], 0.0);
+            }
+        }
+        if nx == 1 {
+            // 1-state system: return as a plain vector for convenience
+            Ok(Value::Vector(out_mat.row(0).to_owned()))
+        } else {
+            Ok(Value::Matrix(out_mat))
         }
     }
 

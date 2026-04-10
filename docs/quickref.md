@@ -38,6 +38,15 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `feval("name", args...)` | Call function by string name |
 | `profile(fn1, fn2)` | Enable call profiling for named functions; `profile()` tracks all |
 | `profile_report()` | Print profiling table to stderr immediately |
+| `logspace(a, b, n)` | n log-spaced points from 10^a to 10^b |
+| `rk4(f, x0, t)` | Fixed-step 4th-order Runge-Kutta; f(x,t)→x_dot |
+| `lyap(A, Q)` | Solve Lyapunov equation A*X + X*A' + Q = 0 |
+| `gram(A, B, "c"/"o")` | Controllability or observability Gramian |
+| `care(A, B, Q, R)` | Continuous Algebraic Riccati Equation → P |
+| `dare(A, B, Q, R)` | Discrete Algebraic Riccati Equation → P |
+| `place(A, B, poles)` | Ackermann pole placement (SISO) → K |
+| `freqresp(A, B, C, D, w)` | H(jω) from state-space at each frequency ω |
+| `svd(A)` | Jacobi SVD → Tuple [U, sigma_vector, V] |
 | `s.field` | Struct field access |
 | `s.field = val` | Struct field assignment (auto-creates struct) |
 

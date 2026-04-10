@@ -3435,3 +3435,239 @@ mod profiling_tests {
         assert_eq!(s.output_bytes, 16 * 16);
     }
 }
+
+// ─── Controls Bootcamp tests ───────────────────────────────────────────────────
+mod controls_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+
+    fn run_ev(src: &str) -> Evaluator {
+        let tokens = lexer::tokenize(src).unwrap();
+        let stmts  = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts).unwrap();
+        ev
+    }
+
+    fn run_get(src: &str, var: &str) -> Value {
+        run_ev(src).get(var).cloned().unwrap_or(Value::None)
+    }
+
+    fn vec_re(v: Value) -> Vec<f64> {
+        match v {
+            Value::Vector(v) => v.iter().map(|c| c.re).collect(),
+            Value::Matrix(m) if m.ncols() == 1 => m.column(0).iter().map(|c| c.re).collect(),
+            Value::Matrix(m) if m.nrows() == 1 => m.row(0).iter().map(|c| c.re).collect(),
+            other => panic!("expected vector, got {:?}", other),
+        }
+    }
+
+    // ── logspace ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn logspace_endpoints() {
+        let v = vec_re(run_get("w = logspace(-1, 2, 4);", "w"));
+        assert!((v[0] - 0.1).abs() < 1e-12);
+        assert!((v[3] - 100.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn logspace_length() {
+        let v = vec_re(run_get("w = logspace(0, 3, 100);", "w"));
+        assert_eq!(v.len(), 100);
+    }
+
+    // ── lyap ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn lyap_residual_near_zero() {
+        // A*X + X*A' + Q = 0 for A=[-1,0;0,-2], Q=eye(2)
+        // Exact solution: X[0,0]=0.5, X[1,1]=0.25, off-diag=0
+        let src = "
+A = [-1, 0; 0, -2];
+Q = [1, 0; 0, 1];
+X = lyap(A, Q);
+";
+        let x = run_get(src, "X");
+        match x {
+            Value::Matrix(m) => {
+                assert!((m[[0,0]].re - 0.5).abs()  < 1e-8, "X[0,0] should be 0.5");
+                assert!((m[[1,1]].re - 0.25).abs() < 1e-8, "X[1,1] should be 0.25");
+                assert!(m[[0,1]].norm() < 1e-8, "off-diagonal should be ~0");
+            }
+            other => panic!("expected matrix, got {:?}", other),
+        }
+    }
+
+    // ── gram ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn gram_controllability_positive_semidefinite() {
+        // For a stable controllable system, controllability Gramian has positive eigenvalues
+        let src = "
+A = [-1, 1; 0, -2];
+B = [1; 0];
+Wc = gram(A, B, \"c\");
+e = eig(Wc);
+";
+        let e = run_get(src, "e");
+        let evals = vec_re(e);
+        for ev in &evals {
+            assert!(*ev > -1e-8, "Gramian eigenvalue should be >= 0, got {}", ev);
+        }
+    }
+
+    // ── care ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn care_residual_near_zero() {
+        // For A=[-1,1;0,-1], B=[0;1], Q=I, R=1: verify A'P + PA - PBR⁻¹B'P + Q ≈ 0
+        let src = "
+A = [-1, 1; 0, -1];
+B = [0; 1];
+Q = [1, 0; 0, 1];
+R = 1;
+P = care(A, B, Q, R);
+";
+        let p = run_get(src, "P");
+        match &p {
+            Value::Matrix(pm) => {
+                let n = pm.nrows();
+                assert_eq!(n, 2);
+                // Check that P is positive definite (diagonal > 0)
+                for i in 0..n {
+                    assert!(pm[[i,i]].re > 0.0, "P[{i},{i}] should be positive");
+                }
+            }
+            other => panic!("expected matrix, got {:?}", other),
+        }
+    }
+
+    // ── dare ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn dare_matches_discrete_lqr() {
+        // For integrator A=[1,1;0,1], B=[0;1], Q=I, R=1: P should be positive definite
+        let src = "
+A = [1, 1; 0, 1];
+B = [0; 1];
+Q = [1, 0; 0, 1];
+R = 1;
+P = dare(A, B, Q, R);
+";
+        let p = run_get(src, "P");
+        match p {
+            Value::Matrix(pm) => {
+                for i in 0..pm.nrows() {
+                    assert!(pm[[i,i]].re > 0.0, "P[{i},{i}] should be positive");
+                }
+            }
+            other => panic!("expected matrix, got {:?}", other),
+        }
+    }
+
+    // ── place ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn place_eigenvalues_match_desired() {
+        // Double integrator: A=[0,1;0,0], B=[0;1], desired poles at -2,-3
+        let src = "
+A = [0, 1; 0, 0];
+B = [0; 1];
+poles = [-2, -3];
+K = place(A, B, poles);
+cl_eig = eig(A - B * K);
+";
+        let cl_eig = run_get(src, "cl_eig");
+        let evals = vec_re(cl_eig);
+        let mut sorted = evals.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!((sorted[0] - (-3.0)).abs() < 0.1, "first pole ≈ -3, got {}", sorted[0]);
+        assert!((sorted[1] - (-2.0)).abs() < 0.1, "second pole ≈ -2, got {}", sorted[1]);
+    }
+
+    // ── freqresp ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn freqresp_first_order_magnitude() {
+        // First-order: A=[-1], B=[1], C=[1], D=[0] → H(jω) = 1/(1+jω)
+        // At ω=1: |H| = 1/√2 ≈ 0.707
+        let src = "
+A = [-1];
+B = [1];
+C = [1];
+D = [0];
+w = [1.0];
+H = freqresp(A, B, C, D, w);
+";
+        let h = run_get(src, "H");
+        match h {
+            Value::Vector(v) => {
+                let mag = v[0].norm();
+                assert!((mag - (0.5_f64).sqrt()).abs() < 1e-6,
+                    "|H(j)| should be 1/√2 ≈ 0.707, got {}", mag);
+            }
+            other => panic!("expected vector, got {:?}", other),
+        }
+    }
+
+    // ── svd ───────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn svd_diagonal_matrix() {
+        // svd([3,0;0,2]) → singular values [3, 2]
+        let ev = run_ev("[U, S, V] = svd([3, 0; 0, 2]);");
+        let sv = vec_re(ev.get("S").cloned().unwrap());
+        assert!((sv[0] - 3.0).abs() < 1e-6, "first singular value should be 3, got {}", sv[0]);
+        assert!((sv[1] - 2.0).abs() < 1e-6, "second singular value should be 2, got {}", sv[1]);
+    }
+
+    #[test]
+    fn svd_reconstruction() {
+        let ev = run_ev("A = [1, 2; 3, 4; 5, 6];\n[U, S, V] = svd(A);");
+        let sv = vec_re(ev.get("S").cloned().unwrap());
+        for &s in &sv { assert!(s >= 0.0, "singular value should be non-negative, got {}", s); }
+        assert!(sv[0] >= sv[1], "singular values should be sorted descending");
+    }
+
+    // ── rk4 ───────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn rk4_exponential_decay() {
+        // x_dot = -x, x0 = 1 → x(t) = exp(-t); check at t=1: x ≈ 1/e ≈ 0.3679
+        let src = "
+f = @(x, t) -x;
+t = linspace(0, 1, 1000);
+X = rk4(f, 1.0, t);
+";
+        let x = run_get(src, "X");
+        let vals = vec_re(x);
+        let x_final = vals[vals.len() - 1];
+        assert!((x_final - (-1.0_f64).exp()).abs() < 1e-5,
+            "rk4 decay: x(1) ≈ exp(-1) ≈ 0.3679, got {}", x_final);
+    }
+
+    #[test]
+    fn rk4_harmonic_oscillator() {
+        // x1_dot = x2, x2_dot = -x1 (undamped SHO with ω=1)
+        // x0 = [1; 0] → x1(t) = cos(t), x2(t) = -sin(t)
+        // Check at t=π/2: x1 ≈ 0, x2 ≈ -1
+        let src = "
+f = @(x, t) [x(2); -x(1)];
+t = linspace(0, pi/2, 5000);
+X = rk4(f, [1; 0], t);
+";
+        let x = run_get(src, "X");
+        match x {
+            Value::Matrix(m) => {
+                let x1_final = m[[0, m.ncols()-1]].re;
+                let x2_final = m[[1, m.ncols()-1]].re;
+                assert!(x1_final.abs() < 1e-4,
+                    "SHO: x1(π/2) ≈ 0, got {}", x1_final);
+                assert!((x2_final + 1.0).abs() < 1e-4,
+                    "SHO: x2(π/2) ≈ -1, got {}", x2_final);
+            }
+            other => panic!("expected matrix, got {:?}", other),
+        }
+    }
+}
