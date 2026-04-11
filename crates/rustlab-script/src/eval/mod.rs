@@ -27,6 +27,8 @@ pub struct Evaluator {
     /// True while executing a user-defined function body — suppresses auto-print of assignments.
     in_function:   bool,
     profiler:      profile::Profiler,
+    /// When true, assignment output uses ANSI colour (green var name, dim `=`).
+    pub color_output: bool,
 }
 
 impl Evaluator {
@@ -48,6 +50,7 @@ impl Evaluator {
             user_fns:    HashMap::new(),
             in_function: false,
             profiler:    profile::Profiler::default(),
+            color_output: false,
         }
     }
 
@@ -118,7 +121,11 @@ impl Evaluator {
             Stmt::Assign { name, expr, suppress } => {
                 let val = self.eval_expr(expr)?;
                 if !suppress && !self.in_function {
-                    println!("{} = {}", name, val);
+                    if self.color_output {
+                        println!("\x1b[32m{}\x1b[0m = {}", name, val);
+                    } else {
+                        println!("{} = {}", name, val);
+                    }
                 }
                 self.env.insert(name.clone(), val);
             }
@@ -133,7 +140,11 @@ impl Evaluator {
             Stmt::FieldAssign { object, field, expr, suppress } => {
                 let val = self.eval_expr(expr)?;
                 if !suppress && !self.in_function {
-                    println!("{}.{} = {}", object, field, val);
+                    if self.color_output {
+                        println!("\x1b[32m{}.{}\x1b[0m = {}", object, field, val);
+                    } else {
+                        println!("{}.{} = {}", object, field, val);
+                    }
                 }
                 match self.env.get_mut(object) {
                     Some(Value::Struct(fields)) => {
@@ -182,7 +193,11 @@ impl Evaluator {
                         for (name, v) in names.iter().zip(values.into_iter()) {
                             if name == "~" { continue; } // discard
                             if !suppress && !self.in_function {
-                                println!("{} = {}", name, v);
+                                if self.color_output {
+                                    println!("\x1b[32m{}\x1b[0m = {}", name, v);
+                                } else {
+                                    println!("{} = {}", name, v);
+                                }
                             }
                             self.env.insert(name.clone(), v);
                         }
@@ -196,7 +211,11 @@ impl Evaluator {
                         }
                         if names[0] != "~" {
                             if !suppress && !self.in_function {
-                                println!("{} = {}", names[0], single);
+                                if self.color_output {
+                                    println!("\x1b[32m{}\x1b[0m = {}", names[0], single);
+                                } else {
+                                    println!("{} = {}", names[0], single);
+                                }
                             }
                             self.env.insert(names[0].clone(), single);
                         }

@@ -6,6 +6,8 @@ use rustyline::highlight::Highlighter;
 use rustyline::{error::ReadlineError, Helper, Hinter, Validator};
 use rustlab_script::{lexer, parser, Evaluator};
 
+use crate::color;
+
 // ─── Help text ────────────────────────────────────────────────────────────────
 
 struct HelpEntry {
@@ -509,23 +511,30 @@ fn print_whos(ev: &rustlab_script::Evaluator) {
     let vars = ev.vars();
     let fns  = ev.user_fn_names();
     if vars.is_empty() && fns.is_empty() {
-        println!("  (no variables defined)");
+        println!("  {}", color::dim("(no variables defined)"));
         return;
     }
     println!();
-    println!("  {:<16}  {:<10}  {:<8}  {}", "Name", "Type", "Size", "Value");
-    println!("  {}", "─".repeat(70));
+    println!("  {}  {}  {}  {}",
+        color::bold(&format!("{:<16}", "Name")),
+        color::bold(&format!("{:<10}", "Type")),
+        color::bold(&format!("{:<8}", "Size")),
+        color::bold("Value"));
+    println!("  {}", color::dim(&"─".repeat(70)));
     for (name, val) in &vars {
-        println!("  {:<16}  {:<10}  {:<8}  {}",
-            name,
-            whos_type(val),
+        println!("  {}  {}  {:<8}  {}",
+            color::green(&format!("{:<16}", name)),
+            color::cyan(&format!("{:<10}", whos_type(val))),
             whos_size(val),
             whos_preview(val),
         );
     }
     for name in &fns {
-        println!("  {:<16}  {:<10}  {:<8}  {}",
-            name, "function", "", "<user-defined>");
+        println!("  {}  {}  {:<8}  {}",
+            color::green(&format!("{:<16}", name)),
+            color::cyan(&format!("{:<10}", "function")),
+            "",
+            color::dim("<user-defined>"));
     }
     println!();
 }
@@ -590,8 +599,8 @@ fn cmd_ls(path: &str) {
 
 fn print_help_list() {
     println!();
-    println!("  {:<26}  {}", "Command / Topic", "Description");
-    println!("  {}", "-".repeat(60));
+    println!("  {:<26}  {}", color::bold("Command / Topic"), color::bold("Description"));
+    println!("  {}", color::dim(&"-".repeat(60)));
 
     let categories = [
         ("Math",             &["abs","angle","real","imag","conj","cos","sin","acos","asin","atan","atan2","tanh","sinh","cosh","sqrt","exp","log","log10","log2","floor","ceil","round","sign","mod"][..]),
@@ -631,15 +640,16 @@ fn print_help_list() {
     ];
 
     for (cat, names) in &categories {
-        println!("\n  {}:", cat);
+        println!("\n  {}:", color::bold_yellow(cat));
         for &n in *names {
             if let Some(e) = HELP.iter().find(|e| e.name == n) {
-                println!("    {:<24}  {}", e.name, e.brief);
+                println!("    {:<24}  {}", color::cyan(e.name), e.brief);
             }
         }
     }
     println!();
-    println!("  Type  help <command>  or  ? <command>  for details.");
+    println!("  Type  {}  or  {}  for details.",
+        color::bold("help <command>"), color::bold("? <command>"));
     println!();
 }
 
@@ -647,14 +657,16 @@ fn print_help_detail(topic: &str) {
     match HELP.iter().find(|e| e.name == topic) {
         Some(e) => {
             println!();
-            println!("  {}  —  {}", e.name, e.brief);
+            println!("  {}  —  {}", color::bold_cyan(e.name), e.brief);
             println!();
             for line in e.detail.lines() {
                 println!("  {}", line);
             }
             println!();
         }
-        None => println!("No help found for '{}'.  Type 'help' for a full list.", topic),
+        None => println!("No help found for '{}'.  Type {} for a full list.",
+            color::yellow(&format!("'{}'", topic)),
+            color::bold("'help'")),
     }
 }
 
@@ -686,6 +698,24 @@ impl ReplHelper {
 }
 
 impl Highlighter for ReplHelper {
+    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
+        &'s self,
+        prompt: &'p str,
+        _default: bool,
+    ) -> std::borrow::Cow<'b, str> {
+        if color::is_color_enabled() {
+            if prompt == ">> " {
+                std::borrow::Cow::Owned(color::bold_cyan(prompt))
+            } else if prompt == ".. " {
+                std::borrow::Cow::Owned(color::dim(prompt))
+            } else {
+                std::borrow::Cow::Borrowed(prompt)
+            }
+        } else {
+            std::borrow::Cow::Borrowed(prompt)
+        }
+    }
+
     fn highlight_hint<'h>(&self, hint: &'h str) -> std::borrow::Cow<'h, str> {
         // Dim the inline history hint so it reads as a ghost suggestion.
         std::borrow::Cow::Owned(format!("\x1b[2m{hint}\x1b[0m"))
@@ -769,8 +799,12 @@ impl Completer for ReplHelper {
 // ─── REPL ─────────────────────────────────────────────────────────────────────
 
 pub fn execute() -> Result<()> {
-    println!("rustlab {} — type 'help' or '?' for help, 'exit' or Ctrl+D to quit", env!("CARGO_PKG_VERSION"));
-    println!("Tip: end a line with ; to suppress output\n");
+    println!("rustlab {} — type {} or {} for help, {} or Ctrl+D to quit",
+        color::bold_green(env!("CARGO_PKG_VERSION")),
+        color::bold("'help'"),
+        color::bold("'?'"),
+        color::bold("'exit'"));
+    println!("{}\n", color::dim("Tip: end a line with ; to suppress output"));
 
     let config = Config::builder()
         .completion_type(CompletionType::List)
@@ -778,14 +812,18 @@ pub fn execute() -> Result<()> {
     let mut rl = Editor::with_config(config)?;
     rl.set_helper(Some(ReplHelper::new()));
     let mut ev = Evaluator::new();
+    ev.color_output = color::is_color_enabled();
 
     let hist_path = std::env::var_os("HOME")
         .map(|h| std::path::PathBuf::from(h).join(".rustlab_history"))
         .unwrap_or_else(|| std::path::PathBuf::from(".rustlab_history"));
     let _ = rl.load_history(&hist_path);
 
+    let prompt = ">> ";
+    let cont_prompt = ".. ";
+
     loop {
-        match rl.readline(">> ") {
+        match rl.readline(&prompt) {
             Ok(line) => {
                 let trimmed = line.trim();
 
@@ -872,7 +910,7 @@ pub fn execute() -> Result<()> {
                     let mut buf = format!("{}\n", trimmed);
                     let mut depth: i32 = 1;
                     loop {
-                        match rl.readline(".. ") {
+                        match rl.readline(&cont_prompt) {
                             Ok(cont) => {
                                 let ct = cont.trim();
                                 rl.add_history_entry(ct).ok();
@@ -900,12 +938,12 @@ pub fn execute() -> Result<()> {
                     Ok(stmts) => {
                         for stmt in &stmts {
                             if let Err(e) = ev.exec_stmt(stmt) {
-                                eprintln!("error: {}", e);
+                                eprintln!("{} {}", color::bold_red("error:"), e);
                             }
                         }
                         if let Some(h) = rl.helper_mut() { h.sync(&ev); }
                     }
-                    Err(e) => eprintln!("error: {}", e),
+                    Err(e) => eprintln!("{} {}", color::bold_red("error:"), e),
                 }
             }
             Err(ReadlineError::Interrupted) => {
@@ -924,6 +962,6 @@ pub fn execute() -> Result<()> {
     }
 
     let _ = rl.save_history(&hist_path);
-    println!("bye");
+    println!("{}", color::dim("bye"));
     Ok(())
 }

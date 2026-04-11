@@ -1,4 +1,5 @@
 mod cli;
+pub(crate) mod color;
 mod commands;
 
 use anyhow::Result;
