@@ -5543,4 +5543,33 @@ if income > 0, tax = tax + income * r1; end
         let expected = 0.22 * 3050.0 + 0.12 * 73100.0 + 0.10 * 23850.0;
         assert!((tax - expected).abs() < 0.01, "tax={tax}, expected={expected}");
     }
+
+    // ── clear / clf as bare commands ────────────────────────────────────────
+
+    #[test]
+    fn clear_removes_variables() {
+        let ev = eval_str("x = 42; y = 99\nclear\nz = 1");
+        assert!(ev.get("x").is_none());
+        assert!(ev.get("y").is_none());
+        assert_eq!(get_scalar(&ev, "z"), 1.0);
+    }
+
+    #[test]
+    fn clear_preserves_builtins() {
+        let ev = eval_str("x = 1\nclear");
+        // pi should still exist after clear
+        assert!(ev.get("pi").is_some());
+    }
+
+    #[test]
+    fn clf_does_not_error() {
+        // clf should execute without error (resets figure state)
+        let _ev = eval_str("clf");
+    }
+
+    #[test]
+    fn clear_semicolon_clf_semicolon() {
+        // The original use case: `clear; clf;` on one line
+        let _ev = eval_str("x = 1\nclear; clf;");
+    }
 }

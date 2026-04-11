@@ -1607,6 +1607,23 @@ Halt script execution with an error message.
 error('Invalid input')
 ```
 
+### `clear`
+Remove all user-defined variables and functions from the workspace. Built-in constants (`j`, `pi`, `e`, etc.) are preserved. No parentheses needed.
+```
+clear
+```
+
+### `clf`
+Clear the current figure — resets all subplot series, titles, and labels. No parentheses needed.
+```
+clf
+```
+
+Typical usage at the top of a script:
+```
+clear; clf;
+```
+
 ### `run` (script include)
 Execute another `.r` file, merging its variables and function definitions into the current scope. Works in both the REPL and inside scripts.
 ```

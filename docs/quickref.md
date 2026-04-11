@@ -33,6 +33,8 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `...` | Line continuation — rest of line ignored, statement continues on next line |
 | `run file.r` | Execute a script file; merges variables and functions into current scope |
 | `error('msg')` | Halt execution with an error message |
+| `clear` | Remove all user variables and functions; keeps built-in constants |
+| `clf` | Clear current figure (reset subplots, series, labels) |
 | `for i = 1:n` … `end` | For loop; also iterates over a vector |
 | `while cond` … `end` | While loop; condition is Bool, Scalar (nonzero), or Complex |
 | `if expr` … `elseif expr` … `else` … `end` | Conditional; `elseif` and `else` are optional; single-line: `if cond, body; end` |

@@ -438,6 +438,8 @@ primary     = NUMBER | STRING | IDENT
 | Run (include) | `run file.r` | Execute a .r script; merges variables and functions into current scope |
 | Line continuation | `x = a + ...` (newline) `  b` | `...` skips rest of line; statement continues on next line |
 | Single-quote strings | `'hello'` | Alternative string delimiters; context-dependent (transpose after `)`, `]`, ident, number) |
+| Clear workspace | `clear` | Bare command (no parens); removes all user vars/fns, keeps built-in constants |
+| Clear figure | `clf` | Bare command (no parens); resets figure state (equivalent to `figure()`) |
 | Lambda | `f = @(x) x^2` | Creates anonymous function; captures env by snapshot at creation |
 | Function handle | `@sin`, `@myFn` | Reference to builtin or user-defined function |
 | Higher-order | `arrayfun(@sin, v)` | Maps callable over vector; scalar outputs → Vector, vector outputs → Matrix |

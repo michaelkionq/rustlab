@@ -451,6 +451,18 @@ impl Evaluator {
                 }
             }
             Stmt::Expr(expr, suppress) => {
+                // Special case: bare `clear` and `clf` commands (no parens)
+                if let Expr::Var(name) = expr {
+                    if name == "clear" {
+                        self.clear_vars();
+                        return Ok(());
+                    }
+                    if name == "clf" {
+                        rustlab_plot::FIGURE.with(|fig| fig.borrow_mut().reset());
+                        return Ok(());
+                    }
+                }
+
                 // Special case: bare load("file.npz") injects all variables into the workspace.
                 if let Expr::Call { name, args } = expr {
                     if name == "load" && args.len() == 1 {
