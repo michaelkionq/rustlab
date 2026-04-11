@@ -1,8 +1,8 @@
 # Development Plan: Live Plot & Spectrum Monitor
 
 **Target example:** `examples/audio/spectrum_monitor.r`
-**Current phase:** not started
-**Status:** Planning
+**Current phase:** complete
+**Status:** All phases complete
 **Depends on:** `audio_streaming.md` Phases 1–4 (for the example script only; Phases 1–2 of this plan are independent)
 
 ---
@@ -15,7 +15,7 @@ displays, and spectrum analyzers. The scripting API target:
 
 ```r
 h = window(1024, "hann");
-adc = audio_in_open(44100.0, 1024);
+adc = audio_in(44100.0, 1024);
 fig = figure_live(2, 1);              # 2 rows, 1 column
 
 while true
@@ -36,7 +36,7 @@ are **independent of the audio streaming plan** and can ship first.
 
 ## Phase 1 — `LiveFigure` in `rustlab-plot`
 
-**Status: not started**
+**Status: complete**
 
 All changes in this phase are confined to `crates/rustlab-plot/`.
 
@@ -175,7 +175,7 @@ Mark any test that calls `LiveFigure::new()` with `#[ignore = "requires tty"]`.
 
 ## Phase 2 — Script Integration
 
-**Status: not started**
+**Status: complete**
 
 All changes in this phase are confined to `crates/rustlab-script/`.
 
@@ -185,12 +185,13 @@ All changes in this phase are confined to `crates/rustlab-script/`.
 - **Change:** Add variant:
   ```rust
   /// Handle to a persistent live-updating terminal plot.
-  /// Arc<Mutex<...>> allows cheap Value clone (ref-counted) while
-  /// the Mutex allows &mut access inside builtins.
-  LiveFigure(Arc<Mutex<rustlab_plot::LiveFigure>>),
+  /// Arc<Mutex<Option<...>>> allows cheap Value clone (ref-counted) while
+  /// the Option lets figure_close drop the inner LiveFigure (firing Drop →
+  /// terminal restore) without invalidating other clones of the Arc.
+  LiveFigure(Arc<Mutex<Option<rustlab_plot::LiveFigure>>>),
   ```
 - `type_name()` → `"live_figure"`.
-- `Display` → `"<live_figure {rows}×{cols}>"`.
+- `Display` → `"<live_figure>"` (closed figures display as `"<live_figure closed>"`).
 - `Clone` is derived (Arc clone — O(1), no deep copy).
 
 ### 2b. `figure_live(rows, cols)` builtin
@@ -202,7 +203,7 @@ fn builtin_figure_live(args: Vec<Value>) -> Result<Value, ScriptError> {
     let cols = args[1].to_usize()?;
     let fig  = rustlab_plot::LiveFigure::new(rows, cols)
                    .map_err(|e| ScriptError::Runtime(e.to_string()))?;
-    Ok(Value::LiveFigure(Arc::new(Mutex::new(fig))))
+    Ok(Value::LiveFigure(Arc::new(Mutex::new(Some(fig)))))
 }
 ```
 
@@ -234,7 +235,10 @@ fn builtin_plot_update(args: Vec<Value>) -> Result<Value, ScriptError> {
         let x = (1..=y.len()).map(|i| i as f64).collect::<Vec<_>>();
         (x, y)
     };
-    fig.lock().unwrap().update_panel(panel, x, y);
+    fig.lock().unwrap()
+        .as_mut()
+        .ok_or_else(|| ScriptError::Runtime("plot_update: figure is closed".to_string()))?
+        .update_panel(panel, x, y);
     Ok(Value::None)
 }
 ```
@@ -247,8 +251,11 @@ fn builtin_figure_draw(args: Vec<Value>) -> Result<Value, ScriptError> {
     let Value::LiveFigure(fig) = &args[0] else {
         return Err(ScriptError::type_error("figure_draw", "live_figure", args[0].type_name()));
     };
-    fig.lock().unwrap().redraw()
-       .map_err(|e| ScriptError::Runtime(e.to_string()))?;
+    fig.lock().unwrap()
+        .as_mut()
+        .ok_or_else(|| ScriptError::Runtime("figure_draw: figure is closed".to_string()))?
+        .redraw()
+        .map_err(|e| ScriptError::Runtime(e.to_string()))?;
     Ok(Value::None)
 }
 ```
@@ -261,11 +268,10 @@ fn builtin_figure_close(args: Vec<Value>) -> Result<Value, ScriptError> {
     let Value::LiveFigure(fig) = &args[0] else {
         return Err(ScriptError::type_error("figure_close", "live_figure", args[0].type_name()));
     };
-    // Drop the inner LiveFigure, which runs Drop::drop → restore terminal.
-    // Replace with None via Option trick, or simply let the Arc drop when
-    // the script variable goes out of scope.
-    // Explicitly: take the lock and drop the contents.
-    drop(fig.lock().unwrap());  // Drop impl fires here
+    // .take() replaces the Option with None, dropping the LiveFigure value,
+    // which fires Drop::drop → disable_raw_mode + LeaveAlternateScreen.
+    // Other clones of the Arc see None on their next lock.
+    fig.lock().unwrap().take();
     Ok(Value::None)
 }
 ```
@@ -274,6 +280,9 @@ fn builtin_figure_close(args: Vec<Value>) -> Result<Value, ScriptError> {
 > cleanup, so the terminal is always restored even if the script panics or
 > the process receives SIGINT. Explicit `figure_close` is provided as a
 > convenience for scripts that want to return to the normal terminal mid-script.
+> The `Option` wrapper inside the `Mutex` makes explicit close correct:
+> `.take()` drops the `LiveFigure` (firing `Drop`) without destroying the `Arc`
+> that other value clones may still hold.
 
 ### 2f. Register all builtins
 
@@ -297,7 +306,7 @@ r.register("figure_close", builtin_figure_close);
 
 ## Phase 3 — `mag2db`, Example Script, and Docs
 
-**Status: not started**
+**Status: complete**
 
 ### 3a. `mag2db(X)` builtin
 
@@ -346,7 +355,7 @@ fft_size  = 1024;
 half      = fft_size / 2;
 
 h   = window(fft_size, "hann");
-adc = audio_in_open(sr, fft_size);
+adc = audio_in(sr, fft_size);
 fig = figure_live(2, 1);
 
 while true
@@ -434,6 +443,6 @@ end
 figure_close(fig);
 ```
 
-The spectrum monitor example in Phase 3 requires `audio_in_open` and
+The spectrum monitor example in Phase 3 requires `audio_in` and
 `audio_read` from the audio streaming plan, but that example can be deferred
 until those builtins exist.

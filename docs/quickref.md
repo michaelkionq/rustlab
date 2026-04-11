@@ -329,6 +329,21 @@ Raw f32 LE stdin/stdout PCM. Use bridge programs (sox, arecord/aplay) to connect
 
 ---
 
+## Live Plotting
+
+Persistent terminal plots for real-time data (oscilloscopes, spectrum monitors, animations).
+
+| Function | Description |
+|---|---|
+| `figure_live(rows, cols)` | Open persistent live terminal figure; errors if not a tty |
+| `plot_update(fig, panel, y)` | Replace panel data (1-based); no immediate redraw |
+| `plot_update(fig, panel, x, y)` | Same with explicit x-axis |
+| `figure_draw(fig)` | Flush all panels in one atomic refresh |
+| `figure_close(fig)` | Restore terminal; also fires automatically on exit |
+| `mag2db(X)` | 20·log10(|X|), floored at −200 dB; for spectrum dB display |
+
+---
+
 ## Common Patterns
 
 **2D grid:**

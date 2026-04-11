@@ -46,6 +46,11 @@ pub enum Value {
     AudioIn  { sample_rate: f64, frame_size: usize },
     /// Metadata handle for stdout audio output. Opens no file descriptors.
     AudioOut { sample_rate: f64, frame_size: usize },
+    /// Handle to a persistent live-updating terminal plot.
+    /// Arc<Mutex<Option<...>>> allows cheap Clone while the Option lets
+    /// figure_close drop the inner LiveFigure (firing Drop → terminal restore)
+    /// without invalidating other clones of the Arc.
+    LiveFigure(Arc<Mutex<Option<rustlab_plot::LiveFigure>>>),
 }
 
 impl Value {
@@ -59,6 +64,7 @@ impl Value {
                 num: num.iter().map(|&x| -x).collect(),
                 den,
             }),
+            Value::LiveFigure(_) => Err("cannot negate live_figure".to_string()),
             other => Err(format!("cannot negate {}", other.type_name())),
         }
     }
@@ -83,6 +89,7 @@ impl Value {
             Value::FirState(_)   => "fir_state",
             Value::AudioIn  { .. } => "audio_in",
             Value::AudioOut { .. } => "audio_out",
+            Value::LiveFigure(_) => "live_figure",
         }
     }
 
@@ -982,6 +989,13 @@ impl fmt::Display for Value {
                 write!(f, "<audio_in {:.0} Hz / {}>", sample_rate, frame_size),
             Value::AudioOut { sample_rate, frame_size } =>
                 write!(f, "<audio_out {:.0} Hz / {}>", sample_rate, frame_size),
+            Value::LiveFigure(fig) => {
+                if fig.lock().unwrap().is_some() {
+                    write!(f, "<live_figure>")
+                } else {
+                    write!(f, "<live_figure closed>")
+                }
+            }
             Value::StateSpace { a, b, c, d } => {
                 write!(f, "ss<{}-state, {} input, {} output>",
                     a.nrows(), b.ncols(), c.nrows())?;

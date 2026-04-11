@@ -24,7 +24,7 @@ use rustlab_plot::{
     render_figure_terminal, render_figure_file,
     imagesc_terminal, save_imagesc_cmap,
     push_xy_line, push_xy_stem, push_xy_bar, push_xy_scatter,
-    LineStyle, SeriesColor, FIGURE,
+    LineStyle, SeriesColor, FIGURE, LiveFigure,
 };
 use ndarray::{Array1, Array2};
 use num_complex::Complex;
@@ -238,6 +238,13 @@ impl BuiltinRegistry {
         r.register("audio_out",   builtin_audio_out);
         r.register("audio_read",  builtin_audio_read);
         r.register("audio_write", builtin_audio_write);
+
+        // Live plotting
+        r.register("figure_live",  builtin_figure_live);
+        r.register("plot_update",  builtin_plot_update);
+        r.register("figure_draw",  builtin_figure_draw);
+        r.register("figure_close", builtin_figure_close);
+        r.register("mag2db",       builtin_mag2db);
 
         r
     }
@@ -5075,4 +5082,96 @@ fn builtin_audio_write(args: Vec<Value>) -> Result<Value, ScriptError> {
     out.flush()
        .map_err(|e| ScriptError::Runtime(format!("audio_write flush: {e}")))?;
     Ok(Value::None)
+}
+
+// ─── Live plotting ─────────────────────────────────────────────────────────
+
+/// `figure_live(rows, cols)` — open a persistent live terminal plot.
+/// Returns a `Value::LiveFigure` handle.  Errors if stdout is not a tty.
+fn builtin_figure_live(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("figure_live", &args, 2)?;
+    let rows = args[0].to_usize().map_err(ScriptError::Runtime)?;
+    let cols = args[1].to_usize().map_err(ScriptError::Runtime)?;
+    let fig = LiveFigure::new(rows, cols)
+        .map_err(|e| ScriptError::Runtime(e.to_string()))?;
+    Ok(Value::LiveFigure(Arc::new(Mutex::new(Some(fig)))))
+}
+
+/// `plot_update(fig, panel, y)` or `plot_update(fig, panel, x, y)` —
+/// replace the data in the given 1-based panel.  Does not redraw.
+fn builtin_plot_update(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args_range("plot_update", &args, 3, 4)?;
+    let Value::LiveFigure(fig) = &args[0] else {
+        return Err(ScriptError::Runtime(format!(
+            "plot_update: expected live_figure, got {}", args[0].type_name()
+        )));
+    };
+    let panel = args[1].to_usize().map_err(ScriptError::Runtime)?.saturating_sub(1); // 1-based → 0-based
+    let (x, y) = if args.len() == 4 {
+        let x = args[2].to_cvector().map_err(ScriptError::Runtime)?.iter().map(|c| c.re).collect::<Vec<_>>();
+        let y = args[3].to_cvector().map_err(ScriptError::Runtime)?.iter().map(|c| c.re).collect::<Vec<_>>();
+        (x, y)
+    } else {
+        let y = args[2].to_cvector().map_err(ScriptError::Runtime)?.iter().map(|c| c.re).collect::<Vec<_>>();
+        let x = (1..=y.len()).map(|i| i as f64).collect::<Vec<_>>();
+        (x, y)
+    };
+    fig.lock().unwrap()
+        .as_mut()
+        .ok_or_else(|| ScriptError::Runtime("plot_update: figure is closed".to_string()))?
+        .update_panel(panel, x, y);
+    Ok(Value::None)
+}
+
+/// `figure_draw(fig)` — flush all panel data to the terminal in one refresh.
+fn builtin_figure_draw(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("figure_draw", &args, 1)?;
+    let Value::LiveFigure(fig) = &args[0] else {
+        return Err(ScriptError::Runtime(format!(
+            "figure_draw: expected live_figure, got {}", args[0].type_name()
+        )));
+    };
+    fig.lock().unwrap()
+        .as_mut()
+        .ok_or_else(|| ScriptError::Runtime("figure_draw: figure is closed".to_string()))?
+        .redraw()
+        .map_err(|e| ScriptError::Runtime(e.to_string()))?;
+    Ok(Value::None)
+}
+
+/// `figure_close(fig)` — restore the terminal and release the figure.
+/// After this call the figure handle is inert; further draw/update calls error.
+fn builtin_figure_close(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("figure_close", &args, 1)?;
+    let Value::LiveFigure(fig) = &args[0] else {
+        return Err(ScriptError::Runtime(format!(
+            "figure_close: expected live_figure, got {}", args[0].type_name()
+        )));
+    };
+    // .take() drops the LiveFigure, firing Drop → disable_raw_mode + LeaveAlternateScreen.
+    fig.lock().unwrap().take();
+    Ok(Value::None)
+}
+
+/// `mag2db(X)` — convert magnitude to dB: 20·log10(|X|), floored at −200 dB.
+/// The 1e-10 floor prevents −inf from appearing in output, mapping silence to −200 dB.
+fn builtin_mag2db(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("mag2db", &args, 1)?;
+    match &args[0] {
+        Value::Scalar(x)  => Ok(Value::Scalar(20.0 * x.abs().max(1e-10).log10())),
+        Value::Complex(c) => Ok(Value::Scalar(20.0 * c.norm().max(1e-10).log10())),
+        Value::Vector(v)  => {
+            let out: CVector = v.iter()
+                .map(|c| Complex::new(20.0 * c.norm().max(1e-10).log10(), 0.0))
+                .collect();
+            Ok(Value::Vector(out))
+        }
+        Value::Matrix(m)  => {
+            let out = m.mapv(|c| Complex::new(20.0 * c.norm().max(1e-10).log10(), 0.0));
+            Ok(Value::Matrix(out))
+        }
+        other => Err(ScriptError::Runtime(format!(
+            "mag2db: expected numeric, got {}", other.type_name()
+        ))),
+    }
 }

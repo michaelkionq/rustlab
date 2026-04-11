@@ -3836,4 +3836,68 @@ ref_full = convolve(x, h);
         assert!(s.contains("44100"));
         assert!(s.contains("256"));
     }
+
+    // ── mag2db ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn mag2db_scalar_unity() {
+        let ev = run("x = mag2db(1.0);");
+        let v = ev.get("x").unwrap().to_scalar().unwrap();
+        assert!((v - 0.0).abs() < 1e-10, "mag2db(1) should be 0 dB, got {v}");
+    }
+
+    #[test]
+    fn mag2db_scalar_ten() {
+        let ev = run("x = mag2db(10.0);");
+        let v = ev.get("x").unwrap().to_scalar().unwrap();
+        assert!((v - 20.0).abs() < 1e-6, "mag2db(10) should be ~20 dB, got {v}");
+    }
+
+    #[test]
+    fn mag2db_zero_floor() {
+        let ev = run("x = mag2db(0.0);");
+        let v = ev.get("x").unwrap().to_scalar().unwrap();
+        // floor at 1e-10 → 20*log10(1e-10) = -200
+        assert!((v - (-200.0)).abs() < 1.0, "mag2db(0) should be ~-200 dB, got {v}");
+    }
+
+    #[test]
+    fn mag2db_vector() {
+        let ev = run("v = mag2db([1.0, 10.0, 100.0]);");
+        let vec = ev.get("v").unwrap().to_cvector().unwrap();
+        assert_eq!(vec.len(), 3);
+        assert!((vec[0].re - 0.0).abs()  < 1e-6);
+        assert!((vec[1].re - 20.0).abs() < 1e-6);
+        assert!((vec[2].re - 40.0).abs() < 1e-6);
+    }
+
+    // ── live figure (data model, no tty needed) ───────────────────────────────
+
+    fn try_run(src: &str) -> Result<Evaluator, crate::error::ScriptError> {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts)?;
+        Ok(ev)
+    }
+
+    #[test]
+    fn live_figure_errors_on_non_tty() {
+        // In test context stdout is not a tty, so figure_live should return an error.
+        assert!(try_run("fig = figure_live(2, 1);").is_err(),
+            "figure_live should fail when stdout is not a tty");
+    }
+
+    #[test]
+    fn plot_update_wrong_type_errors() {
+        // plot_update with a non-live_figure first arg should error.
+        assert!(try_run("plot_update(42, 1, [1.0, 2.0]);").is_err(),
+            "plot_update with scalar arg should error");
+    }
+
+    #[test]
+    fn figure_close_wrong_type_errors() {
+        assert!(try_run("figure_close(42);").is_err());
+    }
 }

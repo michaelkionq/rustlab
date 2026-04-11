@@ -1,8 +1,8 @@
 # Development Plan: Real-Time Audio Streaming & Explicit Filter State
 
 **Target example:** `examples/audio/realtime_fir.r`
-**Current phase:** not started
-**Status:** Planning
+**Current phase:** complete
+**Status:** All phases complete (implemented in commit d37a630)
 
 ---
 
@@ -50,7 +50,7 @@ fully implemented, tested, and committed before the next begins.
 
 ## Phase 1 — Language: `while` loop
 
-**Status: not started**
+**Status: complete**
 
 The streaming loop requires `while cond ... end`. The existing `for` over a
 range is not a substitute for an infinite hardware-clocked loop.
@@ -106,7 +106,7 @@ range is not a substitute for an infinite hardware-clocked loop.
 
 ## Phase 2 — Explicit Filter State
 
-**Status: not started**
+**Status: complete**
 
 Add the `Value::FirState` handle and two builtins — `state_init` and
 `filter_stream`. DSP functions remain internally stateless; all sample history
@@ -191,7 +191,7 @@ fn builtin_state_init(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 ## Phase 3 — stdin/stdout Audio Builtins
 
-**Status: not started**
+**Status: complete**
 
 Four builtins backed entirely by `std::io`. No new crates, no new Cargo
 dependencies, no audio library required to build or run.

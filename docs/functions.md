@@ -1575,6 +1575,77 @@ See `examples/stream/` for ready-to-run scripts for macOS, Linux, WSL2, and TCP 
 
 ---
 
+## Live Plotting
+
+`figure_live`, `plot_update`, `figure_draw`, `figure_close`, and `mag2db` provide real-time terminal visualization that stays open across multiple draw calls — suitable for oscilloscopes, spectrum monitors, and animated simulations.
+
+### `figure_live(rows, cols)`
+
+```
+fig = figure_live(rows, cols)
+```
+
+Opens the ratatui alternate screen in raw mode and initialises a `rows × cols` grid of subplot panels. Returns a `live_figure` handle. Errors with a runtime message if stdout is not a real terminal (e.g. in CI or when piped).
+
+### `plot_update(fig, panel, y)` / `plot_update(fig, panel, x, y)`
+
+```
+plot_update(fig, panel, y)       # x-axis auto-generated (1, 2, ..., N)
+plot_update(fig, panel, x, y)    # explicit x-axis
+```
+
+Replaces the data in the given 1-based panel without redrawing. Call `figure_draw` after updating all panels for a single atomic screen refresh per loop iteration — this avoids partial-state flicker.
+
+### `figure_draw(fig)`
+
+```
+figure_draw(fig)
+```
+
+Flushes all panel data to the terminal in one draw call. Returns immediately (no keypress wait).
+
+### `figure_close(fig)`
+
+```
+figure_close(fig)
+```
+
+Drops the `LiveFigure`, restoring raw mode and leaving the alternate screen. This fires automatically when the script ends or the process is interrupted (Ctrl-C) — `figure_close` is only needed when the script wants to return to the normal terminal mid-execution.
+
+### `mag2db(X)`
+
+```
+db = mag2db(X)
+```
+
+Converts magnitude to dB: `20 · log10(|X|)`, element-wise. Applies a 1e-10 floor so silence maps to −200 dB rather than −∞.
+
+**Example — real-time spectrum monitor:**
+
+```r
+sr       = 44100.0;
+fft_size = 1024;
+half     = fft_size / 2;
+
+h   = window(fft_size, "hann");
+adc = audio_in(sr, fft_size);
+fig = figure_live(2, 1);
+
+while true
+    frame = audio_read(adc);
+    X     = fft(frame .* h);
+    freqs = fftfreq(fft_size, sr);
+
+    plot_update(fig, 1, frame);
+    plot_update(fig, 2, freqs(1:half), mag2db(X(1:half)));
+    figure_draw(fig);
+end
+```
+
+See `examples/audio/spectrum_monitor.r` for the full annotated script.
+
+---
+
 ## REPL Commands
 
 These are interactive commands available in the `rustlab` REPL only (not in script files).

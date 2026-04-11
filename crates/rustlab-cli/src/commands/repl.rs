@@ -395,6 +395,17 @@ const HELP: &[HelpEntry] = &[
         detail: "audio_read(adc)  — blocking read of one frame from stdin\n  adc — audio_in handle\n\nBlocks until the full frame is available. Returns a real-valued Vector.\nIf stdin closes, raises a runtime error and the script exits cleanly.\n\nExample:\n  frame = audio_read(adc)" },
     HelpEntry { name: "audio_write", brief: "Write one frame of f32-LE PCM to stdout",
         detail: "audio_write(dac, frame)  — write one frame to stdout\n  dac   — audio_out handle\n  frame — Vector of samples (real part written as f32-LE)\n\nFlushes stdout after each frame so the downstream consumer receives\ndata promptly.\n\nExample:\n  audio_write(dac, out)" },
+    // Live plotting
+    HelpEntry { name: "figure_live", brief: "Open a persistent live terminal plot",
+        detail: "figure_live(rows, cols)  — create a live figure with rows × cols panels\n  rows, cols — grid dimensions\n\nKeeps the alternate screen open across multiple draw calls.\nErrors if stdout is not a real tty.\n\nExample:\n  fig = figure_live(2, 1)" },
+    HelpEntry { name: "plot_update", brief: "Update panel data (no immediate redraw)",
+        detail: "plot_update(fig, panel, y)      — auto x-axis (1..N)\nplot_update(fig, panel, x, y)  — explicit x-axis\n  panel — 1-based index\n\nCall figure_draw(fig) after updating all panels for one atomic refresh.\n\nExample:\n  plot_update(fig, 1, frame)\n  plot_update(fig, 2, freqs, mag2db(X))" },
+    HelpEntry { name: "figure_draw", brief: "Redraw all panels to the terminal",
+        detail: "figure_draw(fig)  — one atomic screen refresh\n\nCall after all plot_update calls to avoid partial-state flicker.\n\nExample:\n  figure_draw(fig)" },
+    HelpEntry { name: "figure_close", brief: "Close live figure and restore terminal",
+        detail: "figure_close(fig)  — drop live figure, restore normal terminal\n\nAlso fires automatically on script end or Ctrl-C via Drop.\n\nExample:\n  figure_close(fig)" },
+    HelpEntry { name: "mag2db", brief: "Convert magnitude to dB: 20·log10(|X|)",
+        detail: "mag2db(X)  — element-wise, floored at −200 dB (1e-10 floor)\n  X — scalar, complex, vector, or matrix\n\nExamples:\n  mag2db(1.0)         % 0 dB\n  mag2db(0.0)         % -200 dB\n  mag2db(fft(frame))  % spectrum in dB" },
 ];
 
 fn whos_type(v: &rustlab_script::Value) -> &'static str {
@@ -418,6 +429,7 @@ fn whos_type(v: &rustlab_script::Value) -> &'static str {
         Value::FirState(_)    => "fir_state",
         Value::AudioIn  { .. } => "audio_in",
         Value::AudioOut { .. } => "audio_out",
+        Value::LiveFigure(_)  => "live_figure",
     }
 }
 
@@ -486,6 +498,10 @@ fn whos_preview(v: &rustlab_script::Value) -> String {
             format!("<audio_in {:.0} Hz / {}>", sample_rate, frame_size),
         Value::AudioOut { sample_rate, frame_size } =>
             format!("<audio_out {:.0} Hz / {}>", sample_rate, frame_size),
+        Value::LiveFigure(fig) => {
+            if fig.lock().unwrap().is_some() { "<live_figure>".to_string() }
+            else                             { "<live_figure closed>".to_string() }
+        }
     }
 }
 
@@ -595,6 +611,7 @@ fn print_help_list() {
                                "fft","ifft","fftshift","fftfreq","spectrum"]),
         ("Streaming DSP",    &["state_init","filter_stream"]),
         ("Audio I/O",        &["audio_in","audio_out","audio_read","audio_write"]),
+        ("Live Plotting",    &["figure_live","plot_update","figure_draw","figure_close","mag2db"]),
         ("Fixed-point",      &["qfmt","quantize","qadd","qmul","qconv","snr"]),
         ("Plotting",         &["plot","stem","bar","scatter","plotdb","imagesc",
                                "savefig","savestem","savebar","savescatter",

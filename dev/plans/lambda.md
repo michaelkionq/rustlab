@@ -1,6 +1,6 @@
 # Development Plan: Lambda / Anonymous Function Support
 
-**Status:** Not started
+**Status:** Complete (both phases implemented in commit 6608f52)
 **Syntax target:** MATLAB-style `@(params) expr` and `@name` function handles
 
 ---
@@ -100,17 +100,17 @@ New evaluator-level functions (Phase 2):
 
 ### Checklist
 
-- [ ] **1a. Lexer** — add `Token::At` in `crates/rustlab-script/src/lexer.rs`:
+- [x] **1a. Lexer** — add `Token::At` in `crates/rustlab-script/src/lexer.rs`:
   - Lex `@` as `Token::At`
   - Insert in the character-match arm (near `Token::Bang` or similar)
 
-- [ ] **1b. AST** — extend `Expr` in `crates/rustlab-script/src/ast.rs`:
+- [x] **1b. AST** — extend `Expr` in `crates/rustlab-script/src/ast.rs`:
   ```rust
   Lambda { params: Vec<String>, body: Box<Expr> },
   FuncHandle(String),
   ```
 
-- [ ] **1c. Parser** — handle `Token::At` in `parse_primary()` in `parser.rs`:
+- [x] **1c. Parser** — handle `Token::At` in `parse_primary()` in `parser.rs`:
   - Consume `@`
   - If next token is `LParen`:
     - Parse comma-separated `Ident` list as params until `RParen`
@@ -120,7 +120,7 @@ New evaluator-level functions (Phase 2):
     - Consume it; return `Expr::FuncHandle(name)`
   - Else: parse error
 
-- [ ] **1d. Value** — add variants to `Value` enum in `eval/value.rs`:
+- [x] **1d. Value** — add variants to `Value` enum in `eval/value.rs`:
   ```rust
   Lambda {
       params:       Vec<String>,
@@ -133,7 +133,7 @@ New evaluator-level functions (Phase 2):
   - Add display: `@(x, y) <expr>` for Lambda, `@name` for FuncHandle
   - Add negate/index arms that return a descriptive error
 
-- [ ] **1e. Evaluator — eval Expr::Lambda** in `eval/mod.rs`:
+- [x] **1e. Evaluator — eval Expr::Lambda** in `eval/mod.rs`:
   ```rust
   Expr::Lambda { params, body } => {
       Ok(Value::Lambda {
@@ -144,12 +144,12 @@ New evaluator-level functions (Phase 2):
   }
   ```
 
-- [ ] **1f. Evaluator — eval Expr::FuncHandle** in `eval/mod.rs`:
+- [x] **1f. Evaluator — eval Expr::FuncHandle** in `eval/mod.rs`:
   ```rust
   Expr::FuncHandle(name) => Ok(Value::FuncHandle(name.clone())),
   ```
 
-- [ ] **1g. Evaluator — call dispatch** — in `eval_expr` for `Expr::Call { name, args }`,
+- [x] **1g. Evaluator — call dispatch** — in `eval_expr` for `Expr::Call { name, args }`,
   add a check **before** the matrix-indexing fallback (after the builtin lookup):
   ```rust
   // After checking builtins, before treating as matrix index:
@@ -170,7 +170,7 @@ New evaluator-level functions (Phase 2):
   }
   ```
 
-- [ ] **1h. Evaluator — `eval_lambda_call` helper** in `eval/mod.rs`:
+- [x] **1h. Evaluator — `eval_lambda_call` helper** in `eval/mod.rs`:
   ```rust
   fn eval_lambda_call(
       &mut self,
@@ -199,7 +199,7 @@ New evaluator-level functions (Phase 2):
   }
   ```
 
-- [ ] **1i. Unit tests** in `tests.rs`:
+- [x] **1i. Unit tests** in `tests.rs`:
   ```
   % Basic lambda
   f = @(x) x^2;
@@ -239,11 +239,11 @@ New evaluator-level functions (Phase 2):
 
 ### Checklist
 
-- [ ] **2a. `@name` handle calling** — verify Phase 1 dispatch covers this:
+- [x] **2a. `@name` handle calling** — verify Phase 1 dispatch covers this:
   `h = @sin; h(pi/2)` → FuncHandle("sin") → redispatch to Call{sin, [pi/2]} ✓
   Also test with user-defined function names.
 
-- [ ] **2b. `arrayfun(f, v)` builtin** — implemented as an evaluator-level
+- [x] **2b. `arrayfun(f, v)` builtin** — implemented as an evaluator-level
   special case in `eval_expr` (not in builtins.rs) since it needs `&mut self`:
   ```rust
   // In eval_expr, Expr::Call { name, args } — check name == "arrayfun"
@@ -259,7 +259,7 @@ New evaluator-level functions (Phase 2):
   - Result type matches output of `f` on each element
   - Error if `f` returns a non-scalar for a vector input (element-wise only)
 
-- [ ] **2c. `feval(name, args...)` builtin** — call a function by string name:
+- [x] **2c. `feval(name, args...)` builtin** — call a function by string name:
   ```
   feval("sin", pi/2)   % same as sin(pi/2)
   feval("myFunc", 3)
@@ -267,7 +267,7 @@ New evaluator-level functions (Phase 2):
   Implemented as evaluator-level special case.  Looks up `name` in
   user_fns first, then builtins, then env (for lambdas stored by string var).
 
-- [ ] **2d. Unit tests** in `tests.rs`:
+- [x] **2d. Unit tests** in `tests.rs`:
   ```
   % Function handle to builtin
   h = @sin;

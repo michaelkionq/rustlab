@@ -1,6 +1,6 @@
 # Development Plan: Function Call Profiling
 
-**Status:** Not started
+**Status:** Complete (both phases implemented in commit 6cff8e5)
 **Primary trigger:** `profile(fft, myfun)` call in script
 **Secondary trigger:** `rustlab run --profile script.r` CLI flag
 
@@ -345,42 +345,42 @@ and writes the table to stderr.
 
 ### Checklist
 
-- [ ] **1a.** Create `crates/rustlab-script/src/eval/profile.rs` with `FnStats`
+- [x] **1a.** Create `crates/rustlab-script/src/eval/profile.rs` with `FnStats`
   and `Profiler` as shown above.
 
-- [ ] **1b.** Add `pub mod profile;` and `profiler: profile::Profiler` field to
+- [x] **1b.** Add `pub mod profile;` and `profiler: profile::Profiler` field to
   `Evaluator`.  Add `UserFn.name: String`.  Populate name in `Stmt::FunctionDef`
   execution.
 
-- [ ] **1c.** Add `value_bytes(v: &Value) -> u64` private static method.
+- [x] **1c.** Add `value_bytes(v: &Value) -> u64` private static method.
 
-- [ ] **1d.** Extract `call_builtin_tracked` wrapper; replace both bare
+- [x] **1d.** Extract `call_builtin_tracked` wrapper; replace both bare
   `self.builtins.call(name, vals)` sites in `Expr::Call` and the one in
   `eval_feval`.
 
-- [ ] **1e.** Instrument `eval_user_fn` with enter/exit higher-order and timing.
+- [x] **1e.** Instrument `eval_user_fn` with enter/exit higher-order and timing.
 
-- [ ] **1f.** Add `call_name: &str` to `eval_lambda_call`; update all call sites
+- [x] **1f.** Add `call_name: &str` to `eval_lambda_call`; update all call sites
   (direct call passes variable name; `call_callable` passes `""`).  Add timing.
 
-- [ ] **1g.** Instrument `eval_arrayfun` with outer timing.
+- [x] **1g.** Instrument `eval_arrayfun` with outer timing.
 
-- [ ] **1h.** Add `profile(...)` and `profile_report()` special-case dispatch at
+- [x] **1h.** Add `profile(...)` and `profile_report()` special-case dispatch at
   top of `Expr::Call`.
 
-- [ ] **1i.** Add public API: `enable_profiling`, `has_profile_data`,
+- [x] **1i.** Add public API: `enable_profiling`, `has_profile_data`,
   `take_profile`.
 
-- [ ] **1j.** Add `pub fn print_profile_report(rows: &[(String, FnStats)])` as a
+- [x] **1j.** Add `pub fn print_profile_report(rows: &[(String, FnStats)])` as a
   free function in `profile.rs`, writing to stderr.  Columns: Function | Calls |
   Total (ms) | Avg (µs) | In (KB) | Out (KB) | Mbit/s.  Omit zero-time rows.
   Include TOTAL row.
 
-- [ ] **1k.** In `Evaluator::run` (or the caller), auto-print the report at
+- [x] **1k.** In `Evaluator::run` (or the caller), auto-print the report at
   script end if `profiler.has_data()`.  This makes `profile(fft)` in a script
   self-contained without needing `profile_report()`.
 
-- [ ] **1l.** Unit tests in `tests.rs`:
+- [x] **1l.** Unit tests in `tests.rs`:
   - `profile(fft)` in a script → `take_profile()` contains `fft` with correct
     call count and `total_ns > 0`.
   - `profile(fft)` does **not** appear for `sin` calls in the same script.
@@ -396,21 +396,21 @@ and writes the table to stderr.
 
 ### Checklist
 
-- [ ] **2a.** Add `--profile` flag to `RunArgs` in
+- [x] **2a.** Add `--profile` flag to `RunArgs` in
   `crates/rustlab-cli/src/commands/run.rs`:
   ```rust
   #[arg(long, help = "Profile all function calls and print report on exit")]
   pub profile: bool,
   ```
 
-- [ ] **2b.** In the `run` command handler: if `args.profile`, call
+- [x] **2b.** In the `run` command handler: if `args.profile`, call
   `ev.enable_profiling(None)` before running the script.
 
-- [ ] **2c.** After `ev.run(...)`, the auto-print in Phase 1k handles report
+- [x] **2c.** After `ev.run(...)`, the auto-print in Phase 1k handles report
   output.  CLI adds nothing extra here — both `profile()` in-script and
   `--profile` share the same print path.
 
-- [ ] **2d.** Smoke-test: `rustlab run --profile examples/fft.r` — verify table
+- [x] **2d.** Smoke-test: `rustlab run --profile examples/fft.r` — verify table
   appears on stderr, `fft` is in the top rows.
 
 ---

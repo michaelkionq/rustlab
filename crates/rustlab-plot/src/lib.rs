@@ -2,6 +2,7 @@ pub mod ascii;
 pub mod error;
 pub mod figure;
 pub mod file;
+pub mod live;
 
 pub use ascii::{
     imagesc_terminal,
@@ -10,6 +11,7 @@ pub use ascii::{
     render_figure_terminal,
 };
 pub use error::PlotError;
+pub use live::LiveFigure;
 pub use file::{
     render_figure_file,
     save_db, save_histogram, save_imagesc_cmap, save_plot, save_stem,

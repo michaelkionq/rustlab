@@ -1,0 +1,85 @@
+use crossterm::{execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
+use ratatui::{Terminal, backend::CrosstermBackend};
+use std::io::{stdout, IsTerminal};
+use crate::{ascii::draw_subplots, error::PlotError, figure::{LineStyle, PlotKind, Series, SeriesColor, SubplotState}};
+
+/// A persistent live-updating terminal plot that stays open across multiple
+/// `redraw()` calls.  Use `update_panel()` to push new data and `redraw()` to
+/// flush it to the screen in one atomic refresh.
+///
+/// Terminal cleanup (`disable_raw_mode` + `LeaveAlternateScreen`) fires
+/// automatically via `Drop` — on explicit `figure_close`, on script end, and
+/// on Ctrl-C (Rust runs destructors when unwinding).
+pub struct LiveFigure {
+    terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
+    panels:   Vec<SubplotState>,
+    rows:     usize,
+    cols:     usize,
+}
+
+impl LiveFigure {
+    /// Open the alternate screen and initialise a `rows × cols` live figure.
+    /// Returns `Err(PlotError::NotATty)` if stdout is not a real terminal.
+    pub fn new(rows: usize, cols: usize) -> Result<Self, PlotError> {
+        if !stdout().is_terminal() {
+            return Err(PlotError::NotATty);
+        }
+        execute!(stdout(), EnterAlternateScreen)?;
+        enable_raw_mode()?;
+        let backend = CrosstermBackend::new(stdout());
+        let terminal = Terminal::new(backend)
+            .map_err(|e| PlotError::Terminal(e.to_string()))?;
+        let panels = (0..rows * cols).map(|_| SubplotState::new()).collect();
+        Ok(Self { terminal, panels, rows, cols })
+    }
+
+    /// Replace the data in panel `idx` (0-based).  Does **not** redraw —
+    /// call `redraw()` after updating all panels for one atomic refresh.
+    pub fn update_panel(&mut self, idx: usize, x: Vec<f64>, y: Vec<f64>) {
+        if idx >= self.panels.len() { return; }
+        let panel = &mut self.panels[idx];
+        panel.series.clear();
+        panel.series.push(Series {
+            label: String::new(),
+            x_data: x,
+            y_data: y,
+            color: SeriesColor::Cyan,
+            style: LineStyle::Solid,
+            kind:  PlotKind::Line,
+        });
+    }
+
+    /// Set the title and axis labels for a panel (0-based idx).  Optional.
+    pub fn set_panel_labels(&mut self, idx: usize, title: &str, xlabel: &str, ylabel: &str) {
+        if idx >= self.panels.len() { return; }
+        let p = &mut self.panels[idx];
+        p.title  = title.to_string();
+        p.xlabel = xlabel.to_string();
+        p.ylabel = ylabel.to_string();
+    }
+
+    /// Render all panels to the terminal.  Returns immediately after the draw
+    /// call — no keypress wait.
+    pub fn redraw(&mut self) -> Result<(), PlotError> {
+        let panels = &self.panels;
+        let rows   = self.rows;
+        let cols   = self.cols;
+        self.terminal
+            .draw(|f| draw_subplots(f, panels, rows, cols))
+            .map_err(|e| PlotError::Terminal(e.to_string()))?;
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for LiveFigure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "LiveFigure({}x{})", self.rows, self.cols)
+    }
+}
+
+impl Drop for LiveFigure {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = execute!(stdout(), LeaveAlternateScreen);
+    }
+}

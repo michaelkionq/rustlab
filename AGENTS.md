@@ -140,9 +140,15 @@ together whenever a phase finishes.
 
 ## Active Plans
 
-| Plan | File | Current Phase | Status |
-|------|------|--------------|--------|
-| Control Systems Toolbox | `dev/plans/controls.md` | Phase 5 — Optimal Control | Phases 1–4 complete |
+| Plan | File | Status |
+|------|------|--------|
+| Control Systems Toolbox | `dev/plans/controls.md` | Complete — all 6 phases |
+| Controls Bootcamp Functions | `dev/plans/controls_bootcamp.md` | Complete — logspace, rk4, lyap, gram, care, dare, place, freqresp, svd |
+| Lambda / Anonymous Functions | `dev/plans/lambda.md` | Complete — both phases (lambdas, arrayfun, feval) |
+| Function Call Profiling | `dev/plans/profiling.md` | Complete — both phases (profile(), --profile flag) |
+| Real-Time Audio Streaming | `dev/plans/audio_streaming.md` | Complete — all 3 phases (while loop, FirState, audio I/O) |
+| Live Plot & Spectrum Monitor | `dev/plans/live_plot.md` | Complete — all 3 phases (LiveFigure, builtins, mag2db) |
+| Sparse Vectors and Matrices | `dev/plans/sparse.md` | Not started |
 
 ---
 
@@ -308,9 +314,10 @@ cargo install --path crates/rustlab-cli   # → ~/.cargo/bin/rustlab
 **Purpose:** Terminal charts. Depends on `rustlab-core` only.
 
 **Key files:**
-- `src/ascii.rs` — `plot_real(&RVector, title)`, `plot_complex(&CVector, title)`, `stem_real(&RVector, title)`
+- `src/ascii.rs` — `plot_real`, `plot_complex`, `stem_real`, and the shared `draw_subplots(f, subplots, rows, cols)` helper used by both `render_figure_terminal` and `LiveFigure::redraw`.
+- `src/live.rs` — `LiveFigure` struct: `new(rows, cols)`, `update_panel(idx, x, y)`, `set_panel_labels(idx, title, xlabel, ylabel)`, `redraw()`. `Drop` impl restores the terminal.
 
-**Behavior:** All three functions enter the ratatui alternate screen, draw a braille-pixel chart, wait for a keypress, then restore the terminal. They are blocking and interactive — do not call them in non-TTY contexts.
+**Behavior:** Static plot functions enter the ratatui alternate screen, draw a braille-pixel chart, wait for a keypress, then restore the terminal. `LiveFigure` keeps the alternate screen open across multiple `redraw()` calls and only restores on `Drop`. Neither should be called in non-TTY contexts (`render_figure_terminal` silently skips; `LiveFigure::new` returns `Err(PlotError::NotATty)`).
 
 ---
 
@@ -323,7 +330,7 @@ cargo install --path crates/rustlab-cli   # → ~/.cargo/bin/rustlab
 - `src/parser.rs` — recursive-descent parser → `Vec<Stmt>`
 - `src/ast.rs` — `Stmt` (Assign, Expr, FunctionDef, FieldAssign, Return), `Expr` (Number, Str, Var, BinOp, UnaryMinus, Call, Matrix, Range, Transpose, Field, Lambda, FuncHandle), `BinOp`
 - `src/eval/mod.rs` — `Evaluator` struct: holds `env`, `builtins`, `user_fns`, `in_function`, `profiler: profile::Profiler`; public API: `run()`, `run_script()`, `enable_profiling()`, `has_profile_data()`, `take_profile()`
-- `src/eval/value.rs` — `Value` enum: `Scalar(f64)`, `Complex(C64)`, `Vector(CVector)`, `Matrix(CMatrix)`, `Str(String)`, `Struct(HashMap<String,Value>)`, `Bool(bool)`, `Lambda { params, body, captured_env }`, `FuncHandle(String)`, `QFmt`, `FirState(Arc<Mutex<Vec<C64>>>)`, `AudioIn { sample_rate, frame_size }`, `AudioOut { sample_rate, frame_size }`, `All`, `None`
+- `src/eval/value.rs` — `Value` enum: `Scalar(f64)`, `Complex(C64)`, `Vector(CVector)`, `Matrix(CMatrix)`, `Str(String)`, `Struct(HashMap<String,Value>)`, `Bool(bool)`, `Lambda { params, body, captured_env }`, `FuncHandle(String)`, `QFmt`, `FirState(Arc<Mutex<Vec<C64>>>)`, `AudioIn { sample_rate, frame_size }`, `AudioOut { sample_rate, frame_size }`, `LiveFigure(Arc<Mutex<Option<rustlab_plot::LiveFigure>>>)`, `All`, `None`
 - `src/eval/builtins.rs` — `BuiltinRegistry`: `HashMap<String, BuiltinFn>` where `BuiltinFn = fn(Vec<Value>) -> Result<Value, ScriptError>`
 - `src/eval/profile.rs` — `Profiler` struct (opt-in, zero overhead when disabled); `print_report()` prints table to stderr
 - `src/lib.rs` — public entry points: `run(source)`, `run_profiled(source)`
@@ -479,6 +486,11 @@ primary     = NUMBER | STRING | IDENT
 | `audio_out` | `audio_out(sr, frame_size)` | Create `Value::AudioOut` descriptor (metadata only; no I/O) |
 | `audio_read` | `audio_read(src)` | Read one frame of f32 LE samples from stdin; raises `ScriptError::AudioEof` on clean EOF |
 | `audio_write` | `audio_write(dst, y)` | Write real parts of frame as f32 LE to stdout; flushes after each call |
+| `figure_live` | `figure_live(rows, cols)` | Open persistent live terminal plot; returns `Value::LiveFigure`; errors if not a tty |
+| `plot_update` | `plot_update(fig, panel, y)` / `plot_update(fig, panel, x, y)` | Replace panel data (1-based panel); no immediate redraw |
+| `figure_draw` | `figure_draw(fig)` | Flush all panels to terminal in one atomic refresh |
+| `figure_close` | `figure_close(fig)` | Drop `LiveFigure`, restoring terminal; also fires via `Drop` on script exit |
+| `mag2db` | `mag2db(X)` | 20·log10(|X|) element-wise, floored at −200 dB (1e-10 floor) |
 
 Window names: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`
 

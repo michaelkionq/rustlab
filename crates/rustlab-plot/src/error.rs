@@ -12,4 +12,6 @@ pub enum PlotError {
     Io(#[from] std::io::Error),
     #[error("file output error: {0}")]
     FileOutput(String),
+    #[error("figure_live requires a real terminal (stdout is not a tty)")]
+    NotATty,
 }

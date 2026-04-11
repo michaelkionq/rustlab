@@ -43,6 +43,181 @@ fn restore_terminal() {
     let _ = execute!(stdout(), LeaveAlternateScreen);
 }
 
+/// Render a slice of subplot panels into an existing ratatui frame.
+/// Called by both `render_figure_terminal()` and `LiveFigure::redraw()`.
+pub(crate) fn draw_subplots(
+    f: &mut ratatui::Frame,
+    subplots: &[crate::figure::SubplotState],
+    rows: usize,
+    cols: usize,
+) {
+    let area = f.area();
+
+    let row_constraints: Vec<Constraint> = (0..rows).map(|_| Constraint::Ratio(1, rows as u32)).collect();
+    let row_areas = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(row_constraints)
+        .split(area);
+
+    for r in 0..rows {
+        let col_constraints: Vec<Constraint> = (0..cols).map(|_| Constraint::Ratio(1, cols as u32)).collect();
+        let col_areas = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(col_constraints)
+            .split(row_areas[r]);
+
+        for c in 0..cols {
+            let idx = r * cols + c;
+            if idx >= subplots.len() { break; }
+            let sp = &subplots[idx];
+            let cell = col_areas[c];
+
+            let all_x: Vec<f64> = sp.series.iter().flat_map(|s| s.x_data.iter().copied()).collect();
+            let all_y: Vec<f64> = sp.series.iter().flat_map(|s| s.y_data.iter().copied()).collect();
+            if all_x.is_empty() || all_y.is_empty() { continue; }
+
+            let x_min = sp.xlim.0.unwrap_or_else(|| all_x.iter().copied().fold(f64::INFINITY, f64::min));
+            let x_max = sp.xlim.1.unwrap_or_else(|| all_x.iter().copied().fold(f64::NEG_INFINITY, f64::max));
+            let y_min_raw = all_y.iter().copied().fold(f64::INFINITY, f64::min);
+            let y_max_raw = all_y.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let y_margin = ((y_max_raw - y_min_raw).abs() * 0.1).max(1e-6);
+            let y_min = sp.ylim.0.unwrap_or(y_min_raw - y_margin);
+            let y_max = sp.ylim.1.unwrap_or(y_max_raw + y_margin);
+
+            let series_points: Vec<Vec<(f64, f64)>> = sp.series.iter().map(|s| {
+                s.x_data.iter().copied().zip(s.y_data.iter().copied()).collect()
+            }).collect();
+
+            let stem_points: Vec<Vec<(f64, f64)>> = sp.series.iter().map(|s| {
+                if s.kind == PlotKind::Stem {
+                    let mut pts = Vec::with_capacity(s.x_data.len() * 3);
+                    for (&x, &y) in s.x_data.iter().zip(s.y_data.iter()) {
+                        pts.push((x, 0.0));
+                        pts.push((x, y));
+                        pts.push((x, 0.0));
+                    }
+                    pts
+                } else {
+                    vec![]
+                }
+            }).collect();
+
+            let bar_points: Vec<Vec<(f64, f64)>> = sp.series.iter().map(|s| {
+                if s.kind == PlotKind::Bar {
+                    let n = s.x_data.len();
+                    let bar_w = if n > 1 {
+                        let span = s.x_data[n - 1] - s.x_data[0];
+                        (span / (n - 1) as f64) * 0.8
+                    } else {
+                        0.8
+                    };
+                    let half = bar_w / 2.0;
+                    let mut pts = Vec::with_capacity(n * 4);
+                    for (&x, &y) in s.x_data.iter().zip(s.y_data.iter()) {
+                        pts.push((x - half, 0.0));
+                        pts.push((x - half, y));
+                        pts.push((x + half, y));
+                        pts.push((x + half, 0.0));
+                    }
+                    pts
+                } else {
+                    vec![]
+                }
+            }).collect();
+
+            let grid_pts: Vec<Vec<(f64, f64)>> = if sp.grid {
+                const N: usize = 5;
+                let mut v = Vec::with_capacity(N * 2 + 2);
+                for i in 0..=N {
+                    let yv = y_min + (y_max - y_min) * i as f64 / N as f64;
+                    v.push(vec![(x_min, yv), (x_max, yv)]);
+                }
+                for i in 1..N {
+                    let xv = x_min + (x_max - x_min) * i as f64 / N as f64;
+                    v.push(vec![(xv, y_min), (xv, y_max)]);
+                }
+                v
+            } else {
+                vec![]
+            };
+
+            let mut datasets: Vec<Dataset> = Vec::new();
+            for pts in &grid_pts {
+                datasets.push(Dataset::default()
+                    .marker(symbols::Marker::Braille)
+                    .graph_type(GraphType::Line)
+                    .style(Style::default().fg(ratatui::style::Color::Rgb(70, 70, 70)))
+                    .data(pts));
+            }
+            for (i, s) in sp.series.iter().enumerate() {
+                let rcolor = s.color.to_ratatui();
+                match s.kind {
+                    PlotKind::Stem => {
+                        datasets.push(Dataset::default()
+                            .name(s.label.as_str())
+                            .marker(symbols::Marker::Braille)
+                            .graph_type(GraphType::Line)
+                            .style(Style::default().fg(rcolor))
+                            .data(&stem_points[i]));
+                    }
+                    PlotKind::Bar => {
+                        datasets.push(Dataset::default()
+                            .name(s.label.as_str())
+                            .marker(symbols::Marker::Braille)
+                            .graph_type(GraphType::Line)
+                            .style(Style::default().fg(rcolor))
+                            .data(&bar_points[i]));
+                    }
+                    PlotKind::Scatter => {
+                        datasets.push(Dataset::default()
+                            .name(s.label.as_str())
+                            .marker(symbols::Marker::Dot)
+                            .graph_type(GraphType::Scatter)
+                            .style(Style::default().fg(rcolor))
+                            .data(&series_points[i]));
+                    }
+                    PlotKind::Line => {
+                        datasets.push(Dataset::default()
+                            .name(s.label.as_str())
+                            .marker(symbols::Marker::Braille)
+                            .graph_type(GraphType::Line)
+                            .style(Style::default().fg(rcolor))
+                            .data(&series_points[i]));
+                    }
+                }
+            }
+
+            let title  = if !sp.title.is_empty()  { sp.title.as_str()  } else { "" };
+            let xlabel = if !sp.xlabel.is_empty() { sp.xlabel.as_str() } else { "x" };
+            let ylabel = if !sp.ylabel.is_empty() { sp.ylabel.as_str() } else { "y" };
+
+            let x_mid = (x_min + x_max) / 2.0;
+            let y_mid = (y_min + y_max) / 2.0;
+
+            let chart = Chart::new(datasets)
+                .block(Block::default().borders(Borders::ALL).title(title))
+                .x_axis(Axis::default()
+                    .title(xlabel)
+                    .bounds([x_min, x_max])
+                    .labels(vec![
+                        ratatui::text::Span::raw(fmt_g(x_min)),
+                        ratatui::text::Span::raw(fmt_g(x_mid)),
+                        ratatui::text::Span::raw(fmt_g(x_max)),
+                    ]))
+                .y_axis(Axis::default()
+                    .title(ylabel)
+                    .bounds([y_min, y_max])
+                    .labels(vec![
+                        ratatui::text::Span::raw(fmt_g(y_min)),
+                        ratatui::text::Span::raw(fmt_g(y_mid)),
+                        ratatui::text::Span::raw(fmt_g(y_max)),
+                    ]));
+
+            f.render_widget(chart, cell);
+        }
+    }
+}
+
 /// Render the current FIGURE state to the terminal.
 pub fn render_figure_terminal() -> Result<(), PlotError> {
     // Skip silently when stdout is not a real terminal (e.g. script mode, CI).
@@ -67,180 +242,7 @@ pub fn render_figure_terminal() -> Result<(), PlotError> {
             PlotError::Terminal(e.to_string())
         })?;
 
-        let result = terminal.draw(|f| {
-            let area = f.area();
-
-            // Split into rows
-            let row_constraints: Vec<Constraint> = (0..rows).map(|_| Constraint::Ratio(1, rows as u32)).collect();
-            let row_areas = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(row_constraints)
-                .split(area);
-
-            for r in 0..rows {
-                let col_constraints: Vec<Constraint> = (0..cols).map(|_| Constraint::Ratio(1, cols as u32)).collect();
-                let col_areas = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints(col_constraints)
-                    .split(row_areas[r]);
-
-                for c in 0..cols {
-                    let idx = r * cols + c;
-                    if idx >= subplots.len() { break; }
-                    let sp = &subplots[idx];
-                    let cell = col_areas[c];
-
-                    // Compute axis bounds across all series in this subplot
-                    let all_x: Vec<f64> = sp.series.iter().flat_map(|s| s.x_data.iter().copied()).collect();
-                    let all_y: Vec<f64> = sp.series.iter().flat_map(|s| s.y_data.iter().copied()).collect();
-                    if all_x.is_empty() || all_y.is_empty() { continue; }
-
-                    let x_min = sp.xlim.0.unwrap_or_else(|| all_x.iter().copied().fold(f64::INFINITY, f64::min));
-                    let x_max = sp.xlim.1.unwrap_or_else(|| all_x.iter().copied().fold(f64::NEG_INFINITY, f64::max));
-                    let y_min_raw = all_y.iter().copied().fold(f64::INFINITY, f64::min);
-                    let y_max_raw = all_y.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-                    let y_margin = ((y_max_raw - y_min_raw).abs() * 0.1).max(1e-6);
-                    let y_min = sp.ylim.0.unwrap_or(y_min_raw - y_margin);
-                    let y_max = sp.ylim.1.unwrap_or(y_max_raw + y_margin);
-
-                    // Build point data for each series
-                    let series_points: Vec<Vec<(f64, f64)>> = sp.series.iter().map(|s| {
-                        s.x_data.iter().copied().zip(s.y_data.iter().copied()).collect()
-                    }).collect();
-
-                    // For stem: build zigzag points (base → tip → base for each sample)
-                    let stem_points: Vec<Vec<(f64, f64)>> = sp.series.iter().map(|s| {
-                        if s.kind == PlotKind::Stem {
-                            let mut pts = Vec::with_capacity(s.x_data.len() * 3);
-                            for (&x, &y) in s.x_data.iter().zip(s.y_data.iter()) {
-                                pts.push((x, 0.0));
-                                pts.push((x, y));
-                                pts.push((x, 0.0));
-                            }
-                            pts
-                        } else {
-                            vec![]
-                        }
-                    }).collect();
-
-                    // For bar: convert each bar to a step-function outline (left→top→right→base)
-                    // Bar width is derived from spacing between adjacent bars (or 0.8 if only one).
-                    let bar_points: Vec<Vec<(f64, f64)>> = sp.series.iter().map(|s| {
-                        if s.kind == PlotKind::Bar {
-                            let n = s.x_data.len();
-                            let bar_w = if n > 1 {
-                                let span = s.x_data[n - 1] - s.x_data[0];
-                                (span / (n - 1) as f64) * 0.8
-                            } else {
-                                0.8
-                            };
-                            let half = bar_w / 2.0;
-                            let mut pts = Vec::with_capacity(n * 4);
-                            for (&x, &y) in s.x_data.iter().zip(s.y_data.iter()) {
-                                pts.push((x - half, 0.0));
-                                pts.push((x - half, y));
-                                pts.push((x + half, y));
-                                pts.push((x + half, 0.0));
-                            }
-                            pts
-                        } else {
-                            vec![]
-                        }
-                    }).collect();
-
-                    // Pre-compute grid line point vecs so they outlive the Dataset borrows.
-                    let grid_pts: Vec<Vec<(f64, f64)>> = if sp.grid {
-                        const N: usize = 5;
-                        let mut v = Vec::with_capacity(N * 2 + 2);
-                        for i in 0..=N {
-                            let yv = y_min + (y_max - y_min) * i as f64 / N as f64;
-                            v.push(vec![(x_min, yv), (x_max, yv)]);
-                        }
-                        for i in 1..N {
-                            let xv = x_min + (x_max - x_min) * i as f64 / N as f64;
-                            v.push(vec![(xv, y_min), (xv, y_max)]);
-                        }
-                        v
-                    } else {
-                        vec![]
-                    };
-
-                    let mut datasets: Vec<Dataset> = Vec::new();
-                    for pts in &grid_pts {
-                        datasets.push(Dataset::default()
-                            .marker(symbols::Marker::Braille)
-                            .graph_type(GraphType::Line)
-                            .style(Style::default().fg(ratatui::style::Color::Rgb(70, 70, 70)))
-                            .data(pts));
-                    }
-                    for (i, s) in sp.series.iter().enumerate() {
-                        let rcolor = s.color.to_ratatui();
-                        match s.kind {
-                            PlotKind::Stem => {
-                                datasets.push(Dataset::default()
-                                    .name(s.label.as_str())
-                                    .marker(symbols::Marker::Braille)
-                                    .graph_type(GraphType::Line)
-                                    .style(Style::default().fg(rcolor))
-                                    .data(&stem_points[i]));
-                            }
-                            PlotKind::Bar => {
-                                datasets.push(Dataset::default()
-                                    .name(s.label.as_str())
-                                    .marker(symbols::Marker::Braille)
-                                    .graph_type(GraphType::Line)
-                                    .style(Style::default().fg(rcolor))
-                                    .data(&bar_points[i]));
-                            }
-                            PlotKind::Scatter => {
-                                datasets.push(Dataset::default()
-                                    .name(s.label.as_str())
-                                    .marker(symbols::Marker::Dot)
-                                    .graph_type(GraphType::Scatter)
-                                    .style(Style::default().fg(rcolor))
-                                    .data(&series_points[i]));
-                            }
-                            PlotKind::Line => {
-                                datasets.push(Dataset::default()
-                                    .name(s.label.as_str())
-                                    .marker(symbols::Marker::Braille)
-                                    .graph_type(GraphType::Line)
-                                    .style(Style::default().fg(rcolor))
-                                    .data(&series_points[i]));
-                            }
-                        }
-                    }
-
-                    let title = if !sp.title.is_empty() { sp.title.as_str() } else { "" };
-                    let xlabel = if !sp.xlabel.is_empty() { sp.xlabel.as_str() } else { "x" };
-                    let ylabel = if !sp.ylabel.is_empty() { sp.ylabel.as_str() } else { "y" };
-
-                    let x_mid = (x_min + x_max) / 2.0;
-                    let y_mid = (y_min + y_max) / 2.0;
-
-                    let chart = Chart::new(datasets)
-                        .block(Block::default().borders(Borders::ALL).title(title))
-                        .x_axis(Axis::default()
-                            .title(xlabel)
-                            .bounds([x_min, x_max])
-                            .labels(vec![
-                                ratatui::text::Span::raw(fmt_g(x_min)),
-                                ratatui::text::Span::raw(fmt_g(x_mid)),
-                                ratatui::text::Span::raw(fmt_g(x_max)),
-                            ]))
-                        .y_axis(Axis::default()
-                            .title(ylabel)
-                            .bounds([y_min, y_max])
-                            .labels(vec![
-                                ratatui::text::Span::raw(fmt_g(y_min)),
-                                ratatui::text::Span::raw(fmt_g(y_mid)),
-                                ratatui::text::Span::raw(fmt_g(y_max)),
-                            ]));
-
-                    f.render_widget(chart, cell);
-                }
-            }
-        });
+        let result = terminal.draw(|f| draw_subplots(f, subplots, rows, cols));
 
         if let Err(e) = result {
             restore_terminal();
