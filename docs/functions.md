@@ -161,6 +161,24 @@ mod(-1.0, 3.0)   # → 2.0
 mod(0:5, 3.0)    # → [0, 1, 2, 0, 1, 2]
 ```
 
+### `atan2(y, x)`
+Four-quadrant arctangent in radians. Returns the angle of the point (x, y), correctly handling all quadrants.
+```
+atan2(1.0, 1.0)    # → π/4
+atan2(-1.0, -1.0)  # → -3π/4
+```
+- Both arguments can be scalar, vector, or matrix. Broadcasting is supported (scalar × vector).
+- Always returns a real value.
+
+### `meshgrid(x, y)`
+Create 2D grid matrices from two vectors. Returns a tuple `[X, Y]` where X replicates `x` as rows and Y replicates `y` as columns.
+```
+[X, Y] = meshgrid(1:3, 1:2)
+# X = [1,2,3; 1,2,3]   (2×3)
+# Y = [1,1,1; 2,2,2]   (2×3)
+```
+- Useful for evaluating functions over a 2D grid: `R = sqrt(X .^ 2 + Y .^ 2)`.
+
 ---
 
 ## Statistics
@@ -244,6 +262,28 @@ trapz(linspace(0,1,5), [0,1,2,1,0] * 1.0)   # area under triangle
 ```
 - Returns a scalar (real or complex).
 - Returns `0.0` for vectors with fewer than 2 elements.
+
+### `prod(v)`
+Product of all elements. Accepts scalar, complex, vector, or matrix.
+```
+prod([1.0, 2.0, 3.0, 4.0])   # → 24.0
+prod([2, 3, 5])               # → 30.0
+```
+
+### `all(v)`
+Returns `true` if all elements are nonzero.
+```
+all([1, 2, 3])     # → true
+all([1, 0, 3])     # → false
+```
+- Scalar: nonzero → true. Vector: all elements nonzero (real or imaginary part).
+
+### `any(v)`
+Returns `true` if any element is nonzero.
+```
+any([0, 0, 3])     # → true
+any([0, 0, 0])     # → false
+```
 
 ---
 
@@ -333,6 +373,14 @@ Total number of elements: `rows × cols` for matrices, `1` for scalars.
 
 ### `size(x)`
 Returns a 2-element vector `[rows, cols]`. Vectors return `[1, n]`.
+
+### `logspace(a, b, n)`
+`n` logarithmically spaced points from `10^a` to `10^b` (inclusive).
+```
+logspace(0, 3, 4)   # → [1, 10, 100, 1000]
+logspace(-2, 2, 5)  # → [0.01, 0.1, 1, 10, 100]
+```
+Useful for frequency vectors in Bode plots and log-scale analysis.
 
 ---
 
@@ -704,6 +752,19 @@ h = firpm(51, [0.0, 0.25, 0.35, 1.0],
 - Kaiser automatically determines tap count from attenuation and transition width.
 - `firpm` gives the optimal (fewest-ripple) filter for a fixed tap count, often requiring fewer taps than Kaiser for the same spec.
 
+### `firpmq(n_taps, bands, desired [, weights [, bits [, n_iter]]])`
+
+Integer-coefficient Parks-McClellan. Designs an optimal equiripple FIR like `firpm`, then iteratively requantizes the coefficients to `bits`-bit integers (default 16) over `n_iter` rounds (default 8).
+
+```
+h = firpmq(63, [0.0, 0.20, 0.30, 1.0], [1.0, 1.0, 0.0, 0.0])
+h = firpmq(63, [0.0, 0.20, 0.30, 1.0], [1.0, 1.0, 0.0, 0.0], [1, 10], 12, 16)
+```
+
+- Returns integer taps (stored as complex with zero imaginary part).
+- For unit-gain passband in frequency response, normalize: `freqz(h / sum(h), ...)`.
+- Useful for FPGA/ASIC implementations where coefficients must fit in fixed-width registers.
+
 ---
 
 ## DSP — IIR Filters
@@ -720,6 +781,23 @@ Butterworth IIR highpass filter.
 ```
 h = butterworth_highpass(4, 3000.0, 44100.0)
 ```
+
+> **Note:** `butterworth_lowpass` and `butterworth_highpass` return only the numerator (`b`) coefficients as a vector. For FIR-style filtering, use `convolve(x, h)`. For zero-phase IIR filtering with `filtfilt`, you need both `b` and `a` coefficient vectors.
+
+### `filtfilt(b, a, x)`
+Zero-phase forward-backward IIR filter. Applies the filter defined by `b` (numerator) and `a` (denominator) coefficients forward and then backward, eliminating phase distortion.
+```
+# FIR zero-phase filtering (a = [1])
+h = fir_lowpass(64, 1000.0, 44100.0, "hann")
+y = filtfilt(h, [1], x)
+
+# IIR zero-phase filtering (requires both b and a)
+y = filtfilt(b, a, x)
+```
+- `b` and `a` must be non-empty real vectors.
+- `x` is the input signal (real parts used).
+- Use `a = [1]` for FIR filters (equivalent to zero-phase convolution).
+- The output has the same length as `x` with no group delay.
 
 ---
 
@@ -886,6 +964,61 @@ Numerical rank of a matrix (number of singular values above a tolerance threshol
 rank(eye(4))          # → 4
 rank([1,2;2,4])       # → 1  (linearly dependent rows)
 ```
+
+### `dot(u, v)`
+Inner (dot) product of two vectors. Both must have the same length. Returns a scalar (or complex).
+```
+dot([1, 2, 3], [4, 5, 6])   # → 32.0
+```
+
+### `cross(u, v)`
+3-element cross product. Both vectors must have length 3.
+```
+cross([1, 0, 0], [0, 1, 0])   # → [0, 0, 1]
+```
+
+### `norm(v)` / `norm(v, p)`
+Vector p-norm (default p=2). For matrices, Frobenius norm.
+```
+norm([3, 4])         # → 5.0  (L2)
+norm([3, 4], 1)      # → 7.0  (L1)
+norm([3, 4], Inf)    # → 4.0  (max abs)
+```
+
+### `inv(M)`
+Matrix inverse via LU decomposition with partial pivoting.
+```
+A = [1, 2; 3, 4]
+B = inv(A)
+A * B   # ≈ eye(2)
+```
+- `M` must be square and non-singular.
+- `inv(scalar)` returns `1/scalar`.
+
+### `linsolve(A, b)`
+Solve the linear system `A·x = b` for `x`. `A` must be square and non-singular.
+```
+A = [2, 1; 1, 3]
+b = [5, 10]
+x = linsolve(A, b)   # → [1, 3]
+```
+
+### `roots(p)`
+Roots of a polynomial with coefficient vector `p`. Coefficients are in descending order of power (highest degree first).
+```
+roots([1, -3, 2])     # → [2, 1]  (x² - 3x + 2 = 0)
+roots([1, 0, -1])     # → [1, -1] (x² - 1 = 0)
+```
+- Returns a complex vector. Uses companion matrix eigendecomposition.
+
+### `svd(A)`
+Singular value decomposition via Jacobi eigendecomposition of A'A. Returns a tuple `[U, sigma, V]`.
+```
+[U, S, V] = svd(A)
+# U: m×m unitary, S: min(m,n)-length singular value vector, V: n×n unitary
+# A ≈ U * diag(S) * V'
+```
+- Currently operates on real parts only; a warning is printed if imaginary parts are discarded.
 
 ---
 
@@ -1327,6 +1460,21 @@ print(x)
 print("mean:", mean(v), "std:", std(v))
 ```
 
+### `disp(x)`
+Display a value followed by a newline. Similar to `print` but always appends a newline and takes exactly one argument.
+```
+disp("Hello, world!")
+disp(A)
+```
+
+### `fprintf(fmt, args...)`
+Formatted print. Supports C-style format specifiers: `%d`, `%f`, `%g`, `%e`, `%s`, `%%`. Escape sequences: `\n`, `\t`.
+```
+fprintf("x = %f, n = %d\n", 3.14, 42)
+fprintf("GM=%.1f dB  PM=%.1f deg\n", 20*log10(Gm), Pm)
+```
+- Does not append a trailing newline unless `\n` is included in the format string.
+
 ### Range operator: `start:stop` / `start:step:stop`
 ```
 1:5          # [1, 2, 3, 4, 5]
@@ -1446,6 +1594,168 @@ x = 1.0   # inline comment
 ```
 h = fir_lowpass(64, 1000.0, 44100.0, "hann");   # no output printed
 ```
+
+---
+
+## Structs
+
+Structs are key-value containers with named fields, useful for grouping related data.
+
+### `struct("field1", val1, "field2", val2, ...)`
+Create a struct from field-value pairs. Requires an even number of arguments.
+```
+s = struct("x", 1, "y", 2, "name", "origin")
+s.x      # → 1
+s.name   # → "origin"
+```
+
+### Field access and assignment: `s.field` / `s.field = val`
+Access or set a field. Setting a field on an undefined variable auto-creates a struct.
+```
+s.z = 3           # add new field
+s.x = 10          # update existing field
+pt.x = 1; pt.y = 2   # auto-creates struct pt
+```
+
+### `isstruct(x)`
+Returns `true` if `x` is a struct, `false` otherwise.
+```
+isstruct(s)     # → true
+isstruct(42)    # → false
+```
+
+### `fieldnames(s)`
+Prints all field names of a struct (sorted alphabetically). Returns `None`.
+```
+fieldnames(s)   # prints: name, x, y, z
+```
+
+### `isfield(s, "name")`
+Returns `true` if the struct has the named field.
+```
+isfield(s, "x")     # → true
+isfield(s, "w")     # → false
+```
+
+### `rmfield(s, "name")`
+Returns a new struct with the named field removed. Errors if the field does not exist.
+```
+s2 = rmfield(s, "z")
+```
+
+---
+
+## Higher-Order Functions
+
+### `arrayfun(f, v)`
+Apply a callable (lambda, function handle, or user function) to each element of a vector. Returns a vector if all results are scalar, or a matrix if all results are vectors of equal length.
+```
+arrayfun(@(x) x^2, 1:5)          # → [1, 4, 9, 16, 25]
+arrayfun(@abs, [-3, 4, -5])      # → [3, 4, 5]
+```
+
+### `feval("name", args...)`
+Call a function by string name. Useful for dynamic dispatch.
+```
+feval("sin", pi/2)    # → 1.0
+feval("fir_lowpass", 32, 1000.0, 44100.0, "hann")
+```
+
+### `rk4(f, x0, t)`
+Fixed-step 4th-order Runge-Kutta ODE integrator. Solves dx/dt = f(x, t) from `t(1)` to `t(end)`.
+
+| Argument | Type | Description |
+|---|---|---|
+| `f` | callable | Dynamics function `f(x, t)` → x_dot; accepts lambda, handle, or user function |
+| `x0` | scalar or vector | Initial state |
+| `t` | vector | Time points (at least 2); step size = `t(i+1) - t(i)` |
+
+Returns an `nx × nt` matrix where each column is the state at the corresponding time point.
+```
+# Scalar ODE: dx/dt = -x
+X = rk4(@(x, t) -x, 1.0, linspace(0, 5, 100))
+
+# 2D system: harmonic oscillator
+f = @(x, t) [x(2); -x(1)]
+X = rk4(f, [1; 0], linspace(0, 10, 200))
+```
+
+---
+
+## Profiling
+
+### `profile(fn1, fn2, ...)`
+Enable call profiling for the named functions. Call with no arguments to track all functions. Function names can be bare identifiers or strings.
+```
+profile(fft, convolve)    # track only fft and convolve
+profile()                 # track all function calls
+```
+
+### `profile_report()`
+Print a profiling summary table to stderr showing call counts, total time, and data throughput for each tracked function.
+```
+profile(fft, convolve)
+# ... run workload ...
+profile_report()
+```
+
+---
+
+## Controls Toolbox — Advanced
+
+These functions complement the core control systems toolbox (tf, ss, bode, step, etc.) with advanced analysis and design tools.
+
+### `lyap(A, Q)`
+Solve the continuous Lyapunov equation `A*X + X*A' + Q = 0` for X.
+```
+A = [0, 1; -2, -3]
+Q = eye(2)
+X = lyap(A, Q)
+```
+- `A` and `Q` must be square matrices of the same size.
+- Uses the Kronecker product / vectorization approach.
+
+### `gram(A, B, type)`
+Controllability or observability Gramian.
+```
+Wc = gram(A, B, "c")   # controllability Gramian
+Wo = gram(A, C, "o")    # observability Gramian
+```
+- `type` must be `"c"` (controllability) or `"o"` (observability).
+- Solves the corresponding Lyapunov equation internally.
+
+### `care(A, B, Q, R)`
+Solve the Continuous Algebraic Riccati Equation: `A'P + PA - PBR⁻¹B'P + Q = 0`.
+```
+P = care(A, B, Q, R)
+```
+- Returns the stabilizing solution P.
+- Used internally by `lqr`.
+
+### `dare(A, B, Q, R)`
+Solve the Discrete Algebraic Riccati Equation: `P = A'PA - A'PB(R + B'PB)⁻¹B'PA + Q`.
+```
+P = dare(A, B, Q, R)
+```
+- Uses value iteration (up to 1000 iterations, tolerance 1e-12).
+
+### `place(A, B, poles)`
+Pole placement via Ackermann's formula (SISO systems only). Returns the state feedback gain vector K such that `eig(A - B*K)` matches the desired poles.
+```
+A = [0, 1; 0, 0]
+B = [0; 1]
+K = place(A, B, [-1, -2])
+```
+- `B` must be n×1 (single input).
+- `poles` must have length n (one per state).
+
+### `freqresp(A, B, C, D, w)`
+Frequency response from state-space matrices at each frequency in `w` (rad/s). Computes `H(jω) = C(jωI − A)⁻¹B + D`.
+```
+w = logspace(-1, 2, 200)
+H = freqresp(A, B, C, D, w)
+```
+- Returns a `p × length(w)` matrix of complex frequency response values (p = number of outputs).
 
 ---
 

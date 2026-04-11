@@ -26,6 +26,7 @@ rustlab/
 ├── AGENTS.md               # this file
 ├── PLAN.md                 # original architecture plan
 ├── README.md               # user-facing documentation
+├── llms.txt                # AI reference — pointers to docs files
 ├── crates/
 │   ├── rustlab-core/       # primitive types and traits — no DSP, no plotting
 │   ├── rustlab-dsp/        # DSP algorithms — depends on core only
@@ -34,21 +35,20 @@ rustlab/
 │   └── rustlab-cli/        # binary `rustlab` — depends on all crates
 ├── dev/
 │   └── plans/              # multi-phase development plans (see section below)
-│       └── controls.md     # control systems toolbox plan
-├── examples/
-│   ├── complex_basics.r
-│   ├── controls/
-│   │   └── classical_control.r
-│   ├── stream/
+├── perf/                   # performance benchmarks and reports
+├── examples/               # 19+ top-level scripts, plus subdirectories:
+│   ├── controls/           # 14 control systems examples (tf, bode, lqr, ode, etc.)
+│   ├── audio/              # real-time audio examples (spectrum monitor, passthrough)
+│   ├── stream/             # stdin/stdout streaming DSP with bridge scripts
 │   │   ├── filter.r          # shared FIR lowpass script used by all launchers
 │   │   ├── macos.sh          # sox-based live audio pipeline (macOS)
 │   │   ├── linux.sh          # arecord/aplay pipeline (Linux ALSA)
 │   │   ├── wsl.sh            # PulseAudio / WSL2 pipeline
 │   │   ├── tcp.sh            # socat/nc TCP streaming (cross-platform)
 │   │   └── test_no_hardware.sh  # CI-friendly end-to-end test (no mic/speakers)
-│   ├── lowpass.r
-│   ├── bandpass.r
-│   └── vectors.r
+│   ├── complex_basics.r, vectors.r, lowpass.r, bandpass.r, fft.r, ...
+│   ├── firpm.r, upfirdn.r, fixed_point.r, ml_activations.r, ...
+│   └── lambda.r, profiling.r, save_load.r, ...
 └── docs/
     ├── examples.md         # annotated walkthroughs of each example script
     ├── functions.md        # full function reference with signatures and examples
@@ -201,7 +201,7 @@ Do not run `git commit` or `git push` automatically, even when work is complete 
 - **New language construct** — add syntax and example to the Language section.
 - **New toolbox feature** (controls, DSP, etc.) — add it to the relevant toolbox section.
 
-`llms.txt` at the repo root is a short pointer to `docs/functions.md`; it does not need content updates. Do not treat docs updates as optional cleanup.
+`llms.txt` at the repo root is a short pointer to the four main docs files (`docs/quickref.md`, `docs/functions.md`, `docs/examples.md`, `README.md`); it does not need content updates. Do not treat docs updates as optional cleanup.
 
 ### 6. Keep `docs/quickref.md` current
 

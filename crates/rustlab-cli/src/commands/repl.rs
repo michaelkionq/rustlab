@@ -599,7 +599,7 @@ fn print_help_list() {
         ("Array / Stats",    &["zeros","ones","linspace","logspace","rand","randn","randi",
                                "min","max","sum","prod","cumsum","argmin","argmax","sort","trapz",
                                "mean","median","std","histogram","savehist",
-                               "len","length","numel","size","meshgrid"]),
+                               "len","length","numel","size","meshgrid","all","any"]),
         ("Matrix",           &["eye","transpose","diag","trace","reshape","repmat",
                                "horzcat","vertcat","rank"]),
         ("Linear Algebra",   &["dot","cross","outer","kron","norm","det","inv","expm","linsolve","eig","svd","laguerre","legendre","factor","roots"]),

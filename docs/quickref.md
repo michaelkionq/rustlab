@@ -148,7 +148,6 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `laguerre(n, alpha, x)` | Associated Laguerre polynomial $L_n^\alpha(x)$, element-wise |
 | `legendre(l, m, x)` | Associated Legendre polynomial $P_l^m(x)$, element-wise |
 | `convolve(x, h)` | Linear convolution (output length = len(x)+len(h)-1) |
-| `filtfilt(b, a, x)` | Zero-phase forward-backward IIR filter; use `a=[1]` for FIR |
 | `factor(n)` | Prime factorization |
 
 ---
@@ -172,8 +171,9 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `fir_lowpass(taps, cutoff_hz, sr, window)` | FIR lowpass coefficients |
 | `fir_highpass(taps, cutoff_hz, sr, window)` | FIR highpass coefficients |
 | `fir_bandpass(taps, low_hz, high_hz, sr, window)` | FIR bandpass coefficients |
-| `butterworth_lowpass(order, cutoff_hz, sr)` | Butterworth IIR lowpass (b coefficients) |
-| `butterworth_highpass(order, cutoff_hz, sr)` | Butterworth IIR highpass (b coefficients) |
+| `butterworth_lowpass(order, cutoff_hz, sr)` | Butterworth IIR lowpass — returns b (numerator) coefficients only |
+| `butterworth_highpass(order, cutoff_hz, sr)` | Butterworth IIR highpass — returns b (numerator) coefficients only |
+| `filtfilt(b, a, x)` | Zero-phase forward-backward IIR filter; use `a=[1]` for FIR |
 | `fir_lowpass_kaiser(cutoff_hz, trans_bw_hz, atten_db, sr)` | Auto-designed Kaiser lowpass |
 | `fir_highpass_kaiser(cutoff_hz, trans_bw_hz, atten_db, sr)` | Auto-designed Kaiser highpass |
 | `fir_bandpass_kaiser(lo_hz, hi_hz, trans_bw_hz, atten_db, sr)` | Auto-designed Kaiser bandpass |
@@ -267,9 +267,8 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 
 | Function | Description |
 |---|---|
-| `plot(v)` / `plot(v, "title")` | Line plot |
-| `plot(v, "title", "color")` | Colors: `r g b c m y k w` |
-| `plot(v, "title", "color", "dashed")` | Dashed line |
+| `plot(v)` / `plot(x, v)` | Line plot (sample-indexed or explicit x-axis) |
+| `plot(v, "color", "r", "label", "name", "style", "dashed")` | Key-value options; colors: `r g b c m y k w` or full names |
 | `stem(v)` / `stem(v, "title")` | Stem plot |
 | `bar(y)` / `bar(x, y)` / `bar(y, "title")` | Bar chart |
 | `scatter(x, y)` / `scatter(x, y, "title")` | Scatter plot |

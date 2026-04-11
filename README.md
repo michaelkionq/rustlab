@@ -190,6 +190,33 @@ t = v'                     # conjugate transpose (for real data, same values)
 All operators broadcast scalars onto vectors and matrices automatically.
 `v .^ 2` squares every element; `2 .^ v` raises 2 to each element of v.
 
+### Non-conjugate Transpose
+
+Use `.'` for non-conjugate transpose (swaps rows and columns without conjugating):
+
+```
+A = [1 + j, 2; 3, 4 - j]
+B = A.'     # transpose without conjugation
+C = A'      # conjugate transpose (Hermitian)
+```
+
+### Destructuring Assignment
+
+Functions that return multiple values can be unpacked:
+
+```
+[U, S, V] = svd(A)
+[y, t] = step(G)
+```
+
+### Chained Call-and-Index
+
+Index the return value of a function call directly:
+
+```
+v = linspace(0, 1, 10)(3)   # third element
+```
+
 ### Control Flow
 
 ```
@@ -216,72 +243,67 @@ end
 function [y] = double(x)
   y = x * 2
 end
+
+# Early return
+function [y] = safe_div(a, b)
+  if b == 0
+    y = 0
+    return
+  end
+  y = a / b
+end
 ```
 
-### Builtin Functions
+### Anonymous Functions and Handles
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `print` | `print(x)` | Print a value to stdout |
-| `abs` | `abs(x)` | Absolute value / magnitude of scalar or vector |
-| `angle` | `angle(z)` | Phase angle in radians |
-| `real` | `real(v)` | Real part of a complex scalar or vector |
-| `imag` | `imag(v)` | Imaginary part of a complex scalar or vector |
-| `cos` | `cos(x)` | Cosine (element-wise) |
-| `sin` | `sin(x)` | Sine (element-wise) |
-| `exp` | `exp(x)` | Natural exponential (element-wise) |
-| `log` | `log(x)` | Natural logarithm (element-wise) |
-| `log2` | `log2(x)` | Base-2 logarithm (element-wise) |
-| `log10` | `log10(x)` | Base-10 logarithm (element-wise) |
-| `sqrt` | `sqrt(x)` | Square root (element-wise) |
-| `linspace` | `linspace(start, stop, n)` | `n` evenly-spaced values from `start` to `stop` |
-| `zeros` | `zeros(n)` | Vector of `n` zeros |
-| `ones` | `ones(n)` | Vector of `n` ones |
-| `len` | `len(v)` | Length of a vector |
-| `length` | `length(v)` | Alias for `len` — number of elements in a vector |
-| `numel` | `numel(x)` | Total number of elements (rows × cols for matrices) |
-| `size` | `size(x)` | Returns `[rows, cols]` as a vector |
-| `plot` | `plot(v)` or `plot(v, "color", "blue", "label", "name")` | Line plot — renders to terminal or buffers into current figure |
-| `stem` | `stem(v)` or `stem(v, "color", "red")` | Stem plot |
-| `figure` | `figure()` | Reset figure state to blank |
-| `hold` | `hold("on")` / `hold("off")` | Enable/disable multi-series overlay |
-| `title` | `title("text")` | Set subplot title |
-| `xlabel` | `xlabel("text")` | Set x-axis label |
-| `ylabel` | `ylabel("text")` | Set y-axis label |
-| `xlim` | `xlim([lo, hi])` | Set x-axis limits |
-| `ylim` | `ylim([lo, hi])` | Set y-axis limits |
-| `grid` | `grid("on")` | Toggle grid lines |
-| `legend` | `legend()` or `legend("l1","l2")` | Show series legend (with optional label overrides) |
-| `subplot` | `subplot(rows, cols, idx)` | Select subplot panel (1-based) |
-| `imagesc` | `imagesc(M)` or `imagesc(M, "jet")` | Render matrix as heatmap in terminal |
-| `savefig` | `savefig(path)` or `savefig(v, path)` | Save current figure (or a vector) to PNG/SVG |
-| `savestem` | `savestem(v, path)` | Save stem plot to PNG/SVG |
-| `savedb` | `savedb(freqz_matrix, path)` | Save dB frequency response plot to PNG/SVG |
-| `saveimagesc` | `saveimagesc(M, path)` or `saveimagesc(M, path, title, colormap)` | Save matrix heatmap to PNG/SVG |
-| `fir_lowpass` | `fir_lowpass(taps, cutoff_hz, sr, window)` | Windowed-sinc FIR lowpass filter |
-| `fir_highpass` | `fir_highpass(taps, cutoff_hz, sr, window)` | Windowed-sinc FIR highpass filter |
-| `fir_bandpass` | `fir_bandpass(taps, low_hz, high_hz, sr, window)` | Windowed-sinc FIR bandpass filter |
-| `fir_lowpass_kaiser` | `fir_lowpass_kaiser(cutoff_hz, tbw_hz, attn_db, sr)` | Kaiser auto-designed lowpass — computes beta and tap count from spec |
-| `fir_highpass_kaiser` | `fir_highpass_kaiser(cutoff_hz, tbw_hz, attn_db, sr)` | Kaiser auto-designed highpass |
-| `fir_bandpass_kaiser` | `fir_bandpass_kaiser(low_hz, high_hz, tbw_hz, attn_db, sr)` | Kaiser auto-designed bandpass |
-| `fir_notch` | `fir_notch(center_hz, bw_hz, sr, taps, window)` | Notch filter via spectral inversion of a bandpass |
-| `freqz` | `freqz(h, n_points, sr)` | Complex frequency response — returns 2×n matrix: row 1 = freq axis (Hz), row 2 = H(f) |
-| `butterworth_lowpass` | `butterworth_lowpass(order, cutoff_hz, sr)` | Butterworth IIR lowpass filter |
-| `butterworth_highpass` | `butterworth_highpass(order, cutoff_hz, sr)` | Butterworth IIR highpass filter |
-| `fft` | `fft(v)` | Forward FFT — zero-pads input to next power of two |
-| `ifft` | `ifft(V)` | Inverse FFT (input length must be a power of two) |
-| `fftshift` | `fftshift(V)` | Shift DC component to center of spectrum |
-| `fftfreq` | `fftfreq(n, sr)` | Frequency axis in Hz for an n-point FFT |
-| `convolve` | `convolve(x, h)` | Linearly convolve signal `x` with kernel `h` |
-| `window` | `window(type, n)` | Generate a window vector of length `n` |
-| `eig` | `eig(M)` | Eigenvalues of square matrix `M` as a complex vector |
-| `factor` | `factor(n)` | Prime factors of positive integer `n` as a vector |
-| `state_init` | `state_init(n)` | Allocate overlap-save FIR state buffer (n = length(h)−1) |
-| `filter_stream` | `filter_stream(frame, h, state)` | FIR-filter one frame; returns `[output, state]` |
-| `audio_in` | `audio_in(sr, frame_size)` | Stdin PCM input descriptor (f32 LE, mono) |
-| `audio_out` | `audio_out(sr, frame_size)` | Stdout PCM output descriptor (f32 LE, mono) |
-| `audio_read` | `audio_read(src)` | Read one frame from stdin; exits cleanly on EOF |
-| `audio_write` | `audio_write(dst, frame)` | Write one frame to stdout; flushes after each call |
+```
+# Lambda (anonymous function)
+sq = @(x) x .^ 2
+sq([1, 2, 3])              # [1, 4, 9]
+
+# Function handle — reference to a builtin or user function
+f = @sin
+f(pi / 2)                  # 1.0
+
+# Apply a function to each element of a vector
+arrayfun(@(x) x^2 + 1, 1:5)
+```
+
+### Structs
+
+```
+s = struct("x", 1, "y", 2)
+s.x                        # 1
+s.z = 3                    # add field
+fieldnames(s)              # prints: x, y, z
+```
+
+> **Full language reference:** See [`docs/quickref.md`](docs/quickref.md) for a concise cheat sheet of all syntax and functions.
+
+### Builtin Functions (highlights)
+
+rustlab ships with 130+ builtins. Here are the most commonly used; see [`docs/quickref.md`](docs/quickref.md) for the complete list and [`docs/functions.md`](docs/functions.md) for full signatures and examples.
+
+| Category | Key functions |
+|----------|--------------|
+| **Math** | `abs`, `angle`, `real`, `imag`, `conj`, `sin`, `cos`, `exp`, `log`, `sqrt`, `atan2`, `floor`, `round`, `mod` |
+| **Array** | `zeros`, `ones`, `eye`, `linspace`, `logspace`, `rand`, `randn`, `randi`, `len`, `size`, `reshape`, `diag`, `meshgrid` |
+| **Statistics** | `sum`, `prod`, `cumsum`, `mean`, `median`, `std`, `min`, `max`, `sort`, `trapz`, `histogram`, `all`, `any` |
+| **Linear algebra** | `dot`, `cross`, `outer`, `kron`, `norm`, `inv`, `det`, `trace`, `eig`, `svd`, `linsolve`, `expm`, `rank`, `roots` |
+| **DSP — FIR** | `fir_lowpass`, `fir_highpass`, `fir_bandpass`, `fir_lowpass_kaiser`, `firpm`, `firpmq`, `fir_notch`, `window` |
+| **DSP — IIR** | `butterworth_lowpass`, `butterworth_highpass`, `filtfilt` |
+| **DSP — FFT** | `fft`, `ifft`, `fftshift`, `fftfreq`, `spectrum`, `convolve`, `upfirdn`, `freqz` |
+| **Fixed-point** | `qfmt`, `quantize`, `qadd`, `qmul`, `qconv`, `snr` |
+| **Control systems** | `tf`, `ss`, `pole`, `zero`, `bode`, `step`, `margin`, `rlocus`, `lqr`, `ctrb`, `obsv`, `care`, `dare`, `place` |
+| **ML / activation** | `softmax`, `relu`, `gelu`, `layernorm` |
+| **Plotting** | `plot`, `stem`, `bar`, `scatter`, `plotdb`, `imagesc`, `subplot`, `hold`, `figure`, `legend`, `savefig`, `savedb` |
+| **Live plotting** | `figure_live`, `plot_update`, `figure_draw`, `figure_close`, `mag2db` |
+| **I/O** | `print`, `disp`, `fprintf`, `save`, `load`, `whos` |
+| **Streaming** | `state_init`, `filter_stream`, `audio_in`, `audio_out`, `audio_read`, `audio_write` |
+| **Structs** | `struct`, `isstruct`, `fieldnames`, `isfield`, `rmfield` |
+| **Higher-order** | `arrayfun`, `feval`, `@(x) expr` (lambdas), `@name` (function handles) |
+| **Special** | `laguerre`, `legendre`, `factor`, `rk4`, `lyap`, `gram`, `freqresp` |
+| **Profiling** | `profile`, `profile_report` |
 
 Window type strings: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`.
 
@@ -472,16 +494,53 @@ rustlab info
 
 ## Examples
 
-The `examples/` directory contains annotated scripts demonstrating common workflows:
+The `examples/` directory contains annotated scripts demonstrating common workflows. See [`docs/examples.md`](docs/examples.md) for step-by-step walkthroughs.
+
+### Core language and math
 
 | File | Description |
 |------|-------------|
 | `examples/complex_basics.r` | Complex number arithmetic, magnitude, phase, complex vectors |
 | `examples/vectors.r` | Range operator, indexing, concatenation, element-wise ops, transpose |
+| `examples/trig_special.r` | Trig, hyperbolic, Laguerre, and Legendre functions |
+| `examples/stats.r` | Statistics: mean, median, std, histogram, trapz |
+| `examples/matrix_ops.r` | Linear algebra: inv, det, eig, svd, linsolve, kron, expm |
+| `examples/random.r` | Random number generation: rand, randn, randi |
+| `examples/functions.r` | User-defined functions with multiple return values |
+| `examples/lambda.r` | Anonymous functions, function handles, arrayfun |
+| `examples/lambda_pipeline.r` | Functional pipeline patterns with lambdas |
+| `examples/save_load.r` | NPY, NPZ, and CSV round-trip save/load |
+| `examples/profiling.r` | Call profiling with profile() and profile_report() |
+
+### DSP and filter design
+
+| File | Description |
+|------|-------------|
 | `examples/lowpass.r` | Design and inspect a 32-tap Hann-windowed FIR lowpass filter |
 | `examples/bandpass.r` | Bandpass filter design and application to a synthetic dual-tone signal |
 | `examples/fft.r` | Compute and plot the spectrum of a two-tone signal; round-trip FFT/IFFT |
 | `examples/kaiser_fir.r` | Auto-designed Kaiser FIR lowpass, highpass, bandpass, and notch filters |
+| `examples/firpm.r` | Parks-McClellan optimal equiripple FIR design |
+| `examples/upfirdn.r` | Polyphase interpolation, decimation, and rational rate conversion |
+| `examples/fixed_point.r` | Fixed-point quantization and SNR bitwidth study |
+| `examples/ml_activations.r` | ML activation functions: softmax, relu, gelu, layernorm |
+
+### Control systems (`examples/controls/`)
+
+| File | Description |
+|------|-------------|
+| `examples/controls/transfer_function.r` | Transfer function creation and arithmetic |
+| `examples/controls/pole_zero.r` | Pole-zero analysis |
+| `examples/controls/step_response.r` | Unit step response |
+| `examples/controls/bode_plot.r` | Bode magnitude and phase |
+| `examples/controls/stability_margins.r` | Gain and phase margins |
+| `examples/controls/state_space.r` | State-space conversion |
+| `examples/controls/controllability.r` | Controllability and observability |
+| `examples/controls/lqr_design.r` | LQR optimal control |
+| `examples/controls/root_locus.r` | Root locus plotting |
+| `examples/controls/linear_algebra.r` | Lyapunov, Gramians, SVD |
+| `examples/controls/ode.r` | ODE integration with rk4 |
+| `examples/controls/design.r` | CARE, DARE, pole placement |
 
 Run any example with:
 
