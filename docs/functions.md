@@ -1881,7 +1881,7 @@ cat /tmp/audio.raw | nc localhost 9999
 nc localhost 9998 > /tmp/filtered.raw
 ```
 
-See `examples/stream/` for ready-to-run scripts for macOS, Linux, WSL2, and TCP streaming, plus a hardware-free integration test (`test_no_hardware.sh`).
+See `examples/audio/` for ready-to-run scripts for macOS, Linux, WSL2, and TCP streaming, plus a hardware-free integration test (`test_filter.sh`).
 
 ---
 

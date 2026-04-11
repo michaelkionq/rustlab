@@ -5,8 +5,8 @@
 #   brew install sox
 #
 # Usage:
-#   chmod +x examples/stream/macos.sh
-#   ./examples/stream/macos.sh
+#   chmod +x examples/audio/macos.sh
+#   ./examples/audio/macos.sh
 #
 # What it does:
 #   sox captures the default microphone as raw mono f32-LE PCM on stdout,

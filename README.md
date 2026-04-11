@@ -548,30 +548,32 @@ Run any example with:
 rustlab run examples/<name>.r
 ```
 
-### Real-time streaming examples (`examples/stream/`)
+### Real-time audio examples (`examples/audio/`)
 
 Rustlab can process raw PCM audio streams via stdin/stdout with no audio library dependencies. External bridge programs handle hardware I/O; rustlab is a pure filter node in the pipeline.
 
 | File | Description |
 |------|-------------|
-| `examples/stream/filter.r` | Core FIR lowpass script — reads stdin, writes stdout, handles EOF cleanly |
-| `examples/stream/macos.sh` | Live microphone → lowpass filter → speakers (requires `sox`) |
-| `examples/stream/linux.sh` | Same via ALSA `arecord`/`aplay` |
-| `examples/stream/wsl.sh` | WSL2 via PulseAudio or `sox` |
-| `examples/stream/tcp.sh` | Network DSP node using `socat`/`nc` — pipe audio over TCP |
-| `examples/stream/spectrum_monitor.r` | Collect frames, display time-domain + Hann-windowed FFT spectrum |
-| `examples/stream/test_no_hardware.sh` | Hardware-free CI test — 440 Hz + 8 kHz synthetic signal, verifies ≥ 20 dB attenuation |
+| `examples/audio/filter.r` | Core FIR lowpass script — reads stdin, writes stdout, handles EOF cleanly |
+| `examples/audio/passthrough.r` | Minimal stdin → stdout loopback (pipeline test) |
+| `examples/audio/spectrum_monitor.r` | Live two-panel terminal plot: waveform + FFT spectrum in dB |
+| `examples/audio/spectrum_monitor.sh` | Platform-aware launcher for spectrum monitor (macOS/Linux/synthetic) |
+| `examples/audio/macos.sh` | Live microphone → lowpass filter → speakers (requires `sox`) |
+| `examples/audio/linux.sh` | Same via ALSA `arecord`/`aplay` |
+| `examples/audio/wsl.sh` | WSL2 via PulseAudio or `sox` |
+| `examples/audio/tcp.sh` | Network DSP node using `socat`/`nc` — pipe audio over TCP |
+| `examples/audio/test_filter.sh` | Hardware-free CI test — 440 Hz + 8 kHz synthetic signal, verifies ≥ 20 dB attenuation |
 
 **Quickstart (macOS):**
 ```sh
 sox -d -r 44100 -c 1 -b 32 -e float -t raw - \
-  | rustlab run examples/stream/filter.r \
+  | rustlab run examples/audio/filter.r \
   | sox -r 44100 -c 1 -b 32 -e float -t raw - -d
 ```
 
 **Hardware-free test:**
 ```sh
-bash examples/stream/test_no_hardware.sh
+bash examples/audio/test_filter.sh
 ```
 
 See `docs/examples.md` for annotated walkthroughs.

@@ -6,15 +6,15 @@
 #   sudo dnf install alsa-utils      # Fedora
 #
 # Usage:
-#   chmod +x examples/stream/linux.sh
-#   ./examples/stream/linux.sh
+#   chmod +x examples/audio/linux.sh
+#   ./examples/audio/linux.sh
 #
 # To list available ALSA devices:
 #   arecord -l
 #   aplay  -l
 #
 # To use a specific device (e.g. card 1, device 0):
-#   ALSA_IN="hw:1,0" ALSA_OUT="hw:1,0" ./examples/stream/linux.sh
+#   ALSA_IN="hw:1,0" ALSA_OUT="hw:1,0" ./examples/audio/linux.sh
 #
 # Press Ctrl-C to stop.
 

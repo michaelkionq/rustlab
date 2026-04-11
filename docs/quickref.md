@@ -441,4 +441,4 @@ while true
   audio_write(dst, y)
 end
 ```
-Run as: `sox -d ... | rustlab run filter.r | sox ... -d` (see `examples/stream/`)
+Run as: `sox -d ... | rustlab run filter.r | sox ... -d` (see `examples/audio/`)

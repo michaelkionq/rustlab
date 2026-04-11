@@ -38,14 +38,16 @@ rustlab/
 ├── perf/                   # performance benchmarks and reports
 ├── examples/               # 19+ top-level scripts, plus subdirectories:
 │   ├── controls/           # 14 control systems examples (tf, bode, lqr, ode, etc.)
-│   ├── audio/              # real-time audio examples (spectrum monitor, passthrough)
-│   ├── stream/             # stdin/stdout streaming DSP with bridge scripts
-│   │   ├── filter.r          # shared FIR lowpass script used by all launchers
+│   ├── audio/              # real-time audio: filter, spectrum monitor, platform launchers
+│   │   ├── filter.r          # FIR lowpass script used by all launchers
+│   │   ├── passthrough.r     # minimal stdin→stdout loopback
+│   │   ├── spectrum_monitor.r  # live two-panel terminal plot (waveform + FFT)
+│   │   ├── spectrum_monitor.sh # platform-aware launcher (macOS/Linux/synthetic)
 │   │   ├── macos.sh          # sox-based live audio pipeline (macOS)
 │   │   ├── linux.sh          # arecord/aplay pipeline (Linux ALSA)
 │   │   ├── wsl.sh            # PulseAudio / WSL2 pipeline
 │   │   ├── tcp.sh            # socat/nc TCP streaming (cross-platform)
-│   │   └── test_no_hardware.sh  # CI-friendly end-to-end test (no mic/speakers)
+│   │   └── test_filter.sh    # CI-friendly end-to-end test (no mic/speakers)
 │   ├── complex_basics.r, vectors.r, lowpass.r, bandpass.r, fft.r, ...
 │   ├── firpm.r, upfirdn.r, fixed_point.r, ml_activations.r, ...
 │   └── lambda.r, profiling.r, save_load.r, ...

@@ -10,8 +10,8 @@
 # Requires Python 3 (usually pre-installed). Uses numpy for analysis if available.
 #
 # Usage:
-#   chmod +x examples/stream/test_no_hardware.sh
-#   ./examples/stream/test_no_hardware.sh
+#   chmod +x examples/audio/test_no_hardware.sh
+#   ./examples/audio/test_no_hardware.sh
 
 set -euo pipefail
 

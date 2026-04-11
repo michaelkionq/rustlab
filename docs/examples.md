@@ -633,7 +633,7 @@ rustlab run examples/upfirdn.r
 
 ---
 
-## `examples/stream/filter.r` — Real-time FIR streaming
+## `examples/audio/filter.r` — Real-time FIR streaming
 
 **Full script:**
 
@@ -680,67 +680,54 @@ end
 ```sh
 # macOS (sox required):
 sox -d -r 44100 -c 1 -b 32 -e float -t raw - \
-  | rustlab run examples/stream/filter.r \
+  | rustlab run examples/audio/filter.r \
   | sox -r 44100 -c 1 -b 32 -e float -t raw - -d
 
 # Hardware-free test:
-bash examples/stream/test_no_hardware.sh
+bash examples/audio/test_filter.sh
 ```
 
 ---
 
-## `examples/stream/spectrum_monitor.r` — Live FFT spectrum monitor
+## `examples/audio/spectrum_monitor.r` — Live FFT spectrum monitor
 
-Reads raw PCM from stdin, applies the same 1 kHz lowpass, and every 32 frames
-(~186 ms) pauses to display:
+Captures microphone input and displays a continuously updating two-panel
+terminal plot using `figure_live`:
 
-- **Panel 1** — time domain of the filtered output
-- **Panel 2** — Hann-windowed FFT magnitude in dB (Δf ≈ 5.4 Hz at 44100 Hz)
+- **Panel 1** — time-domain waveform (raw input)
+- **Panel 2** — Hann-windowed FFT magnitude in dB (DC to Nyquist)
 
 **Key patterns:**
 
 ```r
-WIN_SAMPLES = FRAME * DISPLAY_FRAMES   # 8192 samples per FFT
+sr       = 44100.0;
+fft_size = 1024;
+half     = fft_size / 2;
 
-buf  = zeros(WIN_SAMPLES)   # accumulation buffer
-win  = window("hann", WIN_SAMPLES)
-t_ms = linspace(0.0, WIN_SAMPLES / sr * 1000.0, WIN_SAMPLES)
+h    = window(fft_size, "hann");
+t_ms = linspace(0.0, fft_size / sr * 1000.0, fft_size);
+freqs = fftfreq(fft_size, sr);
+f_hz  = freqs(1:half);
+
+adc = audio_in(sr, fft_size);
+fig = figure_live(2, 1);
 
 while true
-  frame      = audio_read(src);
-  [y, state] = filter_stream(frame, h, state);
+    frame = audio_read(adc);
 
-  # Fill display buffer one frame at a time
-  base = n * FRAME;
-  for k = 1:FRAME
-    buf(base + k) = real(y(k));
-  end
-  n = n + 1;
+    X  = fft(frame .* h);
+    Xd = mag2db(X(1:half));
 
-  if n >= DISPLAY_FRAMES
-    X = fft(buf .* win);      # windowed FFT
-    H = spectrum(X, sr);      # DC-centred 2×n matrix
-
-    figure()
-    subplot(2, 1, 1)
-      title("Time domain")
-      plot(t_ms, buf, "label", "filtered")
-    subplot(2, 1, 2)
-      title("Spectrum")
-      plotdb(H, "FFT magnitude (dB)")
-
-    n = 0;
-  end
+    plot_update(fig, 1, t_ms, frame);    # waveform
+    plot_update(fig, 2, f_hz, Xd);       # spectrum
+    figure_draw(fig);
 end
 ```
 
-**Why stdout is not used for audio:** `render_figure_terminal` checks
-`stdout().is_terminal()` before drawing. Piping audio to stdout silences the
-plots. Leave stdout as a terminal and use `tee` for simultaneous pass-through:
+**Running it:**
 
 ```sh
-sox -d -r 44100 -c 1 -b 32 -e float -t raw - \
-  | tee >(rustlab run examples/stream/spectrum_monitor.r) \
-  | rustlab run examples/stream/filter.r \
-  | sox -r 44100 -c 1 -b 32 -e float -t raw - -d
+# macOS / Linux / synthetic test:
+./examples/audio/spectrum_monitor.sh
+./examples/audio/spectrum_monitor.sh --test   # no hardware needed
 ```

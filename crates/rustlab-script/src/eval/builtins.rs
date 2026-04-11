@@ -5132,12 +5132,15 @@ fn builtin_figure_draw(args: Vec<Value>) -> Result<Value, ScriptError> {
             "figure_draw: expected live_figure, got {}", args[0].type_name()
         )));
     };
-    fig.lock().unwrap()
+    let result = fig.lock().unwrap()
         .as_mut()
         .ok_or_else(|| ScriptError::Runtime("figure_draw: figure is closed".to_string()))?
-        .redraw()
-        .map_err(|e| ScriptError::Runtime(e.to_string()))?;
-    Ok(Value::None)
+        .redraw();
+    match result {
+        Ok(()) => Ok(Value::None),
+        Err(rustlab_plot::PlotError::Interrupted) => Err(ScriptError::Interrupted),
+        Err(e) => Err(ScriptError::Runtime(e.to_string())),
+    }
 }
 
 /// `figure_close(fig)` — restore the terminal and release the figure.

@@ -30,6 +30,8 @@ pub fn execute(args: RunArgs) -> Result<()> {
         Ok(()) => Ok(()),
         // stdin closed cleanly (e.g. audio source finished) — exit 0 silently
         Err(rustlab_script::ScriptError::AudioEof) => Ok(()),
+        // User pressed Ctrl-C or 'q' during a live figure — exit 0 silently
+        Err(rustlab_script::ScriptError::Interrupted) => Ok(()),
         Err(e) => Err(anyhow::anyhow!("{}", e)),
     }
 }

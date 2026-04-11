@@ -14,4 +14,6 @@ pub enum PlotError {
     FileOutput(String),
     #[error("figure_live requires a real terminal (stdout is not a tty)")]
     NotATty,
+    #[error("interrupted")]
+    Interrupted,
 }

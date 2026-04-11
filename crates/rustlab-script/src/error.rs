@@ -31,4 +31,8 @@ pub enum ScriptError {
     /// Treated as a clean exit by the CLI (exit code 0, no error message).
     #[error("stdin closed")]
     AudioEof,
+    /// User pressed Ctrl-C or 'q' while a live figure was active.
+    /// Treated as a clean exit by the CLI (exit code 0, no error message).
+    #[error("interrupted")]
+    Interrupted,
 }

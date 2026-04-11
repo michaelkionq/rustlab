@@ -12,8 +12,8 @@
 #     sudo apt install pulseaudio-utils sox
 #
 #   Usage:
-#     chmod +x examples/stream/wsl.sh
-#     ./examples/stream/wsl.sh
+#     chmod +x examples/audio/wsl.sh
+#     ./examples/audio/wsl.sh
 #
 # ── Option B: TCP bridge (works on Windows 10 / any WSL version) ─────────────
 #

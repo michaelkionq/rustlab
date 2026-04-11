@@ -1,4 +1,4 @@
-use crossterm::{execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
+use crossterm::{event::{self, Event, KeyCode, KeyModifiers}, execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::{stdout, IsTerminal};
 use crate::{ascii::draw_subplots, error::PlotError, figure::{LineStyle, PlotKind, Series, SeriesColor, SubplotState}};
@@ -60,6 +60,9 @@ impl LiveFigure {
 
     /// Render all panels to the terminal.  Returns immediately after the draw
     /// call — no keypress wait.
+    ///
+    /// Also drains any pending key events.  Returns `Err(PlotError::Interrupted)`
+    /// if Ctrl-C or 'q' is pressed, so the caller can exit cleanly.
     pub fn redraw(&mut self) -> Result<(), PlotError> {
         let panels = &self.panels;
         let rows   = self.rows;
@@ -67,6 +70,24 @@ impl LiveFigure {
         self.terminal
             .draw(|f| draw_subplots(f, panels, rows, cols))
             .map_err(|e| PlotError::Terminal(e.to_string()))?;
+
+        // Drain all pending key events (non-blocking).
+        while event::poll(std::time::Duration::ZERO)
+            .map_err(|e| PlotError::Terminal(e.to_string()))?
+        {
+            if let Event::Key(key) = event::read()
+                .map_err(|e| PlotError::Terminal(e.to_string()))?
+            {
+                if key.code == KeyCode::Char('c')
+                    && key.modifiers.contains(KeyModifiers::CONTROL)
+                {
+                    return Err(PlotError::Interrupted);
+                }
+                if key.code == KeyCode::Char('q') {
+                    return Err(PlotError::Interrupted);
+                }
+            }
+        }
         Ok(())
     }
 }

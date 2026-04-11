@@ -20,18 +20,18 @@
 # ── Quickstart (three terminals) ─────────────────────────────────────────────
 #
 #   Terminal 1 — start the filter server:
-#     MODE=server ./examples/stream/tcp.sh
+#     MODE=server ./examples/audio/tcp.sh
 #
 #   Terminal 2 — send microphone audio to port 9999:
-#     MODE=send   ./examples/stream/tcp.sh
+#     MODE=send   ./examples/audio/tcp.sh
 #
 #   Terminal 3 — play filtered audio from port 9998:
-#     MODE=play   ./examples/stream/tcp.sh
+#     MODE=play   ./examples/audio/tcp.sh
 #
 # ── Remote machine ───────────────────────────────────────────────────────────
 #
 #   The sender and player can be on a different host — just set SERVER_HOST:
-#     SERVER_HOST=192.168.1.42 MODE=send ./examples/stream/tcp.sh
+#     SERVER_HOST=192.168.1.42 MODE=send ./examples/audio/tcp.sh
 #
 # ── WSL2 + Windows ───────────────────────────────────────────────────────────
 #
