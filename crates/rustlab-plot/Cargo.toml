@@ -10,6 +10,9 @@ ndarray.workspace      = true
 ratatui    = "0.29"
 crossterm  = "0.28"
 thiserror.workspace    = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 plotters   = { version = "0.3", default-features = false, features = [
     "svg_backend",
     "bitmap_backend",

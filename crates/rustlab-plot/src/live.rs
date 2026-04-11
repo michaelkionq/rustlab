@@ -1,7 +1,13 @@
 use crossterm::{event::{self, Event, KeyCode, KeyModifiers}, execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::{stdin, stdout, IsTerminal};
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::{ascii::draw_subplots, error::PlotError, figure::{LineStyle, PlotKind, Series, SeriesColor, SubplotState}};
+
+/// Whether a LiveFigure currently owns the terminal.  When true, SIGINT is
+/// ignored so the process can exit cleanly via pipe EOF / AudioEof instead
+/// of being killed before Drop can restore the terminal.
+static LIVE_FIGURE_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// A persistent live-updating terminal plot that stays open across multiple
 /// `redraw()` calls.  Use `update_panel()` to push new data and `redraw()` to
@@ -34,10 +40,16 @@ impl LiveFigure {
         if raw_mode {
             enable_raw_mode()?;
         }
+        // Ignore SIGINT so the process isn't killed before Drop can restore
+        // the terminal.  When stdin is a pipe, Ctrl-C kills the upstream
+        // process (e.g. sox), the pipe closes, and AudioEof triggers a clean
+        // exit.  When stdin is a tty, the key-event polling in redraw()
+        // handles Ctrl-C explicitly.
+        #[cfg(unix)]
+        unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN); }
+        LIVE_FIGURE_ACTIVE.store(true, Ordering::SeqCst);
         let backend = CrosstermBackend::new(stdout());
-        let mut terminal = Terminal::new(backend)
-            .map_err(|e| PlotError::Terminal(e.to_string()))?;
-        terminal.clear()
+        let terminal = Terminal::new(backend)
             .map_err(|e| PlotError::Terminal(e.to_string()))?;
         let panels = (0..rows * cols).map(|_| SubplotState::new()).collect();
         Ok(Self { terminal, panels, rows, cols, raw_mode })
@@ -74,6 +86,11 @@ impl LiveFigure {
     /// Also drains any pending key events.  Returns `Err(PlotError::Interrupted)`
     /// if Ctrl-C or 'q' is pressed, so the caller can exit cleanly.
     pub fn redraw(&mut self) -> Result<(), PlotError> {
+        // Clear before each draw to force a full repaint.  Without this,
+        // ratatui's double-buffer diff can miss updates when only chart data
+        // (not the widget layout) changes between frames.
+        self.terminal.clear()
+            .map_err(|e| PlotError::Terminal(e.to_string()))?;
         let panels = &self.panels;
         let rows   = self.rows;
         let cols   = self.cols;
@@ -117,6 +134,14 @@ impl Drop for LiveFigure {
         if self.raw_mode {
             let _ = disable_raw_mode();
         }
-        let _ = execute!(stdout(), LeaveAlternateScreen);
+        let _ = execute!(
+            stdout(),
+            crossterm::cursor::Show,
+            LeaveAlternateScreen
+        );
+        // Restore default SIGINT handling.
+        #[cfg(unix)]
+        unsafe { libc::signal(libc::SIGINT, libc::SIG_DFL); }
+        LIVE_FIGURE_ACTIVE.store(false, Ordering::SeqCst);
     }
 }

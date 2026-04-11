@@ -1061,6 +1061,7 @@ name = "rustlab-plot"
 version = "0.1.2"
 dependencies = [
  "crossterm",
+ "libc",
  "ndarray",
  "num-complex",
  "plotters",

@@ -19,34 +19,36 @@ sr       = 44100.0;
 frame    = 256;
 fft_size = 4096;
 half     = fft_size / 2;
-frames_per_update = floor(sr / frame);   # ~172 frames ≈ 1 s
+update_every = 172;   # ~1 s at 44100/256
 
 # Hann window and frequency axis
 win  = window("hann", fft_size);
 freqs = fftfreq(fft_size, sr);
 f_hz  = freqs(1:half);
 
-# Accumulation buffer
-buf = zeros(fft_size);
-pos = 0;
-
 adc = audio_in(sr, frame);
 fig = figure_live(1, 1);
+
+buf   = zeros(fft_size);
+count = 0;
 
 while true
     samples = audio_read(adc);
 
-    # Append frame into circular buffer
+    # Write into circular buffer
+    base = mod(count, fft_size / frame) * frame;
     for k = 1:frame
-        idx = mod(pos, fft_size) + 1;
-        buf(idx) = real(samples(k));
-        pos = pos + 1;
+        buf(base + k) = real(samples(k));
     end
+    count = count + 1;
 
-    if mod(pos, frames_per_update * frame) < frame
-        X  = fft(buf .* win);
-        Xd = mag2db(X(1:half));
-        plot_update(fig, 1, f_hz, Xd);
-        figure_draw(fig);
+    # Update plot every ~1 second, skip first cycle (buffer not yet full)
+    if count >= (fft_size / frame)
+        if mod(count, update_every) == 0
+            X  = fft(buf .* win);
+            Xd = mag2db(X(1:half));
+            plot_update(fig, 1, f_hz, Xd);
+            figure_draw(fig);
+        end
     end
 end
