@@ -445,7 +445,7 @@ primary     = NUMBER | STRING | IDENT
 | `butterworth_highpass` | `butterworth_highpass(order, cutoff_hz, sr)` | IIR b-coefficient Vector |
 | `median` | `median(v)` | Median of real parts; scalar for odd length, average of two middles for even |
 | `convolve` | `convolve(x, h)` | Convolved Vector (length = len(x)+len(h)-1) |
-| `filtfilt` | `filtfilt(b, a, x)` | Zero-phase forward-backward IIR filter; use `a=[1]` for FIR |
+| `filtfilt` | `filtfilt(b, a, x)` | Zero-phase forward-backward filter; uses odd-reflection signal extension + steady-state IC (matches Octave); use `a=[1]` for FIR |
 | `prod` | `prod(v)` | Product of all elements (Vector or Matrix); returns Scalar |
 | `firpmq` | `firpmq(n_taps, bands, desired [, weights [, bits [, n_iter]]])` | Integer-coefficient Parks-McClellan; defaults bits=16, n_iter=8. Returns integer-valued taps. For unit-gain passband, `sum(h_int)` equals the scale factor — use `freqz(h_int / sum(h_int), ...)` to verify. |
 | `arrayfun` | `arrayfun(f, v)` | Apply callable `f` to each element of `v`; scalar outputs → Vector, vector outputs → Matrix |
@@ -460,7 +460,7 @@ primary     = NUMBER | STRING | IDENT
 | `dare` | `dare(A, B, Q, R)` | Discrete Algebraic Riccati Equation → P |
 | `place` | `place(A, B, poles)` | Ackermann pole placement (SISO only) → gain vector K |
 | `freqresp` | `freqresp(A, B, C, D, w)` | H(jω) at each ω; SISO → complex vector, MIMO → complex matrix |
-| `svd` | `svd(A)` | Jacobi SVD (real); returns Tuple [U, sigma_vector, V] |
+| `svd` | `svd(A)` | SVD via symmetric eigendecomposition of A'A (real); returns Tuple [U, sigma_vector, V] where sigma is sorted descending |
 
 Window names: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`
 

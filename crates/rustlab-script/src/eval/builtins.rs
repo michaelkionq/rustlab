@@ -4783,7 +4783,7 @@ fn builtin_freqresp(args: Vec<Value>) -> Result<Value, ScriptError> {
     if np == 1 { Ok(Value::Vector(h_mat.row(0).to_owned())) } else { Ok(Value::Matrix(h_mat)) }
 }
 
-/// svd(A) — one-sided Jacobi SVD (real matrices; imaginary part discarded with warning).
+/// svd(A) — SVD via symmetric eigendecomposition of A'A (real matrices only).
 /// Returns Tuple [U, sigma_vector, V] where A ≈ U * diag(sigma) * V'.
 fn builtin_svd(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("svd", &args, 1)?;
@@ -4796,7 +4796,7 @@ fn builtin_svd(args: Vec<Value>) -> Result<Value, ScriptError> {
     let rows = m.nrows();
     let cols = m.ncols();
     let ar: Vec<Vec<f64>> = (0..rows).map(|i| (0..cols).map(|j| m[[i,j]].re).collect()).collect();
-    let (u_r, sv, v_r) = jacobi_svd(&ar, rows, cols);
+    let (u_r, sv, v_r) = svd_via_ata(&ar, rows, cols);
     let ns = rows.min(cols);
     Ok(Value::Tuple(vec![
         Value::Matrix(Array2::from_shape_fn((rows, rows), |(i,j)| Complex::new(u_r[i][j], 0.0))),
@@ -4805,78 +4805,114 @@ fn builtin_svd(args: Vec<Value>) -> Result<Value, ScriptError> {
     ]))
 }
 
-/// One-sided Jacobi SVD for a real rows×cols matrix.
-/// Returns (U rows×rows, singular_values, V cols×cols).
-fn jacobi_svd(a: &[Vec<f64>], rows: usize, cols: usize) -> (Vec<Vec<f64>>, Vec<f64>, Vec<Vec<f64>>) {
-    let mut b = a.to_vec();
-    let mut v: Vec<Vec<f64>> = (0..cols).map(|j| {
-        let mut row = vec![0.0; cols]; row[j] = 1.0; row
+/// SVD via symmetric Jacobi eigendecomposition of A'A.
+/// For a rows×cols real matrix A:
+///   1. Compute S = A'A  (cols×cols, symmetric PSD)
+///   2. Find eigendecomposition S = V * diag(lambda) * V' via symmetric Jacobi
+///   3. Singular values sigma_i = sqrt(lambda_i), sorted descending
+///   4. Left singular vectors: u_i = A * v_i / sigma_i
+///   5. Fill remaining U columns via Gram-Schmidt
+fn svd_via_ata(a: &[Vec<f64>], rows: usize, cols: usize) -> (Vec<Vec<f64>>, Vec<f64>, Vec<Vec<f64>>) {
+    // Step 1: Compute S = A'A  (cols×cols)
+    let mut s = vec![vec![0.0f64; cols]; cols];
+    for i in 0..cols {
+        for j in 0..cols {
+            s[i][j] = (0..rows).map(|k| a[k][i] * a[k][j]).sum();
+        }
+    }
+
+    // Step 2: Symmetric Jacobi eigendecomposition of S
+    // Accumulate eigenvectors in V (cols×cols identity initially)
+    let mut v: Vec<Vec<f64>> = (0..cols).map(|i| {
+        let mut row = vec![0.0f64; cols]; row[i] = 1.0; row
     }).collect();
-    let eps = f64::EPSILON;
-    for _ in 0..100 * cols * cols {
+
+    let tol = 1e-14;
+    for _ in 0..500 * cols * cols {
         let mut converged = true;
         for p in 0..cols {
             for q in (p + 1)..cols {
-                let alpha: f64 = (0..rows).map(|i| b[i][p] * b[i][p]).sum();
-                let beta:  f64 = (0..rows).map(|i| b[i][q] * b[i][q]).sum();
-                let gamma: f64 = (0..rows).map(|i| b[i][p] * b[i][q]).sum();
-                if gamma.abs() <= eps * (alpha * beta).sqrt() { continue; }
-                converged = false;
-                let zeta = (beta - alpha) / (2.0 * gamma);
-                let t = if zeta >= 0.0 {
-                    1.0 / (zeta + (1.0 + zeta * zeta).sqrt())
+                let spq = s[p][q];
+                if spq.abs() <= tol { continue; }
+                let spp = s[p][p];
+                let sqq = s[q][q];
+                let diff = sqq - spp;
+                let theta = 0.5 * diff / spq;
+                let t = if theta >= 0.0 {
+                    1.0 / (theta + (1.0 + theta * theta).sqrt())
                 } else {
-                    -1.0 / (-zeta + (1.0 + zeta * zeta).sqrt())
+                    -1.0 / (-theta + (1.0 + theta * theta).sqrt())
                 };
                 let c = 1.0 / (1.0 + t * t).sqrt();
-                let s = c * t;
-                for i in 0..rows {
-                    let bp = b[i][p]; let bq = b[i][q];
-                    b[i][p] = c * bp + s * bq;
-                    b[i][q] = -s * bp + c * bq;
+                let s_rot = t * c;
+                // Update S: symmetric Jacobi rotation
+                s[p][p] = spp - t * spq;
+                s[q][q] = sqq + t * spq;
+                s[p][q] = 0.0;
+                s[q][p] = 0.0;
+                for r in 0..cols {
+                    if r == p || r == q { continue; }
+                    let srp = s[r][p];
+                    let srq = s[r][q];
+                    let new_rp = c * srp - s_rot * srq;
+                    let new_rq = s_rot * srp + c * srq;
+                    s[r][p] = new_rp; s[p][r] = new_rp;
+                    s[r][q] = new_rq; s[q][r] = new_rq;
                 }
+                // Accumulate V
                 for i in 0..cols {
-                    let vp = v[i][p]; let vq = v[i][q];
-                    v[i][p] = c * vp + s * vq;
-                    v[i][q] = -s * vp + c * vq;
+                    let vip = v[i][p];
+                    let viq = v[i][q];
+                    v[i][p] = c * vip - s_rot * viq;
+                    v[i][q] = s_rot * vip + c * viq;
                 }
+                converged = false;
             }
         }
         if converged { break; }
     }
-    let mut pairs: Vec<(f64, usize)> = (0..cols).map(|j| (
-        (0..rows).map(|i| b[i][j] * b[i][j]).sum::<f64>().sqrt(), j
-    )).collect();
-    pairs.sort_by(|a, b_| b_.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-    let mut u: Vec<Vec<f64>> = vec![vec![0.0; rows]; rows];
-    let mut sv = vec![0.0; cols];
-    let mut v_out: Vec<Vec<f64>> = vec![vec![0.0; cols]; cols];
+    // Step 3: Extract eigenvalues (diagonal of S) and sort descending
+    let mut pairs: Vec<(f64, usize)> = (0..cols).map(|j| (s[j][j].max(0.0).sqrt(), j)).collect();
+    pairs.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut sv = vec![0.0f64; cols];
+    let mut v_out: Vec<Vec<f64>> = vec![vec![0.0f64; cols]; cols];
     for (new_j, &(sigma, old_j)) in pairs.iter().enumerate() {
         sv[new_j] = sigma;
-        for i in 0..rows { u[i][new_j] = if sigma > 0.0 { b[i][old_j] / sigma } else { 0.0 }; }
         for i in 0..cols { v_out[i][new_j] = v[i][old_j]; }
     }
-    // Fill remaining U columns (Gram-Schmidt)
-    if rows > cols {
-        let mut basis: Vec<Vec<f64>> = (0..cols).map(|j| (0..rows).map(|i| u[i][j]).collect()).collect();
-        'gs: for e in 0..rows {
-            let mut cand = vec![0.0; rows]; cand[e] = 1.0;
-            for bv in &basis {
-                let dot: f64 = cand.iter().zip(bv).map(|(a,b)| a*b).sum();
-                for i in 0..rows { cand[i] -= dot * bv[i]; }
-            }
-            let norm: f64 = cand.iter().map(|x| x*x).sum::<f64>().sqrt();
-            if norm > 1e-10 {
-                for x in &mut cand { *x /= norm; }
-                let idx = basis.len();
-                if idx < rows {
-                    for i in 0..rows { u[i][idx] = cand[i]; }
-                    basis.push(cand);
-                    if basis.len() == rows { break 'gs; }
-                }
-            }
+
+    // Step 4: Compute U = A * V / sigma (left singular vectors)
+    let mut u: Vec<Vec<f64>> = vec![vec![0.0f64; rows]; rows];
+    let rank = pairs.iter().filter(|&&(s, _)| s > 1e-12).count();
+    for j in 0..rank {
+        let sigma = sv[j];
+        // u_j = A * v_j / sigma
+        for i in 0..rows {
+            let val: f64 = (0..cols).map(|k| a[i][k] * v_out[k][j]).sum();
+            u[i][j] = val / sigma;
         }
     }
+
+    // Step 5: Fill remaining U columns via modified Gram-Schmidt
+    let mut basis: Vec<Vec<f64>> = (0..rank).map(|j| (0..rows).map(|i| u[i][j]).collect()).collect();
+    let mut extra_idx = rank;
+    for e in 0..rows {
+        if extra_idx >= rows { break; }
+        let mut cand = vec![0.0f64; rows]; cand[e] = 1.0;
+        for bv in &basis {
+            let dot: f64 = cand.iter().zip(bv).map(|(a, b)| a * b).sum();
+            for i in 0..rows { cand[i] -= dot * bv[i]; }
+        }
+        let norm: f64 = cand.iter().map(|x| x * x).sum::<f64>().sqrt();
+        if norm > 1e-10 {
+            for x in &mut cand { *x /= norm; }
+            for i in 0..rows { u[i][extra_idx] = cand[i]; }
+            basis.push(cand);
+            extra_idx += 1;
+        }
+    }
+
     (u, sv, v_out)
 }

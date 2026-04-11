@@ -54,13 +54,102 @@ impl IirFilter {
         output
     }
 
-    /// Zero-phase forward-backward filter. Applies the filter twice (forward then
-    /// reversed) so phase distortion cancels and the effective order doubles.
+    /// Zero-phase forward-backward filter matching Octave's filtfilt behavior.
+    ///
+    /// Algorithm (Likhterov & Kopeika 2003 / Octave signal package):
+    ///   1. Compute steady-state initial conditions si from b, a coefficients.
+    ///   2. Extend signal with odd reflection at both ends (lrefl = 3*(n-1) samples).
+    ///   3. Forward filter with IC = si * v[0].
+    ///   4. Reverse filter with IC = si * v[end].
+    ///   5. Extract center portion corresponding to original signal.
     pub fn filtfilt(&self, x: &[f64]) -> Vec<f64> {
-        let y_fwd: Vec<f64> = self.apply_real(x);
-        let mut y_rev: Vec<f64> = y_fwd.into_iter().rev().collect();
-        y_rev = self.apply_real(&y_rev);
-        y_rev.into_iter().rev().collect()
+        let nx = x.len();
+        if nx == 0 { return vec![]; }
+        let nb = self.b.len();
+        let na = self.a.len();
+        let n = nb.max(na);
+        let lrefl = 3 * (n - 1);
+
+        // Pad b and a to length n
+        let b: Vec<f64> = {
+            let mut v = self.b.clone();
+            v.resize(n, 0.0);
+            v
+        };
+        let a: Vec<f64> = {
+            let mut v = self.a.clone();
+            v.resize(n, 0.0);
+            v
+        };
+
+        // Steady-state DC gain
+        let sum_b: f64 = b.iter().sum();
+        let sum_a: f64 = a.iter().sum();
+        let kdc = if sum_a.abs() > 1e-300 { sum_b / sum_a } else { 0.0 };
+
+        // si = fliplr(cumsum(fliplr(b - kdc*a))); si(1) = []
+        // i.e., b - kdc*a reversed, cumulative sum, reversed, drop first element
+        let diff: Vec<f64> = b.iter().zip(a.iter()).map(|(&bi, &ai)| bi - kdc * ai).collect();
+        // fliplr then cumsum
+        let mut rev_diff: Vec<f64> = diff.iter().rev().cloned().collect();
+        // cumsum in-place
+        for i in 1..rev_diff.len() {
+            rev_diff[i] += rev_diff[i - 1];
+        }
+        // fliplr again
+        let si_full: Vec<f64> = rev_diff.into_iter().rev().collect();
+        // Drop first element (si(1) = [] in Octave/MATLAB)
+        let si: Vec<f64> = si_full[1..].to_vec();
+        let state_len = si.len(); // = n - 1
+
+        // Extend signal with odd reflection:
+        //   v = [2*x[0] - x[lrefl:-1:1], x, 2*x[n-1] - x[n-2:-1:n-1-lrefl]]
+        let mut v: Vec<f64> = Vec::with_capacity(nx + 2 * lrefl);
+        for i in (1..=lrefl).rev() {
+            let idx = i.min(nx - 1);
+            v.push(2.0 * x[0] - x[idx]);
+        }
+        v.extend_from_slice(x);
+        for i in 1..=lrefl {
+            let idx = nx.saturating_sub(1 + i);
+            v.push(2.0 * x[nx - 1] - x[idx]);
+        }
+
+        // Forward filter with IC = si * v[0]
+        let v0 = v[0];
+        let ic_fwd: Vec<f64> = si.iter().map(|&s| s * v0).collect();
+        let y_fwd = self.apply_real_with_ic(&v, &ic_fwd, state_len);
+
+        // Reverse
+        let mut v_rev: Vec<f64> = y_fwd.into_iter().rev().collect();
+        let v_end = v_rev[0]; // after reversal, first element = last of y_fwd
+        let ic_bwd: Vec<f64> = si.iter().map(|&s| s * v_end).collect();
+        let y_bwd = self.apply_real_with_ic(&v_rev.clone(), &ic_bwd, state_len);
+
+        // Reverse back and extract center
+        v_rev = y_bwd.into_iter().rev().collect();
+        v_rev[lrefl..lrefl + nx].to_vec()
+    }
+
+    /// Apply filter with given initial state (direct-form II transposed).
+    fn apply_real_with_ic(&self, input: &[f64], ic: &[f64], state_len: usize) -> Vec<f64> {
+        let nb = self.b.len();
+        let na = self.a.len();
+        let mut w = vec![0.0f64; state_len];
+        for (i, &v) in ic.iter().enumerate() {
+            if i < state_len { w[i] = v; }
+        }
+        let mut output = vec![0.0f64; input.len()];
+        for (idx, &x) in input.iter().enumerate() {
+            let y = self.b[0] * x + if state_len > 0 { w[0] } else { 0.0 };
+            output[idx] = y;
+            for i in 0..state_len {
+                let b_term = if i + 1 < nb { self.b[i + 1] * x } else { 0.0 };
+                let a_term = if i + 1 < na { self.a[i + 1] * y } else { 0.0 };
+                w[i] = b_term - a_term + if i + 1 < state_len { w[i + 1] } else { 0.0 };
+            }
+        }
+        output
     }
 }
 
