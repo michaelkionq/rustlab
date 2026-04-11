@@ -25,4 +25,8 @@ pub enum ScriptError {
     /// Internal signal: `return` statement in a function body.  Never shown to users.
     #[error("return")]
     EarlyReturn,
+    /// stdin closed while audio_read was waiting for a full frame.
+    /// Treated as a clean exit by the CLI (exit code 0, no error message).
+    #[error("stdin closed")]
+    AudioEof,
 }

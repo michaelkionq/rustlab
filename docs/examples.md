@@ -630,3 +630,117 @@ savefig(real(y_src), "upfirdn_src32.svg", "Rate conversion 3/2")
 ```sh
 rustlab run examples/upfirdn.r
 ```
+
+---
+
+## `examples/stream/filter.r` — Real-time FIR streaming
+
+**Full script:**
+
+```r
+sr     = 44100.0;
+cutoff = 1000.0 / (sr / 2.0);
+
+h  = firpm(64, [0, cutoff * 0.9, cutoff, 1.0], [1, 1, 0, 0]);
+st = state_init(length(h) - 1);
+
+adc = audio_in(sr, 256);
+dac = audio_out(sr, 256);
+
+while true
+    frame     = audio_read(adc);
+    [out, st] = filter_stream(frame, h, st);
+    audio_write(dac, out);
+end
+```
+
+**Step by step:**
+
+1. **Filter design** — `firpm` designs a 64-tap Parks-McClellan equiripple lowpass.
+   Band edges are normalised to [0, 1] where 1 = Nyquist. The 10% margin between
+   passband edge (`cutoff * 0.9`) and stopband edge (`cutoff`) gives a clean transition.
+
+2. **`state_init(length(h) - 1)`** — allocates a zero-filled history buffer of
+   M−1 = 63 samples. This buffer carries the tail of each input frame into the next,
+   making the output indistinguishable from a single offline `convolve(full_signal, h)`.
+
+3. **`audio_in` / `audio_out`** — lightweight metadata descriptors. They open no
+   files or devices; all I/O goes through stdin/stdout as raw f32 LE mono PCM.
+
+4. **`while true` loop** — runs until stdin closes. `audio_read` raises `AudioEof`
+   on a clean EOF, which `rustlab run` silently maps to exit code 0.
+
+5. **`filter_stream(frame, h, st)`** — overlap-save algorithm, one frame at a time:
+   - Prepend M−1 history samples → extended buffer of length `FRAME + M − 1`
+   - Direct-form convolution with `h` → FRAME output samples
+   - Store last M−1 input samples as new history
+
+**Running it:**
+
+```sh
+# macOS (sox required):
+sox -d -r 44100 -c 1 -b 32 -e float -t raw - \
+  | rustlab run examples/stream/filter.r \
+  | sox -r 44100 -c 1 -b 32 -e float -t raw - -d
+
+# Hardware-free test:
+bash examples/stream/test_no_hardware.sh
+```
+
+---
+
+## `examples/stream/spectrum_monitor.r` — Live FFT spectrum monitor
+
+Reads raw PCM from stdin, applies the same 1 kHz lowpass, and every 32 frames
+(~186 ms) pauses to display:
+
+- **Panel 1** — time domain of the filtered output
+- **Panel 2** — Hann-windowed FFT magnitude in dB (Δf ≈ 5.4 Hz at 44100 Hz)
+
+**Key patterns:**
+
+```r
+WIN_SAMPLES = FRAME * DISPLAY_FRAMES   # 8192 samples per FFT
+
+buf  = zeros(WIN_SAMPLES)   # accumulation buffer
+win  = window("hann", WIN_SAMPLES)
+t_ms = linspace(0.0, WIN_SAMPLES / sr * 1000.0, WIN_SAMPLES)
+
+while true
+  frame      = audio_read(src);
+  [y, state] = filter_stream(frame, h, state);
+
+  # Fill display buffer one frame at a time
+  base = n * FRAME;
+  for k = 1:FRAME
+    buf(base + k) = real(y(k));
+  end
+  n = n + 1;
+
+  if n >= DISPLAY_FRAMES
+    X = fft(buf .* win);      # windowed FFT
+    H = spectrum(X, sr);      # DC-centred 2×n matrix
+
+    figure()
+    subplot(2, 1, 1)
+      title("Time domain")
+      plot(t_ms, buf, "label", "filtered")
+    subplot(2, 1, 2)
+      title("Spectrum")
+      plotdb(H, "FFT magnitude (dB)")
+
+    n = 0;
+  end
+end
+```
+
+**Why stdout is not used for audio:** `render_figure_terminal` checks
+`stdout().is_terminal()` before drawing. Piping audio to stdout silences the
+plots. Leave stdout as a terminal and use `tee` for simultaneous pass-through:
+
+```sh
+sox -d -r 44100 -c 1 -b 32 -e float -t raw - \
+  | tee >(rustlab run examples/stream/spectrum_monitor.r) \
+  | rustlab run examples/stream/filter.r \
+  | sox -r 44100 -c 1 -b 32 -e float -t raw - -d
+```

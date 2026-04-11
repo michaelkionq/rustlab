@@ -29,6 +29,11 @@ pub enum Stmt {
         iter: Expr,
         body: Vec<Stmt>,
     },
+    /// `while cond ... end` — repeat body while cond is truthy
+    While {
+        cond: Expr,
+        body: Vec<Stmt>,
+    },
     /// `name(i) = expr` or `name(i,j) = expr` — indexed assignment
     IndexAssign {
         name:     String,

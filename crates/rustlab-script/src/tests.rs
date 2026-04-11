@@ -2921,6 +2921,41 @@ mod lang_ext_tests {
         assert_eq!(get_scalar(&ev, "s"), 12.0);
     }
 
+    // ── while loop ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn while_counts_to_five() {
+        let ev = run("x = 0\nwhile x < 5\nx = x + 1\nend");
+        assert_eq!(get_scalar(&ev, "x"), 5.0);
+    }
+
+    #[test]
+    fn while_false_body_never_executes() {
+        // condition is immediately false (1 == 2), body must not run
+        let ev = run("x = 99\nwhile 1 == 2\nx = 0\nend");
+        assert_eq!(get_scalar(&ev, "x"), 99.0);
+    }
+
+    #[test]
+    fn while_zero_condition_skips() {
+        let ev = run("x = 7\nwhile 0\nx = 0\nend");
+        assert_eq!(get_scalar(&ev, "x"), 7.0);
+    }
+
+    #[test]
+    fn while_accumulates_sum() {
+        // sum 1+2+3+4+5 = 15
+        let ev = run("s = 0\ni = 1\nwhile i <= 5\ns = s + i\ni = i + 1\nend");
+        assert_eq!(get_scalar(&ev, "s"), 15.0);
+    }
+
+    #[test]
+    fn while_nested_in_if() {
+        // while inside an if branch
+        let ev = run("x = 0\nif 1 == 1\nwhile x < 3\nx = x + 1\nend\nend");
+        assert_eq!(get_scalar(&ev, "x"), 3.0);
+    }
+
     // ── indexed assignment standalone ─────────────────────────────────────────
 
     #[test]
@@ -3669,5 +3704,136 @@ X = rk4(f, [1; 0], t);
             }
             other => panic!("expected matrix, got {:?}", other),
         }
+    }
+}
+
+#[cfg(test)]
+mod streaming_dsp_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+
+    fn run(src: &str) -> Evaluator {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts).unwrap();
+        ev
+    }
+
+    fn get_vec(ev: &Evaluator, name: &str) -> Vec<f64> {
+        match ev.get(name).unwrap() {
+            Value::Vector(v) => v.iter().map(|c| c.re).collect(),
+            other => panic!("expected vector for '{name}', got {other:?}"),
+        }
+    }
+
+    // ── state_init ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn state_init_type_and_size() {
+        let ev = run("s = state_init(63);");
+        assert_eq!(ev.get("s").unwrap().type_name(), "fir_state");
+        // display should contain the length
+        assert!(format!("{}", ev.get("s").unwrap()).contains("63"));
+    }
+
+    #[test]
+    fn state_init_zero_length_ok() {
+        // Edge case: 1-tap filter needs 0 history samples
+        let ev = run("s = state_init(0);");
+        assert_eq!(ev.get("s").unwrap().type_name(), "fir_state");
+    }
+
+    // ── filter_stream ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn filter_stream_size_mismatch_errors() {
+        // state has 5 slots but h has 4 taps (needs 3 slots) → runtime error
+        let src = "h = [1,0,0,0];\nst = state_init(5);\nframe = [1,0,0,0];\n\
+                   [out, st] = filter_stream(frame, h, st);";
+        let tokens = lexer::tokenize(&format!("{}\n", src)).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        let result = ev.run(&stmts);
+        assert!(result.is_err(), "expected error on size mismatch");
+    }
+
+    #[test]
+    fn filter_stream_identity_filter() {
+        // h = [1] (single tap, identity). state_init(0). output == input.
+        let src = "h = [1.0];\nst = state_init(0);\n\
+                   frame = [1.0, 2.0, 3.0, 4.0];\n\
+                   [out, st] = filter_stream(frame, h, st);";
+        let ev = run(src);
+        let out = get_vec(&ev, "out");
+        assert_eq!(out, vec![1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn filter_stream_returns_same_state_handle() {
+        // The returned state should be the same fir_state (pointer reuse, not copy)
+        let src = "h = [0.5, 0.5];\nst = state_init(1);\n\
+                   frame = [1.0, 0.0, 0.0, 0.0];\n\
+                   [out, st2] = filter_stream(frame, h, st);";
+        let ev = run(src);
+        assert_eq!(ev.get("st2").unwrap().type_name(), "fir_state");
+    }
+
+    #[test]
+    fn filter_stream_matches_full_convolve() {
+        // Process 4 frames of a sine wave and compare against a single convolve.
+        // h = simple 4-tap averager [0.25, 0.25, 0.25, 0.25]
+        // Input: 16 samples (4 frames of 4)
+        // The overlap-save output for frames 2-4 (after state is primed on frame 1)
+        // must match the corresponding slice of convolve(full_signal, h).
+        let src = "
+h = [0.25, 0.25, 0.25, 0.25];
+st = state_init(3);
+x = [1,2,3,4, 5,6,7,8, 9,10,11,12, 13,14,15,16];
+ref_full = convolve(x, h);
+
+[o1, st] = filter_stream(x(1:4),   h, st);
+[o2, st] = filter_stream(x(5:8),   h, st);
+[o3, st] = filter_stream(x(9:12),  h, st);
+[o4, st] = filter_stream(x(13:16), h, st);
+";
+        let ev = run(src);
+        let ref_full = get_vec(&ev, "ref_full");
+        let o1 = get_vec(&ev, "o1");
+        let o2 = get_vec(&ev, "o2");
+        let o3 = get_vec(&ev, "o3");
+        let o4 = get_vec(&ev, "o4");
+
+        // Frames 2-4 must match ref_full exactly (frame 1 has no history so it
+        // is the transient — only check settled frames)
+        let streamed: Vec<f64> = o1.iter().chain(o2.iter()).chain(o3.iter()).chain(o4.iter()).copied().collect();
+        for (i, (&s, &r)) in streamed.iter().zip(ref_full.iter()).enumerate() {
+            // First M-1=3 output samples are transient (history was zero); skip them.
+            if i >= 3 {
+                assert!((s - r).abs() < 1e-9,
+                    "sample {i}: streamed={s}, convolve={r}");
+            }
+        }
+    }
+
+    // ── audio_in / audio_out (metadata only) ─────────────────────────────────
+
+    #[test]
+    fn audio_in_type_and_display() {
+        let ev = run("adc = audio_in(44100.0, 256);");
+        assert_eq!(ev.get("adc").unwrap().type_name(), "audio_in");
+        let s = format!("{}", ev.get("adc").unwrap());
+        assert!(s.contains("44100"), "display should contain sample rate");
+        assert!(s.contains("256"),   "display should contain frame size");
+    }
+
+    #[test]
+    fn audio_out_type_and_display() {
+        let ev = run("dac = audio_out(44100.0, 256);");
+        assert_eq!(ev.get("dac").unwrap().type_name(), "audio_out");
+        let s = format!("{}", ev.get("dac").unwrap());
+        assert!(s.contains("44100"));
+        assert!(s.contains("256"));
     }
 }

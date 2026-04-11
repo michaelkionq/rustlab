@@ -190,6 +190,34 @@ t = v'                     # conjugate transpose (for real data, same values)
 All operators broadcast scalars onto vectors and matrices automatically.
 `v .^ 2` squares every element; `2 .^ v` raises 2 to each element of v.
 
+### Control Flow
+
+```
+# For loop
+for i = 1:10
+  v(i) = i ^ 2
+end
+
+# While loop  (true / false are built-in boolean constants)
+while x > 0
+  x = x - 1
+end
+
+# If / elseif / else
+if x > 0
+  print("positive")
+elseif x < 0
+  print("negative")
+else
+  print("zero")
+end
+
+# User-defined function
+function [y] = double(x)
+  y = x * 2
+end
+```
+
 ### Builtin Functions
 
 | Function | Signature | Description |
@@ -248,6 +276,12 @@ All operators broadcast scalars onto vectors and matrices automatically.
 | `window` | `window(type, n)` | Generate a window vector of length `n` |
 | `eig` | `eig(M)` | Eigenvalues of square matrix `M` as a complex vector |
 | `factor` | `factor(n)` | Prime factors of positive integer `n` as a vector |
+| `state_init` | `state_init(n)` | Allocate overlap-save FIR state buffer (n = length(h)−1) |
+| `filter_stream` | `filter_stream(frame, h, state)` | FIR-filter one frame; returns `[output, state]` |
+| `audio_in` | `audio_in(sr, frame_size)` | Stdin PCM input descriptor (f32 LE, mono) |
+| `audio_out` | `audio_out(sr, frame_size)` | Stdout PCM output descriptor (f32 LE, mono) |
+| `audio_read` | `audio_read(src)` | Read one frame from stdin; exits cleanly on EOF |
+| `audio_write` | `audio_write(dst, frame)` | Write one frame to stdout; flushes after each call |
 
 Window type strings: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`.
 
@@ -453,6 +487,32 @@ Run any example with:
 
 ```sh
 rustlab run examples/<name>.r
+```
+
+### Real-time streaming examples (`examples/stream/`)
+
+Rustlab can process raw PCM audio streams via stdin/stdout with no audio library dependencies. External bridge programs handle hardware I/O; rustlab is a pure filter node in the pipeline.
+
+| File | Description |
+|------|-------------|
+| `examples/stream/filter.r` | Core FIR lowpass script — reads stdin, writes stdout, handles EOF cleanly |
+| `examples/stream/macos.sh` | Live microphone → lowpass filter → speakers (requires `sox`) |
+| `examples/stream/linux.sh` | Same via ALSA `arecord`/`aplay` |
+| `examples/stream/wsl.sh` | WSL2 via PulseAudio or `sox` |
+| `examples/stream/tcp.sh` | Network DSP node using `socat`/`nc` — pipe audio over TCP |
+| `examples/stream/spectrum_monitor.r` | Collect frames, display time-domain + Hann-windowed FFT spectrum |
+| `examples/stream/test_no_hardware.sh` | Hardware-free CI test — 440 Hz + 8 kHz synthetic signal, verifies ≥ 20 dB attenuation |
+
+**Quickstart (macOS):**
+```sh
+sox -d -r 44100 -c 1 -b 32 -e float -t raw - \
+  | rustlab run examples/stream/filter.r \
+  | sox -r 44100 -c 1 -b 32 -e float -t raw - -d
+```
+
+**Hardware-free test:**
+```sh
+bash examples/stream/test_no_hardware.sh
 ```
 
 See `docs/examples.md` for annotated walkthroughs.

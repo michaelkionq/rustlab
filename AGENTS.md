@@ -39,6 +39,13 @@ rustlab/
 │   ├── complex_basics.r
 │   ├── controls/
 │   │   └── classical_control.r
+│   ├── stream/
+│   │   ├── filter.r          # shared FIR lowpass script used by all launchers
+│   │   ├── macos.sh          # sox-based live audio pipeline (macOS)
+│   │   ├── linux.sh          # arecord/aplay pipeline (Linux ALSA)
+│   │   ├── wsl.sh            # PulseAudio / WSL2 pipeline
+│   │   ├── tcp.sh            # socat/nc TCP streaming (cross-platform)
+│   │   └── test_no_hardware.sh  # CI-friendly end-to-end test (no mic/speakers)
 │   ├── lowpass.r
 │   ├── bandpass.r
 │   └── vectors.r
@@ -316,12 +323,14 @@ cargo install --path crates/rustlab-cli   # → ~/.cargo/bin/rustlab
 - `src/parser.rs` — recursive-descent parser → `Vec<Stmt>`
 - `src/ast.rs` — `Stmt` (Assign, Expr, FunctionDef, FieldAssign, Return), `Expr` (Number, Str, Var, BinOp, UnaryMinus, Call, Matrix, Range, Transpose, Field, Lambda, FuncHandle), `BinOp`
 - `src/eval/mod.rs` — `Evaluator` struct: holds `env`, `builtins`, `user_fns`, `in_function`, `profiler: profile::Profiler`; public API: `run()`, `run_script()`, `enable_profiling()`, `has_profile_data()`, `take_profile()`
-- `src/eval/value.rs` — `Value` enum: `Scalar(f64)`, `Complex(C64)`, `Vector(CVector)`, `Matrix(CMatrix)`, `Str(String)`, `Struct(HashMap<String,Value>)`, `Bool(bool)`, `Lambda { params, body, captured_env }`, `FuncHandle(String)`, `QFmt`, `All`, `None`
+- `src/eval/value.rs` — `Value` enum: `Scalar(f64)`, `Complex(C64)`, `Vector(CVector)`, `Matrix(CMatrix)`, `Str(String)`, `Struct(HashMap<String,Value>)`, `Bool(bool)`, `Lambda { params, body, captured_env }`, `FuncHandle(String)`, `QFmt`, `FirState(Arc<Mutex<Vec<C64>>>)`, `AudioIn { sample_rate, frame_size }`, `AudioOut { sample_rate, frame_size }`, `All`, `None`
 - `src/eval/builtins.rs` — `BuiltinRegistry`: `HashMap<String, BuiltinFn>` where `BuiltinFn = fn(Vec<Value>) -> Result<Value, ScriptError>`
 - `src/eval/profile.rs` — `Profiler` struct (opt-in, zero overhead when disabled); `print_report()` prints table to stderr
 - `src/lib.rs` — public entry points: `run(source)`, `run_profiled(source)`
 
-**Pre-populated environment constants:** `j = Complex(0,1)`, `pi = 3.14159…`, `e = 2.71828…`
+**Pre-populated environment constants:** `j = Complex(0,1)`, `i = Complex(0,1)`, `pi = 3.14159…`, `e = 2.71828…`, `true = Bool(true)`, `false = Bool(false)`
+
+**`BUILTIN_CONSTS`:** These constant names (`i`, `j`, `pi`, `e`, `true`, `false`) survive `clear_vars()` — they are re-inserted automatically so the REPL never loses them.
 
 **How `Call` nodes are evaluated:** At eval time, if the name exists in `env` as a `Vector` or `Matrix`, it is treated as 1-based indexing — `end` is temporarily bound to the vector length. If the name holds a `Lambda`, it is called with its captured environment. Otherwise it is a `BuiltinRegistry` call.
 
@@ -371,6 +380,8 @@ stmt        = IDENT "=" range_expr [";"] "\n"              # assignment
             | "return" [";"] "\n"                          # early return (inside function)
             | "for" IDENT "=" range_expr "\n"              # for loop
                 stmt* "end"
+            | "while" range_expr "\n"                      # while loop
+                stmt* "end"
             | "#" ... "\n"                                  # comment
 
 range_expr  = expr (":" expr (":" expr)?)?     # a:b or a:step:b → Vector
@@ -404,6 +415,7 @@ primary     = NUMBER | STRING | IDENT
 | Indexed assign | `v(i) = val`, `M(r,c) = val` | Vectors auto-created/grown; matrices must exist |
 | Chained index | `f(a,b)(i)` | Index return value of any call without a temp variable |
 | For loop | `for i = 1:n ... end` | Iterates over range or vector; loop var stays in scope |
+| While loop | `while cond ... end` | Repeats body while cond is truthy; cond may be Bool, Scalar (nonzero), or Complex |
 | Lambda | `f = @(x) x^2` | Creates anonymous function; captures env by snapshot at creation |
 | Function handle | `@sin`, `@myFn` | Reference to builtin or user-defined function |
 | Higher-order | `arrayfun(@sin, v)` | Maps callable over vector; scalar outputs → Vector, vector outputs → Matrix |
@@ -461,6 +473,12 @@ primary     = NUMBER | STRING | IDENT
 | `place` | `place(A, B, poles)` | Ackermann pole placement (SISO only) → gain vector K |
 | `freqresp` | `freqresp(A, B, C, D, w)` | H(jω) at each ω; SISO → complex vector, MIMO → complex matrix |
 | `svd` | `svd(A)` | SVD via symmetric eigendecomposition of A'A (real); returns Tuple [U, sigma_vector, V] where sigma is sorted descending |
+| `state_init` | `state_init(n)` | Allocate FirState history buffer of length n; returns `Value::FirState` |
+| `filter_stream` | `filter_stream(frame, h, state)` | Overlap-save FIR frame filter; returns Tuple `[y, state]`; history updated in-place |
+| `audio_in` | `audio_in(sr, frame_size)` | Create `Value::AudioIn` descriptor (metadata only; no I/O) |
+| `audio_out` | `audio_out(sr, frame_size)` | Create `Value::AudioOut` descriptor (metadata only; no I/O) |
+| `audio_read` | `audio_read(src)` | Read one frame of f32 LE samples from stdin; raises `ScriptError::AudioEof` on clean EOF |
+| `audio_write` | `audio_write(dst, y)` | Write real parts of frame as f32 LE to stdout; flushes after each call |
 
 Window names: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`
 
@@ -532,6 +550,8 @@ Window names: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`
 - `rustlab-cli` → `anyhow::Error` (converts all library errors at the boundary)
 
 Use `?` to propagate. Do not panic except in `unreachable!()` for truly impossible arms.
+
+**Special case — `ScriptError::AudioEof`:** Raised by `audio_read` when stdin closes cleanly mid-frame (the upstream producer finished). `rustlab-cli/src/commands/run.rs` intercepts this variant and maps it to `Ok(())` (exit code 0, no error message). It is never printed to the user — it is the normal end-of-stream signal for streaming pipelines.
 
 ---
 

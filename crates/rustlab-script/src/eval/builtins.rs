@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::io::{Read as IoRead, Write as IoWrite};
 use rand::Rng;
 use rand_distr::{Normal, Uniform, Distribution};
 use rustlab_core::{C64, CVector, CMatrix};
@@ -226,6 +228,17 @@ impl BuiltinRegistry {
         r.register("scatter",    builtin_scatter);
         r.register("savebar",    builtin_savebar);
         r.register("savescatter", builtin_savescatter);
+
+        // Streaming DSP
+        r.register("state_init",    builtin_state_init);
+        r.register("filter_stream", builtin_filter_stream);
+
+        // stdin/stdout audio I/O
+        r.register("audio_in",    builtin_audio_in);
+        r.register("audio_out",   builtin_audio_out);
+        r.register("audio_read",  builtin_audio_read);
+        r.register("audio_write", builtin_audio_write);
+
         r
     }
 
@@ -4915,4 +4928,151 @@ fn svd_via_ata(a: &[Vec<f64>], rows: usize, cols: usize) -> (Vec<Vec<f64>>, Vec<
     }
 
     (u, sv, v_out)
+}
+
+// ─── Streaming DSP ────────────────────────────────────────────────────────────
+
+/// `state_init(n)` — allocate a FIR history buffer of n zeros.
+/// n should be length(h) - 1 where h is the filter coefficient vector.
+fn builtin_state_init(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("state_init", &args, 1)?;
+    let n = args[0].to_usize().map_err(ScriptError::Type)?;
+    let buf = vec![C64::new(0.0, 0.0); n];
+    Ok(Value::FirState(Arc::new(Mutex::new(buf))))
+}
+
+/// `filter_stream(frame, h, state)` — overlap-save FIR frame processing.
+/// Returns `[output_frame, state]` (same Arc, not a copy).
+///
+/// Algorithm:
+///   extended = [history..., frame...]   (length M-1 + N)
+///   output[i] = Σ_k h[k] * extended[i + M-1 - k]   for i in 0..N
+///   history  ← last M-1 samples of extended (= frame[N-M+1 .. N])
+fn builtin_filter_stream(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("filter_stream", &args, 3)?;
+
+    let frame = args[0].to_cvector().map_err(ScriptError::Type)?;
+    let h     = args[1].to_cvector().map_err(ScriptError::Type)?;
+    let state = match &args[2] {
+        Value::FirState(arc) => Arc::clone(arc),
+        other => return Err(ScriptError::Type(format!(
+            "filter_stream: expected fir_state for arg 3, got {}", other.type_name()
+        ))),
+    };
+
+    let m = h.len();       // number of taps
+    let n = frame.len();   // frame size
+
+    if m == 0 {
+        return Err(ScriptError::Runtime("filter_stream: h must be non-empty".to_string()));
+    }
+    if n == 0 {
+        return Err(ScriptError::Runtime("filter_stream: frame must be non-empty".to_string()));
+    }
+
+    let history_len = m - 1;
+    let mut history = state.lock().unwrap();
+
+    if history.len() != history_len {
+        return Err(ScriptError::Runtime(format!(
+            "filter_stream: state length {} does not match length(h)-1 = {} \
+             (hint: use state_init(length(h)-1))",
+            history.len(), history_len
+        )));
+    }
+
+    // Build extended input: [history | frame]
+    let mut extended = Vec::with_capacity(history_len + n);
+    extended.extend_from_slice(&history);
+    extended.extend(frame.iter().copied());
+
+    // Compute N valid output samples via direct convolution inner product
+    let mut output = Vec::with_capacity(n);
+    for i in 0..n {
+        let mut sum = C64::new(0.0, 0.0);
+        for (k, &hk) in h.iter().enumerate() {
+            sum += hk * extended[i + history_len - k];
+        }
+        output.push(sum);
+    }
+
+    // Update history: last M-1 samples of extended = frame[N-M+1 .. N]
+    // (equivalently extended[N .. N+M-1])
+    if history_len > 0 {
+        history.copy_from_slice(&extended[n..n + history_len]);
+    }
+    drop(history); // release lock before building return value
+
+    let out_vec: CVector = Array1::from_vec(output);
+    let arc_clone = Arc::clone(&state);
+    Ok(Value::Tuple(vec![
+        Value::Vector(out_vec),
+        Value::FirState(arc_clone),
+    ]))
+}
+
+// ─── stdin/stdout Audio I/O ──────────────────────────────────────────────────
+
+/// `audio_in(sr, n)` — create an audio input metadata handle (no hardware opened).
+fn builtin_audio_in(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("audio_in", &args, 2)?;
+    let sample_rate = args[0].to_scalar().map_err(ScriptError::Type)?;
+    let frame_size  = args[1].to_usize().map_err(ScriptError::Type)?;
+    Ok(Value::AudioIn { sample_rate, frame_size })
+}
+
+/// `audio_out(sr, n)` — create an audio output metadata handle (no hardware opened).
+fn builtin_audio_out(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("audio_out", &args, 2)?;
+    let sample_rate = args[0].to_scalar().map_err(ScriptError::Type)?;
+    let frame_size  = args[1].to_usize().map_err(ScriptError::Type)?;
+    Ok(Value::AudioOut { sample_rate, frame_size })
+}
+
+/// `audio_read(adc)` — read one frame of f32-LE PCM from stdin.
+/// Blocks until the full frame is available.
+fn builtin_audio_read(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("audio_read", &args, 1)?;
+    let frame_size = match &args[0] {
+        Value::AudioIn { frame_size, .. } => *frame_size,
+        other => return Err(ScriptError::Type(format!(
+            "audio_read: expected audio_in, got {}", other.type_name()
+        ))),
+    };
+    let mut buf = vec![0u8; frame_size * 4];
+    match std::io::stdin().lock().read_exact(&mut buf) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+            return Err(ScriptError::AudioEof);
+        }
+        Err(e) => return Err(ScriptError::Runtime(format!("audio_read: {e}"))),
+    };
+    let cvec: CVector = Array1::from_iter(
+        buf.chunks_exact(4).map(|b| {
+            let s = f32::from_le_bytes(b.try_into().unwrap());
+            C64::new(s as f64, 0.0)
+        })
+    );
+    Ok(Value::Vector(cvec))
+}
+
+/// `audio_write(dac, frame)` — write one frame of f32-LE PCM to stdout.
+/// Only the real part of each sample is written.
+fn builtin_audio_write(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("audio_write", &args, 2)?;
+    match &args[0] {
+        Value::AudioOut { .. } => {}
+        other => return Err(ScriptError::Type(format!(
+            "audio_write: expected audio_out, got {}", other.type_name()
+        ))),
+    };
+    let frame = args[1].to_cvector().map_err(ScriptError::Type)?;
+    let mut out = std::io::stdout().lock();
+    for c in frame.iter() {
+        out.write_all(&(c.re as f32).to_le_bytes())
+           .map_err(|e| ScriptError::Runtime(format!("audio_write: {e}")))?;
+    }
+    out.flush()
+       .map_err(|e| ScriptError::Runtime(format!("audio_write flush: {e}")))?;
+    Ok(Value::None)
 }

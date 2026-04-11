@@ -36,8 +36,11 @@ impl Evaluator {
         env.insert("j".to_string(), Value::Complex(num_complex::Complex::new(0.0, 1.0)));
         env.insert("i".to_string(), Value::Complex(num_complex::Complex::new(0.0, 1.0)));
         // Also pi and e for convenience
-        env.insert("pi".to_string(), Value::Scalar(std::f64::consts::PI));
-        env.insert("e".to_string(),  Value::Scalar(std::f64::consts::E));
+        env.insert("pi".to_string(),    Value::Scalar(std::f64::consts::PI));
+        env.insert("e".to_string(),     Value::Scalar(std::f64::consts::E));
+        // Boolean literals
+        env.insert("true".to_string(),  Value::Bool(true));
+        env.insert("false".to_string(), Value::Bool(false));
 
         Self {
             env,
@@ -55,7 +58,7 @@ impl Evaluator {
 
     /// Remove all user-defined variables and functions, keeping built-in constants (j, pi, e).
     pub fn clear_vars(&mut self) {
-        const BUILTIN_CONSTS: &[&str] = &["i", "j", "pi", "e"];
+        const BUILTIN_CONSTS: &[&str] = &["i", "j", "pi", "e", "true", "false"];
         self.env.retain(|k, _| BUILTIN_CONSTS.contains(&k.as_str()));
         self.user_fns.clear();
     }
@@ -70,7 +73,7 @@ impl Evaluator {
     /// Return all user-defined variables, sorted by name.
     /// Excludes built-in constants (j, pi, e).
     pub fn vars(&self) -> Vec<(&str, &Value)> {
-        const BUILTIN_CONSTS: &[&str] = &["i", "j", "pi", "e"];
+        const BUILTIN_CONSTS: &[&str] = &["i", "j", "pi", "e", "true", "false"];
         let mut entries: Vec<(&str, &Value)> = self.env.iter()
             .filter(|(k, _)| !BUILTIN_CONSTS.contains(&k.as_str()))
             .map(|(k, v)| (k.as_str(), v))
@@ -197,6 +200,23 @@ impl Evaluator {
                             }
                             self.env.insert(names[0].clone(), single);
                         }
+                    }
+                }
+            }
+            Stmt::While { cond, body } => {
+                loop {
+                    let cv = self.eval_expr(cond)?;
+                    let truthy = match &cv {
+                        Value::Bool(b)   => *b,
+                        Value::Scalar(n) => *n != 0.0,
+                        Value::Complex(c) => c.re != 0.0 || c.im != 0.0,
+                        other => return Err(ScriptError::Runtime(format!(
+                            "while condition must be a bool or scalar, got {}", other.type_name()
+                        ))),
+                    };
+                    if !truthy { break; }
+                    for s in body {
+                        self.exec_stmt(s)?;
                     }
                 }
             }

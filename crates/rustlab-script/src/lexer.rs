@@ -45,6 +45,7 @@ pub enum Token {
     If,         // if
     Else,       // else
     For,        // for
+    While,      // while
     Dot,        // . (field access)
     // Structure
     Newline,
@@ -197,6 +198,7 @@ pub fn tokenize(source: &str) -> Result<Vec<Spanned>, ScriptError> {
                     "if"       => Token::If,
                     "else"     => Token::Else,
                     "for"      => Token::For,
+                    "while"    => Token::While,
                     _          => Token::Ident(ident),
                 };
                 tokens.push(Spanned { token: tok, line });

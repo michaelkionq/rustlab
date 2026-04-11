@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::{Arc, Mutex};
 use ndarray::{Array1, Array2};
 use num_complex::Complex;
 use rustlab_core::{C64, CMatrix, CVector};
@@ -37,6 +38,14 @@ pub enum Value {
     },
     /// Handle to a named function: `@name`. Dispatch happens at call time.
     FuncHandle(String),
+    /// Opaque history buffer for stateful FIR streaming.
+    /// Arc<Mutex<...>> allows cheap Clone (ref-counted) while providing
+    /// &mut access inside filter_stream with no heap reallocation per frame.
+    FirState(Arc<Mutex<Vec<C64>>>),
+    /// Metadata handle for stdin audio input. Opens no file descriptors.
+    AudioIn  { sample_rate: f64, frame_size: usize },
+    /// Metadata handle for stdout audio output. Opens no file descriptors.
+    AudioOut { sample_rate: f64, frame_size: usize },
 }
 
 impl Value {
@@ -71,6 +80,9 @@ impl Value {
             Value::StateSpace { .. } => "ss",
             Value::Lambda { .. } => "lambda",
             Value::FuncHandle(_) => "function_handle",
+            Value::FirState(_)   => "fir_state",
+            Value::AudioIn  { .. } => "audio_in",
+            Value::AudioOut { .. } => "audio_out",
         }
     }
 
@@ -962,6 +974,14 @@ impl fmt::Display for Value {
             Value::None => write!(f, "None"),
             Value::Lambda { params, .. } => write!(f, "@({}) <expr>", params.join(", ")),
             Value::FuncHandle(name) => write!(f, "@{}", name),
+            Value::FirState(buf) => {
+                let n = buf.lock().unwrap().len();
+                write!(f, "<fir_state {}>", n)
+            }
+            Value::AudioIn  { sample_rate, frame_size } =>
+                write!(f, "<audio_in {:.0} Hz / {}>", sample_rate, frame_size),
+            Value::AudioOut { sample_rate, frame_size } =>
+                write!(f, "<audio_out {:.0} Hz / {}>", sample_rate, frame_size),
             Value::StateSpace { a, b, c, d } => {
                 write!(f, "ss<{}-state, {} input, {} output>",
                     a.nrows(), b.ncols(), c.nrows())?;

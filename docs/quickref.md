@@ -14,6 +14,7 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 |---|---|
 | `j`, `i` | Imaginary unit; complex literal: `z = 3.0 + j*4.0` |
 | `pi`, `e` | Built-in constants |
+| `true`, `false` | Boolean constants — usable in `if` and `while` conditions |
 | `v(1)`, `v(end)`, `v(2:4)` | 1-based indexing; `end` = last element; slice returns Vector |
 | `v(i) = val`, `M(r,c) = val` | Indexed assignment; vectors auto-grow as needed |
 | `f(args)(i)` | Chain call and index without a temporary variable |
@@ -29,6 +30,7 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `;` | Suppress output on a statement |
 | `#` | Comment |
 | `for i = 1:n` … `end` | For loop; also iterates over a vector |
+| `while cond` … `end` | While loop; condition is Bool, Scalar (nonzero), or Complex |
 | `if expr` … `elseif expr` … `else` … `end` | Conditional; `elseif` and `else` are optional; nesting supported |
 | `function [out] = name(args)` … `end` | User-defined function |
 | `return` | Early return from a function |
@@ -307,6 +309,26 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 
 ---
 
+## Streaming DSP
+
+| Function | Description |
+|---|---|
+| `state_init(n)` | Allocate overlap-save history buffer of length n (use `length(h)-1`) |
+| `filter_stream(frame, h, state)` | Filter frame through FIR h; returns Tuple `[y, state]` |
+
+## Audio I/O
+
+Raw f32 LE stdin/stdout PCM. Use bridge programs (sox, arecord/aplay) to connect hardware.
+
+| Function | Description |
+|---|---|
+| `audio_in(sr, frame)` | Create AudioIn descriptor (sample_rate, frame_size) |
+| `audio_out(sr, frame)` | Create AudioOut descriptor (sample_rate, frame_size) |
+| `audio_read(src)` | Read one frame from stdin; exits cleanly on EOF |
+| `audio_write(dst, y)` | Write one frame (real parts) to stdout; flushes after each frame |
+
+---
+
 ## Common Patterns
 
 **2D grid:**
@@ -390,3 +412,19 @@ subplot(2, 1, 2)
 save("data.npz", "x", x, "y", y)
 load("data.npz")
 ```
+
+**Real-time FIR streaming (stdin → stdout):**
+```r
+sr    = 44100.0
+FRAME = 256
+h     = firpm(64, [0.0, 0.2, 0.3, 1.0], [1.0, 1.0, 0.0, 0.0])
+state = state_init(length(h) - 1)
+src   = audio_in(sr, FRAME)
+dst   = audio_out(sr, FRAME)
+while true
+  frame = audio_read(src)
+  [y, state] = filter_stream(frame, h, state)
+  audio_write(dst, y)
+end
+```
+Run as: `sox -d ... | rustlab run filter.r | sox ... -d` (see `examples/stream/`)

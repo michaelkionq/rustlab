@@ -21,9 +21,15 @@ pub fn execute(args: RunArgs) -> Result<()> {
         std::env::set_current_dir(dir)
             .with_context(|| format!("failed to chdir to {:?}", dir))?;
     }
-    if args.profile {
-        rustlab_script::run_profiled(&source).map_err(|e| anyhow::anyhow!("{}", e))
+    let result = if args.profile {
+        rustlab_script::run_profiled(&source)
     } else {
-        rustlab_script::run(&source).map_err(|e| anyhow::anyhow!("{}", e))
+        rustlab_script::run(&source)
+    };
+    match result {
+        Ok(()) => Ok(()),
+        // stdin closed cleanly (e.g. audio source finished) — exit 0 silently
+        Err(rustlab_script::ScriptError::AudioEof) => Ok(()),
+        Err(e) => Err(anyhow::anyhow!("{}", e)),
     }
 }

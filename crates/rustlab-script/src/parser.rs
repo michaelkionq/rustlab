@@ -105,6 +105,9 @@ impl Parser {
                 Token::For => {
                     stmts.push(self.parse_for_stmt()?);
                 }
+                Token::While => {
+                    stmts.push(self.parse_while_stmt()?);
+                }
                 Token::Else => {
                     if inside_fn {
                         // `else` inside a function body means we're inside a nested if —
@@ -189,6 +192,14 @@ impl Parser {
         let expr = self.parse_range_expr()?;
         let suppress = self.consume_stmt_end()?;
         Ok(Stmt::IndexAssign { name, indices, expr, suppress })
+    }
+
+    fn parse_while_stmt(&mut self) -> Result<Stmt, ScriptError> {
+        self.advance(); // consume 'while'
+        let cond = self.parse_range_expr()?;
+        let _ = self.consume_stmt_end()?;
+        let body = self.parse_stmts_until_end(true)?;
+        Ok(Stmt::While { cond, body })
     }
 
     fn parse_for_stmt(&mut self) -> Result<Stmt, ScriptError> {
@@ -317,6 +328,7 @@ impl Parser {
                 Token::Return    => { self.advance(); let _ = self.consume_stmt_end()?; then_body.push(Stmt::Return); }
                 Token::If        => { then_body.push(self.parse_if_stmt()?); }
                 Token::For       => { then_body.push(self.parse_for_stmt()?); }
+                Token::While     => { then_body.push(self.parse_while_stmt()?); }
                 Token::LBracket if self.is_multi_assign() => { then_body.push(self.parse_multi_assign()?); }
                 Token::Ident(_)  => {
                     let s = if self.is_field_assignment()  { self.parse_field_assignment()? }
@@ -349,6 +361,7 @@ impl Parser {
                     Token::Return    => { self.advance(); let _ = self.consume_stmt_end()?; body.push(Stmt::Return); }
                     Token::If        => { body.push(self.parse_if_stmt()?); }
                     Token::For       => { body.push(self.parse_for_stmt()?); }
+                    Token::While     => { body.push(self.parse_while_stmt()?); }
                     Token::LBracket if self.is_multi_assign() => { body.push(self.parse_multi_assign()?); }
                     Token::Ident(_)  => {
                         let s = if self.is_field_assignment()  { self.parse_field_assignment()? }

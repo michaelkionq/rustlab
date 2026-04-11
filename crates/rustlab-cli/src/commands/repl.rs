@@ -381,6 +381,20 @@ const HELP: &[HelpEntry] = &[
         detail: "profile(fn1, fn2, ...)  — track only the named functions\nprofile()              — track all function calls\n\nStats accumulate across multiple calls to profile().\nA final report is printed to stderr on script exit.\nFor CLI-flag profiling without source changes: rustlab run --profile script.r" },
     HelpEntry { name: "profile_report", brief: "Print the accumulated profiling table to stderr",
         detail: "profile_report()  — prints the profiling table at this point in the script\n  Useful for mid-script snapshots.\n  A final report is always printed automatically at script exit when profiling is active." },
+    // Streaming DSP
+    HelpEntry { name: "state_init", brief: "Allocate a FIR history buffer of n zeros",
+        detail: "state_init(n)  — allocate FIR state for a filter with n+1 taps\n  n = length(h) - 1  where h is the coefficient vector\n\nReturns an opaque fir_state handle. Pass it to filter_stream each frame.\nTwo independent handles allow stereo (or any multi-channel) processing\nwith no shared state.\n\nExample:\n  h  = firpm(64, [0, 0.04, 0.05, 1.0], [1, 1, 0, 0])\n  st = state_init(length(h) - 1)" },
+    HelpEntry { name: "filter_stream", brief: "Overlap-save FIR filtering — one frame at a time",
+        detail: "filter_stream(frame, h, state)  →  [output_frame, state]\n  frame  — input samples (Vector, length N)\n  h      — FIR coefficients (Vector, length M)\n  state  — fir_state handle from state_init(length(h)-1)\n\nReturns a Tuple: output frame (length N) and the updated state handle.\nThe state is mutated in place — no heap reallocation per frame.\nOutput matches convolve(full_signal, h) to within floating-point precision.\n\nRun with external audio bridge:\n  sox -d -t raw -r 44100 -e float -b 32 -c 1 - \\\n    | rustlab run filter.r \\\n    | sox -t raw -r 44100 -e float -b 32 -c 1 - -d\n\nExample:\n  [out, st] = filter_stream(frame, h, st)" },
+    // Audio I/O
+    HelpEntry { name: "audio_in", brief: "Create a stdin PCM input handle",
+        detail: "audio_in(sr, n)  — metadata handle for reading audio from stdin\n  sr — sample rate in Hz (e.g. 44100.0)\n  n  — frame size in samples (e.g. 256)\n\nOpens no hardware. audio_read(adc) reads n × 4 bytes of f32-LE PCM\nfrom stdin and blocks until the full frame arrives.\n\nExample:\n  adc = audio_in(44100.0, 256)" },
+    HelpEntry { name: "audio_out", brief: "Create a stdout PCM output handle",
+        detail: "audio_out(sr, n)  — metadata handle for writing audio to stdout\n  sr — sample rate in Hz\n  n  — frame size in samples\n\nOpens no hardware. audio_write(dac, frame) writes n × 4 bytes of f32-LE PCM\nto stdout (real part only).\n\nExample:\n  dac = audio_out(44100.0, 256)" },
+    HelpEntry { name: "audio_read", brief: "Read one frame of f32-LE PCM from stdin",
+        detail: "audio_read(adc)  — blocking read of one frame from stdin\n  adc — audio_in handle\n\nBlocks until the full frame is available. Returns a real-valued Vector.\nIf stdin closes, raises a runtime error and the script exits cleanly.\n\nExample:\n  frame = audio_read(adc)" },
+    HelpEntry { name: "audio_write", brief: "Write one frame of f32-LE PCM to stdout",
+        detail: "audio_write(dac, frame)  — write one frame to stdout\n  dac   — audio_out handle\n  frame — Vector of samples (real part written as f32-LE)\n\nFlushes stdout after each frame so the downstream consumer receives\ndata promptly.\n\nExample:\n  audio_write(dac, out)" },
 ];
 
 fn whos_type(v: &rustlab_script::Value) -> &'static str {
@@ -401,6 +415,9 @@ fn whos_type(v: &rustlab_script::Value) -> &'static str {
         Value::StateSpace { .. } => "ss",
         Value::Lambda { .. }  => "lambda",
         Value::FuncHandle(_)  => "function_handle",
+        Value::FirState(_)    => "fir_state",
+        Value::AudioIn  { .. } => "audio_in",
+        Value::AudioOut { .. } => "audio_out",
     }
 }
 
@@ -464,6 +481,11 @@ fn whos_preview(v: &rustlab_script::Value) -> String {
         ),
         Value::Lambda { params, .. } => format!("@({}) <expr>", params.join(", ")),
         Value::FuncHandle(name) => format!("@{}", name),
+        Value::FirState(buf)    => format!("<fir_state {}>", buf.lock().unwrap().len()),
+        Value::AudioIn  { sample_rate, frame_size } =>
+            format!("<audio_in {:.0} Hz / {}>", sample_rate, frame_size),
+        Value::AudioOut { sample_rate, frame_size } =>
+            format!("<audio_out {:.0} Hz / {}>", sample_rate, frame_size),
     }
 }
 
@@ -571,6 +593,8 @@ fn print_help_list() {
                                "butterworth_lowpass","butterworth_highpass",
                                "filtfilt","convolve","upfirdn","window",
                                "fft","ifft","fftshift","fftfreq","spectrum"]),
+        ("Streaming DSP",    &["state_init","filter_stream"]),
+        ("Audio I/O",        &["audio_in","audio_out","audio_read","audio_write"]),
         ("Fixed-point",      &["qfmt","quantize","qadd","qmul","qconv","snr"]),
         ("Plotting",         &["plot","stem","bar","scatter","plotdb","imagesc",
                                "savefig","savestem","savebar","savescatter",

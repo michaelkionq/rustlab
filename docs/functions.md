@@ -12,6 +12,8 @@ Complete reference for all built-in functions and constants available in the rus
 | `j`  | `0 + 1i` | Alias for `i`. Both are always available: `z = 3 + j*4` |
 | `pi` | 3.14159… | π |
 | `e`  | 2.71828… | Euler's number |
+| `true` | `Bool(true)` | Boolean true — can be used directly in `if` / `while` conditions |
+| `false` | `Bool(false)` | Boolean false — can be used directly in `if` / `while` conditions |
 
 ---
 
@@ -1390,6 +1392,33 @@ end
 - The loop variable remains in scope after `end`.
 - Use `for i = n:-1:1` to iterate in reverse.
 
+### `while` loop
+Repeat a block while a condition is truthy. The condition is re-evaluated at the top of each iteration.
+```
+while cond
+  body
+end
+```
+The condition can be a `Bool`, a `Scalar` (non-zero = true), or a `Complex` (non-zero real or imaginary part = true).
+
+**Examples:**
+```
+# count down to zero
+n = 5
+while n > 0
+  print(n)
+  n = n - 1
+end
+
+# infinite loop (typical for streaming pipelines — exits via audio EOF)
+while true
+  frame = audio_read(src)
+  audio_write(dst, frame)
+end
+```
+- Use `while true` for event loops or streaming pipelines. The loop exits when `audio_read` encounters EOF, which is propagated as a clean exit (exit code 0) by `rustlab run`.
+- `true` and `false` are pre-defined Boolean constants.
+
 ### Element-wise operators: `.* ./ .^`
 ```
 a .* b     # element-wise multiply
@@ -1417,6 +1446,132 @@ x = 1.0   # inline comment
 ```
 h = fir_lowpass(64, 1000.0, 44100.0, "hann");   # no output printed
 ```
+
+---
+
+## Streaming DSP
+
+Real-time, frame-by-frame FIR filtering via stdin/stdout raw PCM. Rustlab acts as a pure stream processor — any byte source (microphone bridge, network socket, file) can feed it.
+
+**Architecture:** `producer | rustlab run filter.r | consumer`
+
+The streaming pipeline is stateless from the script's perspective: `state_init` allocates a history buffer, `filter_stream` advances it by one frame and returns the updated state, and `audio_read`/`audio_write` handle stdin/stdout I/O as raw f32 little-endian PCM.
+
+### `state_init(n)`
+Allocate a zero-filled overlap-save history buffer of length `n` (typically `length(h) - 1`).
+```
+h     = firpm(64, [0.0, 0.2, 0.3, 1.0], [1.0, 1.0, 0.0, 0.0])
+state = state_init(length(h) - 1)
+```
+Returns a `FirState` handle (an `Arc<Mutex<Vec<C64>>>` internally). The same handle is returned by `filter_stream` after each frame — no heap allocation per frame.
+
+### `filter_stream(frame, h, state)`
+Filter one frame through FIR coefficients `h` using the overlap-save algorithm, using and updating the history in `state`.
+
+| Argument | Type | Description |
+|---|---|---|
+| `frame` | Vector | Input frame (any length; typically the FRAME from `audio_read`) |
+| `h` | Vector | FIR coefficients (M taps) |
+| `state` | FirState | History buffer of length M−1 (from `state_init` or previous call) |
+
+Returns a **Tuple** `[y, new_state]` where `y` is the filtered output frame and `new_state` is the updated `FirState` handle (same Arc pointer — no copy).
+
+**How overlap-save works:**
+1. Prepend M−1 history samples to the frame → extended buffer of length `len(x) + M - 1`
+2. Direct-form convolution with `h` to produce `len(x)` output samples
+3. Update history to the last M−1 samples of the input frame
+
+Output at position `i` exactly equals `sum(h[k] * extended[i + M - 1 - k])` — identical to a full offline `convolve` on the concatenated input, frame boundaries are invisible.
+
+```
+h     = firpm(64, [0.0, 0.2, 0.3, 1.0], [1.0, 1.0, 0.0, 0.0])
+state = state_init(length(h) - 1)
+src   = audio_in(44100.0, 256)
+dst   = audio_out(44100.0, 256)
+while true
+  frame = audio_read(src)
+  [y, state] = filter_stream(frame, h, state)
+  audio_write(dst, y)
+end
+```
+
+**Correctness guarantee:** If you concatenate all input frames and run `convolve(full_input, h)`, the result matches the concatenation of all output frames to within numerical precision (tested to < 1e-9 in the test suite).
+
+---
+
+## Audio I/O
+
+Raw PCM streaming over stdin / stdout. Each sample is a **32-bit IEEE 754 float, little-endian** (`f32 LE`). Audio is **mono** — use bridge programs (sox, ffmpeg, arecord/aplay) to convert from hardware to this format.
+
+### `audio_in(sample_rate, frame_size)`
+Create an `AudioIn` metadata descriptor. Does not open any file or device.
+
+```
+src = audio_in(44100.0, 256)
+```
+
+- `sample_rate` — Hz (informational; used for documentation and future extensions)
+- `frame_size` — number of f32 samples per `audio_read` call
+
+### `audio_out(sample_rate, frame_size)`
+Create an `AudioOut` metadata descriptor. Does not open any file or device.
+
+```
+dst = audio_out(44100.0, 256)
+```
+
+### `audio_read(src)`
+Read exactly one frame of `frame_size` f32 LE samples from stdin. Blocks until the full frame is available.
+
+```
+frame = audio_read(src)   # returns a complex Vector of length FRAME
+```
+
+- Returns a complex `Vector` (imaginary parts are 0.0).
+- When stdin closes cleanly mid-frame (source finished), raises `AudioEof` which `rustlab run` maps to exit code 0, no error message. This is the normal "pipeline finished" signal.
+
+### `audio_write(dst, frame)`
+Write one frame of complex samples to stdout as f32 LE. Flushes after every frame.
+
+```
+audio_write(dst, y)   # y is a complex Vector; real parts are written
+```
+
+- Only the real parts of `frame` are written. Imaginary parts are discarded (FIR output is always real for a real-coefficient filter and real input).
+- Flushes stdout after each frame to minimize pipeline latency.
+
+---
+
+### Bridge programs
+
+Rustlab has no audio hardware support by design. Use an external bridge to connect hardware:
+
+| Platform | Capture | Playback |
+|---|---|---|
+| macOS | `sox -d -r 44100 -c 1 -b 32 -e float -t raw -` | `sox -r 44100 -c 1 -b 32 -e float -t raw - -d` |
+| Linux | `arecord -r 44100 -c 1 -f FLOAT_LE -t raw` | `aplay -r 44100 -c 1 -f FLOAT_LE -t raw` |
+| Any | `ffmpeg -f avfoundation -i :0 -f f32le -ar 44100 -ac 1 pipe:1` | `ffmpeg -f f32le -ar 44100 -ac 1 -i pipe:0 -f alsa default` |
+
+**Full macOS pipeline:**
+```sh
+sox -d -r 44100 -c 1 -b 32 -e float -t raw - \
+  | rustlab run filter.r \
+  | sox -r 44100 -c 1 -b 32 -e float -t raw - -d
+```
+
+**TCP network DSP node (any platform):**
+```sh
+# Terminal 1: start rustlab as a server on two ports
+nc -l 9999 | rustlab run filter.r | nc -l 9998
+
+# Terminal 2: send audio in
+cat /tmp/audio.raw | nc localhost 9999
+
+# Terminal 3: receive filtered audio
+nc localhost 9998 > /tmp/filtered.raw
+```
+
+See `examples/stream/` for ready-to-run scripts for macOS, Linux, WSL2, and TCP streaming, plus a hardware-free integration test (`test_no_hardware.sh`).
 
 ---
 
