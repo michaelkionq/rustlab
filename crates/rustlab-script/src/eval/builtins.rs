@@ -181,6 +181,7 @@ impl BuiltinRegistry {
         // Output
         r.register("disp",    builtin_disp);
         r.register("fprintf", builtin_fprintf);
+        r.register("error",   builtin_error);
         // Aggregates
         r.register("all", builtin_all);
         r.register("any", builtin_any);
@@ -884,7 +885,12 @@ fn builtin_savehist(args: Vec<Value>) -> Result<Value, ScriptError> {
 }
 
 fn builtin_min(args: Vec<Value>) -> Result<Value, ScriptError> {
-    check_args("min", &args, 1)?;
+    check_args_range("min", &args, 1, 2)?;
+    if args.len() == 2 {
+        let a = args[0].to_scalar().map_err(|e| ScriptError::Type(format!("min: {}", e)))?;
+        let b = args[1].to_scalar().map_err(|e| ScriptError::Type(format!("min: {}", e)))?;
+        return Ok(Value::Scalar(a.min(b)));
+    }
     match &args[0] {
         Value::Vector(v) if !v.is_empty() => {
             let m = v.iter().map(|c| c.re).fold(f64::INFINITY, f64::min);
@@ -900,7 +906,12 @@ fn builtin_min(args: Vec<Value>) -> Result<Value, ScriptError> {
 }
 
 fn builtin_max(args: Vec<Value>) -> Result<Value, ScriptError> {
-    check_args("max", &args, 1)?;
+    check_args_range("max", &args, 1, 2)?;
+    if args.len() == 2 {
+        let a = args[0].to_scalar().map_err(|e| ScriptError::Type(format!("max: {}", e)))?;
+        let b = args[1].to_scalar().map_err(|e| ScriptError::Type(format!("max: {}", e)))?;
+        return Ok(Value::Scalar(a.max(b)));
+    }
     match &args[0] {
         Value::Vector(v) if !v.is_empty() => {
             let m = v.iter().map(|c| c.re).fold(f64::NEG_INFINITY, f64::max);
@@ -913,6 +924,15 @@ fn builtin_max(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Scalar(s) => Ok(Value::Scalar(*s)),
         _ => Err(ScriptError::Type("max: argument must be a non-empty vector, matrix, or scalar".to_string())),
     }
+}
+
+fn builtin_error(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("error", &args, 1)?;
+    let msg = match &args[0] {
+        Value::Str(s) => s.clone(),
+        other => format!("{}", other),
+    };
+    Err(ScriptError::Runtime(msg))
 }
 
 fn builtin_mean(args: Vec<Value>) -> Result<Value, ScriptError> {

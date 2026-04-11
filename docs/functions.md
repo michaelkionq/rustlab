@@ -183,16 +183,18 @@ Create 2D grid matrices from two vectors. Returns a tuple `[X, Y]` where X repli
 
 ## Statistics
 
-### `min(v)`
-Smallest value in a vector (real part used for complex vectors).
+### `min(v)` / `min(a, b)`
+Smallest value in a vector, or the smaller of two scalars.
 ```
 min([3.0, 1.0, 4.0, 1.5])   # → 1.0
+min(5, 3)                    # → 3.0
 ```
 
-### `max(v)`
-Largest value in a vector (real part used for complex vectors).
+### `max(v)` / `max(a, b)`
+Largest value in a vector, or the larger of two scalars.
 ```
 max([3.0, 1.0, 4.0, 1.5])   # → 4.0
+max(0, -5)                   # → 0.0
 ```
 
 ### `mean(v)`
@@ -1566,6 +1568,59 @@ end
 ```
 - Use `while true` for event loops or streaming pipelines. The loop exits when `audio_read` encounters EOF, which is propagated as a clean exit (exit code 0) by `rustlab run`.
 - `true` and `false` are pre-defined Boolean constants.
+
+### `if` / `elseif` / `else`
+Conditional branching with optional chained conditions.
+```
+if cond
+  body
+elseif cond2
+  body2
+else
+  default_body
+end
+```
+Single-line form using comma as separator:
+```
+if x > 5, x = 99; end
+if income > b2, tax = tax + (income - b2) * r3; income = b2; end
+```
+The condition can be a `Bool` or `Scalar` (0 = false, nonzero = true).
+
+### `switch` / `case` / `otherwise`
+Match a value against one or more cases.
+```
+switch quarter
+    case 1
+        multiplier = 4.0
+    case 2
+        multiplier = 2.4
+    otherwise
+        error('Invalid quarter')
+end
+```
+Executes the first matching case. Falls through to `otherwise` if no case matches.
+
+### `error(msg)`
+Halt script execution with an error message.
+```
+error('Invalid input')
+```
+
+### `run` (script include)
+Execute another `.r` file, merging its variables and function definitions into the current scope. Works in both the REPL and inside scripts.
+```
+run helper_functions.r
+result = my_helper(42)
+```
+
+### Line continuation: `...`
+Continue a long expression on the next line.
+```
+y = a + b + ...
+    c + d
+```
+Everything after `...` on the line is ignored (treated as a comment).
 
 ### Element-wise operators: `.* ./ .^`
 ```

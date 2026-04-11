@@ -15,12 +15,21 @@ pub enum Stmt {
     FieldAssign { object: String, field: String, expr: Expr, suppress: bool },
     /// `return` statement inside a function body
     Return,
-    /// `if cond \n then_body [else \n else_body] end`
+    /// `if cond \n then_body [elseif cond \n body]* [else \n else_body] end`
     If {
-        cond:      Expr,
-        then_body: Vec<Stmt>,
-        else_body: Vec<Stmt>,
+        cond:         Expr,
+        then_body:    Vec<Stmt>,
+        elseif_arms:  Vec<(Expr, Vec<Stmt>)>,
+        else_body:    Vec<Stmt>,
     },
+    /// `switch expr \n case val \n body ... [otherwise \n body] end`
+    Switch {
+        expr:       Expr,
+        cases:      Vec<(Expr, Vec<Stmt>)>,
+        otherwise:  Vec<Stmt>,
+    },
+    /// `run path` — execute another .r script and merge its definitions
+    Run { path: String },
     /// `[a, b, c] = expr` — multi-value assignment (unpacks a Tuple)
     MultiAssign { names: Vec<String>, expr: Expr, suppress: bool },
     /// `for VAR = iter_expr ... end` — iterate over elements of a vector

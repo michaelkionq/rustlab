@@ -7,6 +7,9 @@ pub fn parse(tokens: Vec<Spanned>) -> Result<Vec<Stmt>, ScriptError> {
     parser.parse_program()
 }
 
+/// Terminator tells `parse_block_body` what caused it to stop.
+enum BlockEnd { End, Else, ElseIf }
+
 struct Parser {
     tokens: Vec<Spanned>,
     pos: usize,
@@ -108,20 +111,17 @@ impl Parser {
                 Token::While => {
                     stmts.push(self.parse_while_stmt()?);
                 }
-                Token::Else => {
-                    if inside_fn {
-                        // `else` inside a function body means we're inside a nested if —
-                        // this shouldn't reach here; it's handled by parse_if_stmt.
-                        return Err(ScriptError::Parse {
-                            line: self.current_line(),
-                            msg: "unexpected 'else' without matching 'if'".to_string(),
-                        });
-                    } else {
-                        return Err(ScriptError::Parse {
-                            line: self.current_line(),
-                            msg: "unexpected 'else' without matching 'if'".to_string(),
-                        });
-                    }
+                Token::Switch => {
+                    stmts.push(self.parse_switch_stmt()?);
+                }
+                Token::Run => {
+                    stmts.push(self.parse_run_stmt()?);
+                }
+                Token::Else | Token::ElseIf => {
+                    return Err(ScriptError::Parse {
+                        line: self.current_line(),
+                        msg: format!("unexpected '{:?}' without matching 'if'", self.peek_token()),
+                    });
                 }
                 Token::LBracket if self.is_multi_assign() => {
                     stmts.push(self.parse_multi_assign()?);
@@ -303,82 +303,181 @@ impl Parser {
         let cond = self.parse_range_expr()?;
         let _ = self.consume_stmt_end()?;
 
-        // Parse then-body until 'else' or 'end'
-        let mut then_body = Vec::new();
-        let hit_else = loop {
-            match self.peek_token() {
-                Token::Eof => return Err(ScriptError::Parse {
-                    line: self.current_line(),
-                    msg: "unexpected end of input: missing 'end' for 'if'".to_string(),
-                }),
-                Token::End => {
-                    self.advance();
-                    if self.peek_token() == &Token::Semicolon { self.advance(); }
-                    if self.peek_token() == &Token::Newline   { self.advance(); }
-                    break false;
-                }
-                Token::Else => {
-                    self.advance(); // consume 'else'
-                    if self.peek_token() == &Token::Semicolon { self.advance(); }
-                    if self.peek_token() == &Token::Newline   { self.advance(); }
-                    break true;
-                }
-                Token::Newline   => { self.advance(); }
-                Token::Function  => { then_body.push(self.parse_function_def()?); }
-                Token::Return    => { self.advance(); let _ = self.consume_stmt_end()?; then_body.push(Stmt::Return); }
-                Token::If        => { then_body.push(self.parse_if_stmt()?); }
-                Token::For       => { then_body.push(self.parse_for_stmt()?); }
-                Token::While     => { then_body.push(self.parse_while_stmt()?); }
-                Token::LBracket if self.is_multi_assign() => { then_body.push(self.parse_multi_assign()?); }
-                Token::Ident(_)  => {
-                    let s = if self.is_field_assignment()  { self.parse_field_assignment()? }
-                            else if self.is_index_assignment() { self.parse_index_assign()? }
-                            else if self.is_assignment()   { self.parse_assignment()? }
-                            else                           { self.parse_expr_stmt()? };
-                    then_body.push(s);
-                }
-                _ => { then_body.push(self.parse_expr_stmt()?); }
-            }
-        };
+        let (then_body, term) = self.parse_block_body("if")?;
+
+        // Collect elseif arms
+        let mut elseif_arms: Vec<(Expr, Vec<Stmt>)> = Vec::new();
+        let mut terminator = term;
+        while matches!(terminator, BlockEnd::ElseIf) {
+            let ei_cond = self.parse_range_expr()?;
+            let _ = self.consume_stmt_end()?;
+            let (ei_body, t) = self.parse_block_body("elseif")?;
+            elseif_arms.push((ei_cond, ei_body));
+            terminator = t;
+        }
 
         // Parse else-body if present
-        let else_body = if hit_else {
-            let mut body = Vec::new();
-            loop {
-                match self.peek_token() {
-                    Token::Eof => return Err(ScriptError::Parse {
-                        line: self.current_line(),
-                        msg: "unexpected end of input: missing 'end' for 'else'".to_string(),
-                    }),
-                    Token::End => {
-                        self.advance();
-                        if self.peek_token() == &Token::Semicolon { self.advance(); }
-                        if self.peek_token() == &Token::Newline   { self.advance(); }
-                        break;
-                    }
-                    Token::Newline   => { self.advance(); }
-                    Token::Function  => { body.push(self.parse_function_def()?); }
-                    Token::Return    => { self.advance(); let _ = self.consume_stmt_end()?; body.push(Stmt::Return); }
-                    Token::If        => { body.push(self.parse_if_stmt()?); }
-                    Token::For       => { body.push(self.parse_for_stmt()?); }
-                    Token::While     => { body.push(self.parse_while_stmt()?); }
-                    Token::LBracket if self.is_multi_assign() => { body.push(self.parse_multi_assign()?); }
-                    Token::Ident(_)  => {
-                        let s = if self.is_field_assignment()  { self.parse_field_assignment()? }
-                                else if self.is_index_assignment() { self.parse_index_assign()? }
-                                else if self.is_assignment()   { self.parse_assignment()? }
-                                else                           { self.parse_expr_stmt()? };
-                        body.push(s);
-                    }
-                    _ => { body.push(self.parse_expr_stmt()?); }
-                }
-            }
+        let else_body = if matches!(terminator, BlockEnd::Else) {
+            let (body, _) = self.parse_block_body("else")?;
             body
         } else {
             vec![]
         };
 
-        Ok(Stmt::If { cond, then_body, else_body })
+        Ok(Stmt::If { cond, then_body, elseif_arms, else_body })
+    }
+
+    /// Parse statements until `end`, `else`, or `elseif`.
+    /// Consumes the terminating keyword. Returns (body, what_terminated_it).
+    fn parse_block_body(&mut self, context: &str) -> Result<(Vec<Stmt>, BlockEnd), ScriptError> {
+        let mut body = Vec::new();
+        loop {
+            match self.peek_token() {
+                Token::Eof => {
+                    return Err(ScriptError::Parse {
+                        line: self.current_line(),
+                        msg: format!("unexpected end of input: missing 'end' for '{}'", context),
+                    });
+                }
+                Token::End => {
+                    self.advance();
+                    if self.peek_token() == &Token::Semicolon { self.advance(); }
+                    if self.peek_token() == &Token::Newline   { self.advance(); }
+                    return Ok((body, BlockEnd::End));
+                }
+                Token::Else => {
+                    self.advance();
+                    if self.peek_token() == &Token::Semicolon { self.advance(); }
+                    if self.peek_token() == &Token::Newline   { self.advance(); }
+                    return Ok((body, BlockEnd::Else));
+                }
+                Token::ElseIf => {
+                    self.advance(); // consume 'elseif'
+                    return Ok((body, BlockEnd::ElseIf));
+                }
+                _ => {
+                    body.push(self.parse_one_body_stmt()?);
+                }
+            }
+        }
+    }
+
+    /// Parse a single statement inside a block body (if/else/elseif/for/while/switch).
+    fn parse_one_body_stmt(&mut self) -> Result<Stmt, ScriptError> {
+        match self.peek_token() {
+            Token::Newline   => { self.advance(); self.parse_one_body_stmt() }
+            Token::Function  => self.parse_function_def(),
+            Token::Return    => { self.advance(); let _ = self.consume_stmt_end()?; Ok(Stmt::Return) }
+            Token::If        => self.parse_if_stmt(),
+            Token::For       => self.parse_for_stmt(),
+            Token::While     => self.parse_while_stmt(),
+            Token::Switch    => self.parse_switch_stmt(),
+            Token::Run       => self.parse_run_stmt(),
+            Token::LBracket if self.is_multi_assign() => self.parse_multi_assign(),
+            Token::Ident(_)  => {
+                if self.is_field_assignment()       { self.parse_field_assignment() }
+                else if self.is_index_assignment()  { self.parse_index_assign() }
+                else if self.is_assignment()        { self.parse_assignment() }
+                else                                { self.parse_expr_stmt() }
+            }
+            _ => self.parse_expr_stmt(),
+        }
+    }
+
+    fn parse_switch_stmt(&mut self) -> Result<Stmt, ScriptError> {
+        self.advance(); // consume 'switch'
+        let expr = self.parse_range_expr()?;
+        let _ = self.consume_stmt_end()?;
+
+        let mut cases: Vec<(Expr, Vec<Stmt>)> = Vec::new();
+        let mut otherwise: Vec<Stmt> = Vec::new();
+
+        // Skip leading newlines
+        while self.peek_token() == &Token::Newline { self.advance(); }
+
+        loop {
+            match self.peek_token() {
+                Token::Case => {
+                    self.advance(); // consume 'case'
+                    let case_val = self.parse_range_expr()?;
+                    let _ = self.consume_stmt_end()?;
+                    let mut body = Vec::new();
+                    loop {
+                        match self.peek_token() {
+                            Token::Case | Token::Otherwise | Token::End | Token::Eof => break,
+                            Token::Newline => { self.advance(); }
+                            _ => { body.push(self.parse_one_body_stmt()?); }
+                        }
+                    }
+                    cases.push((case_val, body));
+                }
+                Token::Otherwise => {
+                    self.advance(); // consume 'otherwise'
+                    if self.peek_token() == &Token::Newline { self.advance(); }
+                    loop {
+                        match self.peek_token() {
+                            Token::End | Token::Eof => break,
+                            Token::Newline => { self.advance(); }
+                            _ => { otherwise.push(self.parse_one_body_stmt()?); }
+                        }
+                    }
+                }
+                Token::End => {
+                    self.advance();
+                    if self.peek_token() == &Token::Semicolon { self.advance(); }
+                    if self.peek_token() == &Token::Newline   { self.advance(); }
+                    break;
+                }
+                Token::Eof => {
+                    return Err(ScriptError::Parse {
+                        line: self.current_line(),
+                        msg: "unexpected end of input: missing 'end' for 'switch'".to_string(),
+                    });
+                }
+                Token::Newline => { self.advance(); }
+                other => {
+                    return Err(ScriptError::Parse {
+                        line: self.current_line(),
+                        msg: format!("expected 'case', 'otherwise', or 'end' in switch, got {:?}", other),
+                    });
+                }
+            }
+        }
+
+        Ok(Stmt::Switch { expr, cases, otherwise })
+    }
+
+    fn parse_run_stmt(&mut self) -> Result<Stmt, ScriptError> {
+        self.advance(); // consume 'run'
+        // Collect the rest of the line as a file path (unquoted, like MATLAB)
+        let mut path_chars = Vec::new();
+        loop {
+            match self.peek_token() {
+                Token::Newline | Token::Eof | Token::Semicolon => break,
+                _ => {
+                    // Reconstruct path from tokens
+                    let tok = self.advance().clone();
+                    match &tok {
+                        Token::Ident(s) => path_chars.push(s.clone()),
+                        Token::Dot      => path_chars.push(".".to_string()),
+                        Token::Slash    => path_chars.push("/".to_string()),
+                        Token::Minus    => path_chars.push("-".to_string()),
+                        Token::Number(n) => path_chars.push(format!("{}", n)),
+                        Token::Str(s)   => path_chars.push(s.clone()),
+                        other => path_chars.push(format!("{:?}", other)),
+                    }
+                }
+            }
+        }
+        let _ = self.consume_stmt_end()?;
+        let path = path_chars.join("").trim().to_string();
+        if path.is_empty() {
+            return Err(ScriptError::Parse {
+                line: self.current_line(),
+                msg: "run: expected a file path".to_string(),
+            });
+        }
+        Ok(Stmt::Run { path })
     }
 
     /// `[IDENT, IDENT, ...] =` (not `==`) at statement level
@@ -509,6 +608,12 @@ impl Parser {
         match self.peek_token() {
             Token::Newline => { self.advance(); Ok(suppress) }
             Token::Eof     => Ok(suppress),
+            // Comma acts as a statement separator (e.g. single-line if: `if cond, body; end`)
+            Token::Comma   => { self.advance(); Ok(suppress) }
+            // Allow implicit end when the next token is a keyword that terminates a block
+            Token::End | Token::Else | Token::ElseIf | Token::Case | Token::Otherwise => Ok(suppress),
+            // Semicolon already consumed → next token starts a new statement on same line
+            _ if suppress => Ok(suppress),
             other => Err(ScriptError::Parse {
                 line: self.current_line(),
                 msg: format!("expected newline or EOF, got {:?}", other),

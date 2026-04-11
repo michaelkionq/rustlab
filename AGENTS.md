@@ -387,11 +387,19 @@ stmt        = IDENT "=" range_expr [";"] "\n"              # assignment
             | "function" [IDENT "="] IDENT "(" params ")"  # function definition
                 stmt* "end"
             | "return" [";"] "\n"                          # early return (inside function)
+            | "if" range_expr [","|"\n"]                    # conditional
+                stmt* ["elseif" range_expr stmt*]*
+                ["else" stmt*] "end"
             | "for" IDENT "=" range_expr "\n"              # for loop
                 stmt* "end"
             | "while" range_expr "\n"                      # while loop
                 stmt* "end"
+            | "switch" range_expr                         # switch/case
+                ("case" range_expr stmt*)*
+                ["otherwise" stmt*] "end"
+            | "run" FILEPATH [";"] "\n"                    # execute .r script
             | "#" ... "\n"                                  # comment
+            | "..." ... "\n"                                # line continuation
 
 range_expr  = expr (":" expr (":" expr)?)?     # a:b or a:step:b → Vector
 
@@ -423,8 +431,13 @@ primary     = NUMBER | STRING | IDENT
 | 1-based index | `v(3)`, `v(2:5)`, `v(end)` | `end` = `len(v)`; slice returns Vector |
 | Indexed assign | `v(i) = val`, `M(r,c) = val` | Vectors auto-created/grown; matrices must exist |
 | Chained index | `f(a,b)(i)` | Index return value of any call without a temp variable |
+| If / elseif | `if cond ... elseif cond2 ... else ... end` | Chained conditionals; single-line: `if cond, body; end` |
+| Switch / case | `switch expr case v1 ... otherwise ... end` | Match value against cases; first match wins |
 | For loop | `for i = 1:n ... end` | Iterates over range or vector; loop var stays in scope |
 | While loop | `while cond ... end` | Repeats body while cond is truthy; cond may be Bool, Scalar (nonzero), or Complex |
+| Run (include) | `run file.r` | Execute a .r script; merges variables and functions into current scope |
+| Line continuation | `x = a + ...` (newline) `  b` | `...` skips rest of line; statement continues on next line |
+| Single-quote strings | `'hello'` | Alternative string delimiters; context-dependent (transpose after `)`, `]`, ident, number) |
 | Lambda | `f = @(x) x^2` | Creates anonymous function; captures env by snapshot at creation |
 | Function handle | `@sin`, `@myFn` | Reference to builtin or user-defined function |
 | Higher-order | `arrayfun(@sin, v)` | Maps callable over vector; scalar outputs → Vector, vector outputs → Matrix |
@@ -506,6 +519,9 @@ primary     = NUMBER | STRING | IDENT
 | `spsolve` | `spsolve(A, b)` | Solve A×x = b where A is sparse (converts to dense internally) |
 | `spdiags` | `spdiags(V, D, m, n)` | Build sparse matrix from diagonals; D=0 main, >0 super, <0 sub |
 | `sprand` | `sprand(m, n, density)` | Random sparse matrix with ~density×m×n non-zeros, values in [0,1) |
+| `error` | `error(msg)` | Halt script execution with a runtime error message |
+| `min` | `min(v)` / `min(a, b)` | Minimum of vector or two scalars |
+| `max` | `max(v)` / `max(a, b)` | Maximum of vector or two scalars |
 
 Window names: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`
 

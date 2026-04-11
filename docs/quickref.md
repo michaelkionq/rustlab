@@ -29,10 +29,14 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `'` | Conjugate transpose |
 | `.'` | Non-conjugate transpose |
 | `;` | Suppress output on a statement |
-| `#` | Comment |
+| `#` / `%` | Comment |
+| `...` | Line continuation — rest of line ignored, statement continues on next line |
+| `run file.r` | Execute a script file; merges variables and functions into current scope |
+| `error('msg')` | Halt execution with an error message |
 | `for i = 1:n` … `end` | For loop; also iterates over a vector |
 | `while cond` … `end` | While loop; condition is Bool, Scalar (nonzero), or Complex |
-| `if expr` … `elseif expr` … `else` … `end` | Conditional; `elseif` and `else` are optional; nesting supported |
+| `if expr` … `elseif expr` … `else` … `end` | Conditional; `elseif` and `else` are optional; single-line: `if cond, body; end` |
+| `switch expr` … `case val` … `otherwise` … `end` | Match value against cases; first match wins; `otherwise` is default |
 | `function [out] = name(args)` … `end` | User-defined function |
 | `return` | Early return from a function |
 | `@(x, y) expr` | Anonymous function (lambda); captures current env by snapshot |
@@ -108,7 +112,7 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `sum(v)` | Sum all elements |
 | `prod(v)` | Product of all elements |
 | `cumsum(v)` | Cumulative sum |
-| `min(v)`, `max(v)` | Min / max value |
+| `min(v)`, `max(v)`, `min(a,b)`, `max(a,b)` | Min / max of vector or two scalars |
 | `argmin(v)`, `argmax(v)` | 1-based index of min / max |
 | `mean(v)` | Arithmetic mean |
 | `median(v)` | Median (real parts; average of two middles for even length) |

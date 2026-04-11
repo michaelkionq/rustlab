@@ -169,17 +169,48 @@ impl Evaluator {
             Stmt::Return => {
                 return Err(ScriptError::EarlyReturn);
             }
-            Stmt::If { cond, then_body, else_body } => {
+            Stmt::If { cond, then_body, elseif_arms, else_body } => {
                 let cv = self.eval_expr(cond)?;
-                let branch = match cv {
-                    Value::Bool(b) => b,
-                    Value::Scalar(n) => n != 0.0,
-                    other => return Err(ScriptError::Runtime(format!(
-                        "if condition must be a bool or scalar, got {}", other.type_name()
-                    ))),
-                };
-                let body = if branch { then_body } else { else_body };
-                for s in body {
+                let branch = Self::is_truthy(&cv, "if")?;
+                if branch {
+                    for s in then_body { self.exec_stmt(s)?; }
+                } else {
+                    let mut handled = false;
+                    for (ei_cond, ei_body) in elseif_arms {
+                        let ei_cv = self.eval_expr(ei_cond)?;
+                        if Self::is_truthy(&ei_cv, "elseif")? {
+                            for s in ei_body { self.exec_stmt(s)?; }
+                            handled = true;
+                            break;
+                        }
+                    }
+                    if !handled {
+                        for s in else_body { self.exec_stmt(s)?; }
+                    }
+                }
+            }
+            Stmt::Switch { expr, cases, otherwise } => {
+                let switch_val = self.eval_expr(expr)?;
+                let mut matched = false;
+                for (case_expr, case_body) in cases {
+                    let case_val = self.eval_expr(case_expr)?;
+                    if Self::values_equal(&switch_val, &case_val) {
+                        for s in case_body { self.exec_stmt(s)?; }
+                        matched = true;
+                        break;
+                    }
+                }
+                if !matched {
+                    for s in otherwise { self.exec_stmt(s)?; }
+                }
+            }
+            Stmt::Run { path } => {
+                let source = std::fs::read_to_string(path).map_err(|e| {
+                    ScriptError::Runtime(format!("run: {}: {}", path, e))
+                })?;
+                let tokens = crate::lexer::tokenize(&source)?;
+                let stmts = crate::parser::parse(tokens)?;
+                for s in &stmts {
                     self.exec_stmt(s)?;
                 }
             }
@@ -228,15 +259,7 @@ impl Evaluator {
             Stmt::While { cond, body } => {
                 loop {
                     let cv = self.eval_expr(cond)?;
-                    let truthy = match &cv {
-                        Value::Bool(b)   => *b,
-                        Value::Scalar(n) => *n != 0.0,
-                        Value::Complex(c) => c.re != 0.0 || c.im != 0.0,
-                        other => return Err(ScriptError::Runtime(format!(
-                            "while condition must be a bool or scalar, got {}", other.type_name()
-                        ))),
-                    };
-                    if !truthy { break; }
+                    if !Self::is_truthy(&cv, "while")? { break; }
                     for s in body {
                         self.exec_stmt(s)?;
                     }
@@ -456,6 +479,29 @@ impl Evaluator {
             }
         }
         Ok(())
+    }
+
+    fn is_truthy(val: &Value, context: &str) -> Result<bool, ScriptError> {
+        match val {
+            Value::Bool(b)    => Ok(*b),
+            Value::Scalar(n)  => Ok(*n != 0.0),
+            Value::Complex(c) => Ok(c.re != 0.0 || c.im != 0.0),
+            other => Err(ScriptError::Runtime(format!(
+                "{} condition must be a bool or scalar, got {}", context, other.type_name()
+            ))),
+        }
+    }
+
+    fn values_equal(a: &Value, b: &Value) -> bool {
+        match (a, b) {
+            (Value::Scalar(x), Value::Scalar(y)) => x == y,
+            (Value::Bool(x), Value::Bool(y)) => x == y,
+            (Value::Complex(x), Value::Complex(y)) => x == y,
+            (Value::Scalar(x), Value::Complex(y)) => *x == y.re && y.im == 0.0,
+            (Value::Complex(x), Value::Scalar(y)) => x.re == *y && x.im == 0.0,
+            (Value::Str(x), Value::Str(y)) => x == y,
+            _ => false,
+        }
     }
 
     fn eval_expr(&mut self, expr: &Expr) -> Result<Value, ScriptError> {

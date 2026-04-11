@@ -46,6 +46,11 @@ pub enum Token {
     Else,       // else
     For,        // for
     While,      // while
+    ElseIf,     // elseif
+    Switch,     // switch
+    Case,       // case
+    Otherwise,  // otherwise
+    Run,        // run
     Dot,        // . (field access)
     // Structure
     Newline,
@@ -77,6 +82,19 @@ pub fn tokenize(source: &str) -> Result<Vec<Spanned>, ScriptError> {
                     pos += 1;
                 }
             }
+            // Line continuation: ... skips rest of line and the newline
+            '.' if pos + 2 < chars.len() && chars[pos + 1] == '.' && chars[pos + 2] == '.' => {
+                pos += 3;
+                // Skip rest of line (treated as comment)
+                while pos < chars.len() && chars[pos] != '\n' {
+                    pos += 1;
+                }
+                // Consume the newline but don't emit a Newline token
+                if pos < chars.len() && chars[pos] == '\n' {
+                    line += 1;
+                    pos += 1;
+                }
+            }
             '\n' => {
                 // Collapse consecutive newlines
                 if tokens.last().map(|t| &t.token) != Some(&Token::Newline) {
@@ -91,7 +109,42 @@ pub fn tokenize(source: &str) -> Result<Vec<Spanned>, ScriptError> {
             '/' => { tokens.push(Spanned { token: Token::Slash,     line }); pos += 1; }
             '^' => { tokens.push(Spanned { token: Token::Caret,     line }); pos += 1; }
             ':' => { tokens.push(Spanned { token: Token::Colon,     line }); pos += 1; }
-            '\'' => { tokens.push(Spanned { token: Token::Apostrophe, line }); pos += 1; }
+            '\'' => {
+                // Context-dependent: transpose after ), ], Ident, Number;
+                // otherwise start a single-quoted string literal.
+                let is_transpose = matches!(
+                    tokens.last().map(|t| &t.token),
+                    Some(Token::RParen) | Some(Token::RBracket) |
+                    Some(Token::Ident(_)) | Some(Token::Number(_)) |
+                    Some(Token::Apostrophe) | Some(Token::DotApostrophe)
+                );
+                if is_transpose {
+                    tokens.push(Spanned { token: Token::Apostrophe, line });
+                    pos += 1;
+                } else {
+                    // Single-quoted string literal
+                    pos += 1; // skip opening '
+                    let start = pos;
+                    while pos < chars.len() && chars[pos] != '\'' {
+                        if chars[pos] == '\n' {
+                            return Err(ScriptError::Lex {
+                                line,
+                                msg: "unterminated string literal".to_string(),
+                            });
+                        }
+                        pos += 1;
+                    }
+                    if pos >= chars.len() {
+                        return Err(ScriptError::Lex {
+                            line,
+                            msg: "unterminated string literal".to_string(),
+                        });
+                    }
+                    let s: String = chars[start..pos].iter().collect();
+                    tokens.push(Spanned { token: Token::Str(s), line });
+                    pos += 1; // consume closing '
+                }
+            }
             '=' if pos + 1 < chars.len() && chars[pos + 1] == '=' => {
                 tokens.push(Spanned { token: Token::EqEq,    line }); pos += 2;
             }
@@ -195,10 +248,15 @@ pub fn tokenize(source: &str) -> Result<Vec<Spanned>, ScriptError> {
                     "function" => Token::Function,
                     "end"      => Token::End,
                     "return"   => Token::Return,
-                    "if"       => Token::If,
+                    "if"        => Token::If,
+                    "elseif"   => Token::ElseIf,
                     "else"     => Token::Else,
                     "for"      => Token::For,
                     "while"    => Token::While,
+                    "switch"   => Token::Switch,
+                    "case"     => Token::Case,
+                    "otherwise"=> Token::Otherwise,
+                    "run"      => Token::Run,
                     _          => Token::Ident(ident),
                 };
                 tokens.push(Spanned { token: tok, line });

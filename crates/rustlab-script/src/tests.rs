@@ -161,9 +161,14 @@ mod lexer_tests {
 
     #[test]
     fn colon_and_apostrophe() {
-        let t = tokens(": '\n");
-        assert!(matches!(t[0], Token::Colon));
+        // After an identifier/number, ' is transpose
+        let t = tokens("x'\n");
+        assert!(matches!(t[0], Token::Ident(_)));
         assert!(matches!(t[1], Token::Apostrophe));
+        // Colon followed by ' starts a string literal
+        let t2 = tokens(": 'hello'\n");
+        assert!(matches!(t2[0], Token::Colon));
+        assert!(matches!(&t2[1], Token::Str(s) if s == "hello"));
     }
 
     #[test]
@@ -5347,5 +5352,195 @@ mod sparse_tests {
     fn sprand_full_density() {
         let ev = eval_str("S = sprand(3, 3, 1.0)\nk = nnz(S)");
         assert_eq!(get_scalar(&ev, "k"), 9.0);
+    }
+}
+
+// ── Tax-script language features ────────────────────────────────────────────
+
+#[cfg(test)]
+mod tax_feature_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+
+    fn eval_str(src: &str) -> Evaluator {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts { ev.exec_stmt(stmt).unwrap(); }
+        ev
+    }
+
+    fn get_scalar(ev: &Evaluator, name: &str) -> f64 {
+        match ev.get(name).unwrap() {
+            Value::Scalar(n) => *n,
+            other => panic!("Expected scalar for '{name}', got {other:?}"),
+        }
+    }
+
+    fn eval_err(src: &str) -> String {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        let mut err = String::new();
+        for stmt in &stmts {
+            if let Err(e) = ev.exec_stmt(stmt) {
+                err = format!("{}", e);
+                break;
+            }
+        }
+        err
+    }
+
+    // ── Line continuation (...) ─────────────────────────────────────────────
+
+    #[test]
+    fn line_continuation() {
+        let ev = eval_str("x = 1 + ...\n  2 + ...\n  3");
+        assert_eq!(get_scalar(&ev, "x"), 6.0);
+    }
+
+    #[test]
+    fn line_continuation_with_comment() {
+        let ev = eval_str("x = 10 + ... this is ignored\n  5");
+        assert_eq!(get_scalar(&ev, "x"), 15.0);
+    }
+
+    // ── Two-arg min / max ───────────────────────────────────────────────────
+
+    #[test]
+    fn min_two_args() {
+        let ev = eval_str("x = min(3, 7)");
+        assert_eq!(get_scalar(&ev, "x"), 3.0);
+    }
+
+    #[test]
+    fn max_two_args() {
+        let ev = eval_str("x = max(0, -5)");
+        assert_eq!(get_scalar(&ev, "x"), 0.0);
+    }
+
+    #[test]
+    fn min_one_arg_vector() {
+        let ev = eval_str("x = min([4, 1, 9])");
+        assert_eq!(get_scalar(&ev, "x"), 1.0);
+    }
+
+    // ── error() ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn error_halts_with_message_double_quote() {
+        let msg = eval_err("error(\"something went wrong\")");
+        assert!(msg.contains("something went wrong"), "got: {msg}");
+    }
+
+    #[test]
+    fn error_halts_with_single_quote() {
+        let msg = eval_err("error('something went wrong')");
+        assert!(msg.contains("something went wrong"), "got: {msg}");
+    }
+
+    // ── Single-line if with comma ───────────────────────────────────────────
+
+    #[test]
+    fn single_line_if_comma() {
+        let ev = eval_str("x = 10\nif x > 5, x = 99; end");
+        assert_eq!(get_scalar(&ev, "x"), 99.0);
+    }
+
+    #[test]
+    fn single_line_if_false() {
+        let ev = eval_str("x = 3\nif x > 5, x = 99; end");
+        assert_eq!(get_scalar(&ev, "x"), 3.0);
+    }
+
+    #[test]
+    fn single_line_if_multiple_stmts() {
+        let ev = eval_str("a = 10; b = 20\nif a > 5, a = a + 1; b = b + 1; end");
+        assert_eq!(get_scalar(&ev, "a"), 11.0);
+        assert_eq!(get_scalar(&ev, "b"), 21.0);
+    }
+
+    // ── switch / case / otherwise ───────────────────────────────────────────
+
+    #[test]
+    fn switch_case_match() {
+        let ev = eval_str("q = 2\nswitch q\n  case 1\n    x = 10\n  case 2\n    x = 20\n  case 3\n    x = 30\nend");
+        assert_eq!(get_scalar(&ev, "x"), 20.0);
+    }
+
+    #[test]
+    fn switch_otherwise() {
+        let ev = eval_str("q = 99\nswitch q\n  case 1\n    x = 10\n  otherwise\n    x = -1\nend");
+        assert_eq!(get_scalar(&ev, "x"), -1.0);
+    }
+
+    #[test]
+    fn switch_no_match_no_otherwise() {
+        // No match and no otherwise — variable should not be set
+        let src = "q = 5\nswitch q\n  case 1\n    x = 10\n  case 2\n    x = 20\nend";
+        let ev = eval_str(src);
+        assert!(ev.get("x").is_none());
+    }
+
+    #[test]
+    fn switch_single_line_case() {
+        let ev = eval_str("q = 1\nswitch q\n  case 1\n    m = 4.0; p = 0.25;\n  case 2\n    m = 2.4; p = 0.50;\nend");
+        assert_eq!(get_scalar(&ev, "m"), 4.0);
+        assert_eq!(get_scalar(&ev, "p"), 0.25);
+    }
+
+    // ── elseif ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn elseif_first_branch() {
+        let ev = eval_str("x = 1\nif x == 1\n  r = 10\nelseif x == 2\n  r = 20\nelse\n  r = 30\nend");
+        assert_eq!(get_scalar(&ev, "r"), 10.0);
+    }
+
+    #[test]
+    fn elseif_middle_branch() {
+        let ev = eval_str("x = 2\nif x == 1\n  r = 10\nelseif x == 2\n  r = 20\nelse\n  r = 30\nend");
+        assert_eq!(get_scalar(&ev, "r"), 20.0);
+    }
+
+    #[test]
+    fn elseif_else_branch() {
+        let ev = eval_str("x = 9\nif x == 1\n  r = 10\nelseif x == 2\n  r = 20\nelse\n  r = 30\nend");
+        assert_eq!(get_scalar(&ev, "r"), 30.0);
+    }
+
+    #[test]
+    fn elseif_multiple_arms() {
+        let ev = eval_str("x = 3\nif x == 1\n  r = 10\nelseif x == 2\n  r = 20\nelseif x == 3\n  r = 30\nelseif x == 4\n  r = 40\nend");
+        assert_eq!(get_scalar(&ev, "r"), 30.0);
+    }
+
+    #[test]
+    fn elseif_no_else() {
+        let ev = eval_str("x = 99\nif x == 1\n  r = 10\nelseif x == 2\n  r = 20\nend");
+        assert!(ev.get("r").is_none());
+    }
+
+    // ── Tax bracket helper (integration) ────────────────────────────────────
+
+    #[test]
+    fn tax_bracket_single_line_if_chain() {
+        // Simplified version of calculate_mfj_tax using single-line if with comma
+        let src = r#"
+income = 100000
+tax = 0
+b1 = 23850; b2 = 96950
+r1 = 0.10; r2 = 0.12; r3 = 0.22
+if income > b2, tax = tax + (income - b2) * r3; income = b2; end
+if income > b1, tax = tax + (income - b1) * r2; income = b1; end
+if income > 0, tax = tax + income * r1; end
+"#;
+        let ev = eval_str(src);
+        let tax = get_scalar(&ev, "tax");
+        // 0.22*(100000-96950) + 0.12*(96950-23850) + 0.10*23850
+        let expected = 0.22 * 3050.0 + 0.12 * 73100.0 + 0.10 * 23850.0;
+        assert!((tax - expected).abs() < 0.01, "tax={tax}, expected={expected}");
     }
 }
