@@ -275,6 +275,8 @@ const HELP: &[HelpEntry] = &[
         detail: "clear  — deletes every user-defined variable and function; built-in constants (j, pi, e) are kept\n  Works in both REPL and scripts. No parentheses needed." },
     HelpEntry { name: "clf", brief: "Clear current figure",
         detail: "clf  — reset the figure state (clear all subplot series, titles, labels)\n  Works in both REPL and scripts. No parentheses needed." },
+    HelpEntry { name: "compound_assign", brief: "Compound assignment operators (+=, -=, *=, /=)",
+        detail: "x += expr   — equivalent to x = x + expr\nx -= expr   — equivalent to x = x - expr\nx *= expr   — equivalent to x = x * expr\nx /= expr   — equivalent to x = x / expr\n\n  s = 0\n  for i = 1:10\n    s += i\n  end" },
     // Structs
     HelpEntry { name: "struct", brief: "Create a struct from field-value pairs",
         detail: "struct(\"x\", 1, \"y\", 2)  — creates a struct with fields x=1, y=2\n  Access: s.x\n  Assign: s.z = 3  (auto-creates struct if s is undefined)" },
@@ -694,7 +696,7 @@ fn print_help_list() {
         ("Control Flow",     &["if","elseif","switch","for","function","error","index_assign","chained_index"]),
         ("Output",           &["disp","fprintf","print"]),
         ("I/O",              &["print","save","load","whos"]),
-        ("Language / REPL",  &["i / j","pi","e","Inf","NaN","range","index","index_assign","chained_index","clear","whos",
+        ("Language / REPL",  &["i / j","pi","e","Inf","NaN","range","index","index_assign","chained_index","compound_assign","clear","whos",
                                "arrayfun","feval","profile","profile_report"]),
         ("Filesystem",       &["run","ls","cd","pwd"]),
     ];

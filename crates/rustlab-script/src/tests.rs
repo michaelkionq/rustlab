@@ -5572,4 +5572,42 @@ if income > 0, tax = tax + income * r1; end
         // The original use case: `clear; clf;` on one line
         let _ev = eval_str("x = 1\nclear; clf;");
     }
+
+    // ── Compound assignment (+=, -=, *=, /=) ────────────────────────────────
+
+    #[test]
+    fn plus_eq() {
+        let ev = eval_str("x = 10\nx += 5");
+        assert_eq!(get_scalar(&ev, "x"), 15.0);
+    }
+
+    #[test]
+    fn minus_eq() {
+        let ev = eval_str("x = 10\nx -= 3");
+        assert_eq!(get_scalar(&ev, "x"), 7.0);
+    }
+
+    #[test]
+    fn star_eq() {
+        let ev = eval_str("x = 4\nx *= 3");
+        assert_eq!(get_scalar(&ev, "x"), 12.0);
+    }
+
+    #[test]
+    fn slash_eq() {
+        let ev = eval_str("x = 20\nx /= 4");
+        assert_eq!(get_scalar(&ev, "x"), 5.0);
+    }
+
+    #[test]
+    fn compound_assign_in_loop() {
+        let ev = eval_str("s = 0\nfor i = 1:5\n  s += i\nend");
+        assert_eq!(get_scalar(&ev, "s"), 15.0);
+    }
+
+    #[test]
+    fn compound_assign_with_suppress() {
+        let ev = eval_str("x = 10; x += 5;");
+        assert_eq!(get_scalar(&ev, "x"), 15.0);
+    }
 }

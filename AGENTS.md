@@ -380,7 +380,7 @@ Scripts use the `.r` extension. Run with `rustlab run script.r` or enter stateme
 
 ```
 program     = stmt*
-stmt        = IDENT "=" range_expr [";"] "\n"              # assignment
+stmt        = IDENT ("=" | "+=" | "-=" | "*=" | "/=") range_expr [";"] "\n"  # assignment
             | IDENT "(" arglist ")" "=" range_expr [";"] "\n"  # indexed assignment
             | IDENT "." IDENT "=" range_expr [";"] "\n"    # struct field assignment
             | range_expr [";"] "\n"                         # expression
@@ -426,6 +426,7 @@ primary     = NUMBER | STRING | IDENT
 |---|---|---|
 | Imaginary unit | `j` | Predefined constant `Complex(0,1)` |
 | Complex number | `1.5 + j*2.0` | Standard arithmetic |
+| Compound assign | `x += 1`, `-=`, `*=`, `/=` | Desugared to `x = x op expr` in parser |
 | Suppress output | `x = expr;` | Trailing `;` on any statement |
 | Range | `1:10`, `0:0.5:2`, `10:-1:1` | Creates a real `Vector` |
 | 1-based index | `v(3)`, `v(2:5)`, `v(end)` | `end` = `len(v)`; slice returns Vector |

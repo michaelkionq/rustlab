@@ -1662,6 +1662,16 @@ col = row'
 x = 1.0   # inline comment
 ```
 
+### Compound assignment: `+=`, `-=`, `*=`, `/=`
+Shorthand for updating a variable in place.
+```
+x = 10
+x += 5    # x is now 15
+x -= 3    # x is now 12
+x *= 2    # x is now 24
+x /= 4   # x is now 6
+```
+
 ### Suppress output: `;`
 ```
 h = fir_lowpass(64, 1000.0, 44100.0, "hann");   # no output printed

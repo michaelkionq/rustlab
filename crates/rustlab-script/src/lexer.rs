@@ -30,6 +30,11 @@ pub enum Token {
     PipePipe, // ||
     Bang,     // !
     At,        // @
+    // Compound assignment
+    PlusEq,   // +=
+    MinusEq,  // -=
+    StarEq,   // *=
+    SlashEq,  // /=
     // Delimiters
     Eq,       // =
     LParen,
@@ -103,9 +108,21 @@ pub fn tokenize(source: &str) -> Result<Vec<Spanned>, ScriptError> {
                 line += 1;
                 pos += 1;
             }
+            '+' if pos + 1 < chars.len() && chars[pos + 1] == '=' => {
+                tokens.push(Spanned { token: Token::PlusEq,    line }); pos += 2;
+            }
             '+' => { tokens.push(Spanned { token: Token::Plus,       line }); pos += 1; }
+            '-' if pos + 1 < chars.len() && chars[pos + 1] == '=' => {
+                tokens.push(Spanned { token: Token::MinusEq,   line }); pos += 2;
+            }
             '-' => { tokens.push(Spanned { token: Token::Minus,     line }); pos += 1; }
+            '*' if pos + 1 < chars.len() && chars[pos + 1] == '=' => {
+                tokens.push(Spanned { token: Token::StarEq,    line }); pos += 2;
+            }
             '*' => { tokens.push(Spanned { token: Token::Star,      line }); pos += 1; }
+            '/' if pos + 1 < chars.len() && chars[pos + 1] == '=' => {
+                tokens.push(Spanned { token: Token::SlashEq,   line }); pos += 2;
+            }
             '/' => { tokens.push(Spanned { token: Token::Slash,     line }); pos += 1; }
             '^' => { tokens.push(Spanned { token: Token::Caret,     line }); pos += 1; }
             ':' => { tokens.push(Spanned { token: Token::Colon,     line }); pos += 1; }

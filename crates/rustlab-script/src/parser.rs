@@ -218,12 +218,18 @@ impl Parser {
         Ok(Stmt::For { var, iter, body })
     }
 
-    /// Peek ahead to decide if we have `IDENT = expr` (not `IDENT == ...`)
+    /// Peek ahead to decide if we have `IDENT = expr` or `IDENT += expr` etc.
     fn is_assignment(&self) -> bool {
         if self.pos + 1 < self.tokens.len() {
-            // Token::Eq is `=`; Token::EqEq is `==` — only the former is assignment
-            matches!(self.tokens[self.pos + 1].token, Token::Eq)
-                && !matches!(self.tokens.get(self.pos + 2).map(|s| &s.token), Some(Token::Eq))
+            // Plain assignment: `=` but not `==`
+            let is_plain = matches!(self.tokens[self.pos + 1].token, Token::Eq)
+                && !matches!(self.tokens.get(self.pos + 2).map(|s| &s.token), Some(Token::Eq));
+            // Compound assignment: +=, -=, *=, /=
+            let is_compound = matches!(
+                self.tokens[self.pos + 1].token,
+                Token::PlusEq | Token::MinusEq | Token::StarEq | Token::SlashEq
+            );
+            is_plain || is_compound
         } else {
             false
         }
@@ -554,9 +560,23 @@ impl Parser {
             Token::Ident(s) => s.clone(),
             _ => unreachable!(),
         };
-        // consume '='
-        self.advance();
-        let expr = self.parse_range_expr()?;
+        // Check for compound assignment (+=, -=, *=, /=) or plain =
+        let compound_op = match self.peek_token() {
+            Token::PlusEq  => { self.advance(); Some(BinOp::Add) }
+            Token::MinusEq => { self.advance(); Some(BinOp::Sub) }
+            Token::StarEq  => { self.advance(); Some(BinOp::Mul) }
+            Token::SlashEq => { self.advance(); Some(BinOp::Div) }
+            _ => { self.advance(); None } // plain '='
+        };
+        let rhs = self.parse_range_expr()?;
+        let expr = match compound_op {
+            Some(op) => Expr::BinOp {
+                op,
+                lhs: Box::new(Expr::Var(name.clone())),
+                rhs: Box::new(rhs),
+            },
+            None => rhs,
+        };
         let suppress = self.consume_stmt_end()?;
         Ok(Stmt::Assign { name, expr, suppress })
     }

@@ -28,6 +28,7 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `*` | Matrix multiply |
 | `'` | Conjugate transpose |
 | `.'` | Non-conjugate transpose |
+| `+=`, `-=`, `*=`, `/=` | Compound assignment: `x += 1` is equivalent to `x = x + 1` |
 | `;` | Suppress output on a statement |
 | `#` / `%` | Comment |
 | `...` | Line continuation — rest of line ignored, statement continues on next line |
