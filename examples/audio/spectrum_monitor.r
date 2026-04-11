@@ -2,6 +2,7 @@
 #
 # Displays a live single-panel ratatui plot of the Hann-windowed FFT
 # magnitude spectrum in dB (DC to Nyquist), updated roughly once per second.
+# Y-axis limits expand to fit the data and stabilize over time.
 #
 # Run with sox (macOS):
 #   sox -d -t raw -r 44100 -e float -b 32 -c 1 - \
@@ -32,6 +33,10 @@ fig = figure_live(1, 1);
 buf   = zeros(fft_size);
 count = 0;
 
+# Running axis limits — expand to fit data, rounded to 10 dB steps
+db_lo =  0.0;
+db_hi = -200.0;
+
 while true
     samples = audio_read(adc);
 
@@ -47,6 +52,18 @@ while true
         if mod(count, update_every) == 0
             X  = fft(buf .* win);
             Xd = mag2db(X(1:half));
+
+            # Expand running limits to fit this frame
+            cur_min = min(Xd);
+            cur_max = max(Xd);
+            if cur_min < db_lo
+                db_lo = floor(cur_min / 10) * 10;
+            end
+            if cur_max > db_hi
+                db_hi = ceil(cur_max / 10) * 10;
+            end
+            plot_limits(fig, 1, [0, sr / 2], [db_lo, db_hi]);
+
             plot_update(fig, 1, f_hz, Xd);
             figure_draw(fig);
         end

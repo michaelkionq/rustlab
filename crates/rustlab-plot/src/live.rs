@@ -80,6 +80,14 @@ impl LiveFigure {
         p.ylabel = ylabel.to_string();
     }
 
+    /// Set fixed axis limits for a panel (0-based idx).  Pass `None` for auto.
+    pub fn set_panel_limits(&mut self, idx: usize, xlim: (Option<f64>, Option<f64>), ylim: (Option<f64>, Option<f64>)) {
+        if idx >= self.panels.len() { return; }
+        let p = &mut self.panels[idx];
+        p.xlim = xlim;
+        p.ylim = ylim;
+    }
+
     /// Render all panels to the terminal.  Returns immediately after the draw
     /// call — no keypress wait.
     ///

@@ -240,11 +240,12 @@ impl BuiltinRegistry {
         r.register("audio_write", builtin_audio_write);
 
         // Live plotting
-        r.register("figure_live",  builtin_figure_live);
-        r.register("plot_update",  builtin_plot_update);
-        r.register("figure_draw",  builtin_figure_draw);
-        r.register("figure_close", builtin_figure_close);
-        r.register("mag2db",       builtin_mag2db);
+        r.register("figure_live",   builtin_figure_live);
+        r.register("plot_update",   builtin_plot_update);
+        r.register("plot_limits",   builtin_plot_limits);
+        r.register("figure_draw",   builtin_figure_draw);
+        r.register("figure_close",  builtin_figure_close);
+        r.register("mag2db",        builtin_mag2db);
 
         r
     }
@@ -5121,6 +5122,27 @@ fn builtin_plot_update(args: Vec<Value>) -> Result<Value, ScriptError> {
         .as_mut()
         .ok_or_else(|| ScriptError::Runtime("plot_update: figure is closed".to_string()))?
         .update_panel(panel, x, y);
+    Ok(Value::None)
+}
+
+/// `plot_limits(fig, panel, xlim, ylim)` — set fixed axis limits on a live panel.
+/// Pass `[lo, hi]` vectors.  Use `[-200, 0]` for typical dB range.
+fn builtin_plot_limits(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("plot_limits", &args, 4)?;
+    let Value::LiveFigure(fig) = &args[0] else {
+        return Err(ScriptError::Runtime(format!(
+            "plot_limits: expected live_figure, got {}", args[0].type_name()
+        )));
+    };
+    let panel = args[1].to_usize().map_err(ScriptError::Runtime)?.saturating_sub(1);
+    let xlim_v = args[2].to_cvector().map_err(ScriptError::Runtime)?;
+    let ylim_v = args[3].to_cvector().map_err(ScriptError::Runtime)?;
+    let xlim = if xlim_v.len() >= 2 { (Some(xlim_v[0].re), Some(xlim_v[1].re)) } else { (None, None) };
+    let ylim = if ylim_v.len() >= 2 { (Some(ylim_v[0].re), Some(ylim_v[1].re)) } else { (None, None) };
+    fig.lock().unwrap()
+        .as_mut()
+        .ok_or_else(|| ScriptError::Runtime("plot_limits: figure is closed".to_string()))?
+        .set_panel_limits(panel, xlim, ylim);
     Ok(Value::None)
 }
 
