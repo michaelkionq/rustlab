@@ -35,7 +35,9 @@ impl LiveFigure {
             enable_raw_mode()?;
         }
         let backend = CrosstermBackend::new(stdout());
-        let terminal = Terminal::new(backend)
+        let mut terminal = Terminal::new(backend)
+            .map_err(|e| PlotError::Terminal(e.to_string()))?;
+        terminal.clear()
             .map_err(|e| PlotError::Terminal(e.to_string()))?;
         let panels = (0..rows * cols).map(|_| SubplotState::new()).collect();
         Ok(Self { terminal, panels, rows, cols, raw_mode })

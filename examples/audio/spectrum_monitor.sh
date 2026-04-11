@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Real-time audio spectrum monitor.
 #
-# Captures the default microphone and displays a live two-panel terminal plot:
-#   Panel 1 (top):    time-domain waveform
-#   Panel 2 (bottom): FFT magnitude spectrum in dB (DC to Nyquist)
+# Captures the default microphone and displays a live terminal plot of the
+# Hann-windowed FFT magnitude spectrum in dB (DC to Nyquist).
 #
 # Prerequisites:
 #   macOS:  brew install sox
@@ -34,10 +33,10 @@ for i in range(n):
     sys.stdout.buffer.write(struct.pack('f', s))
 " | rustlab run "$SCRIPT"
 elif [[ "$(uname)" == "Darwin" ]]; then
-    sox -d -t raw -r "$SR" -e float -b 32 -c 1 - \
+    sox -d -t raw -r "$SR" -e float -b 32 -c 1 - 2>/dev/null \
       | rustlab run "$SCRIPT"
 else
     ALSA_IN="${ALSA_IN:-default}"
-    arecord -D "$ALSA_IN" -f FLOAT_LE -r "$SR" -c 1 -t raw \
+    arecord -D "$ALSA_IN" -f FLOAT_LE -r "$SR" -c 1 -t raw 2>/dev/null \
       | rustlab run "$SCRIPT"
 fi
