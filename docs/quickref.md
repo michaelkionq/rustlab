@@ -244,6 +244,30 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 
 ---
 
+## Sparse Vectors & Matrices
+
+| Function | Description |
+|---|---|
+| `sparse(I, J, V, m, n)` | Build m×n sparse matrix from 1-based index/value vectors |
+| `sparse(A)` | Convert dense matrix/vector to sparse (drops near-zeros) |
+| `sparsevec(I, V, n)` | Build sparse vector of length n from 1-based indices |
+| `speye(n)` | n×n sparse identity matrix |
+| `spzeros(m, n)` | m×n all-zero sparse matrix |
+| `full(S)` | Convert sparse to dense (identity for dense inputs) |
+| `nnz(S)` | Number of stored non-zero entries |
+| `issparse(x)` | 1 if sparse, 0 otherwise |
+| `nonzeros(S)` | Vector of non-zero values in storage order |
+| `find(S)` | `[I,J,V]` for sparse matrix, `[I,V]` for sparse vector (1-based) |
+| `S(i,j)` | Index read (returns 0 for absent entries) |
+| `S(i,j) = val` | Index write (setting to 0 removes the entry) |
+| `transpose(S)` | Non-conjugate transpose (stays sparse) |
+| `S'` | Conjugate transpose (stays sparse) |
+
+Native O(nnz) operations: `S+S`, `S-S`, `S*scalar`, `S/scalar`, `S*M` (SpMM), `S*v'` (SpMV via SpMM), `dot(sv,sv)`, `dot(sv,v)`, `transpose(S)`, `S'`.
+Mixed sparse+dense pairs auto-promote to dense.
+
+---
+
 ## Output & I/O
 
 | Function | Description |

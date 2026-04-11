@@ -267,6 +267,8 @@ impl Evaluator {
                 let container_len = match self.env.get(name.as_str()) {
                     Some(Value::Vector(v)) => v.len(),
                     Some(Value::Matrix(m)) if indices.len() == 1 => m.nrows() * m.ncols(),
+                    Some(Value::SparseVector(sv)) => sv.len,
+                    Some(Value::SparseMatrix(sm)) if indices.len() == 1 => sm.rows * sm.cols,
                     _ => 0,
                 };
                 self.env.insert("end".to_string(), Value::Scalar(container_len as f64));
@@ -282,10 +284,35 @@ impl Evaluator {
                             "index assignment: index must be >= 1".to_string()
                         ));
                     }
+                    // Single-index sparse vector assignment: sv(k) = val
+                    let is_sparse_vec_assign = matches!(self.env.get(name.as_str()), Some(Value::SparseVector(_)));
+                    if is_sparse_vec_assign {
+                        let assign_val = match &val {
+                            Value::Scalar(n)  => Complex::new(*n, 0.0),
+                            Value::Complex(c) => *c,
+                            other => return Err(ScriptError::Runtime(format!(
+                                "index assignment: right-hand side must be scalar or complex, got {}",
+                                other.type_name()
+                            ))),
+                        };
+                        match self.env.get_mut(name.as_str()) {
+                            Some(Value::SparseVector(sv)) => {
+                                if idx > sv.len {
+                                    return Err(ScriptError::Runtime(format!(
+                                        "index assignment: index {} out of bounds (length {})", idx, sv.len
+                                    )));
+                                }
+                                sv.set(idx - 1, assign_val);
+                                if !suppress && !self.in_function {
+                                    println!("{}({}) = {}", name, idx, Value::Complex(assign_val));
+                                }
+                            }
+                            _ => unreachable!(),
+                        }
+                    } else
                     // Single-index matrix row assignment: M(i) = row_vector
-                    let is_matrix_row_assign = matches!(self.env.get(name.as_str()), Some(Value::Matrix(_)))
-                        && matches!(&val, Value::Vector(_));
-                    if is_matrix_row_assign {
+                    if matches!(self.env.get(name.as_str()), Some(Value::Matrix(_)))
+                        && matches!(&val, Value::Vector(_)) {
                         let row_data = match &val { Value::Vector(v) => v.clone(), _ => unreachable!() };
                         match self.env.get_mut(name.as_str()) {
                             Some(Value::Matrix(m)) => {
@@ -371,6 +398,18 @@ impl Evaluator {
                                 )));
                             }
                             m[[row - 1, col - 1]] = assign_val;
+                            if !suppress && !self.in_function {
+                                println!("{}({},{}) = {}", name, row, col, Value::Complex(assign_val));
+                            }
+                        }
+                        Some(Value::SparseMatrix(sm)) => {
+                            if row > sm.rows || col > sm.cols {
+                                return Err(ScriptError::Runtime(format!(
+                                    "index assignment: ({},{}) out of bounds for {}×{} sparse matrix",
+                                    row, col, sm.rows, sm.cols
+                                )));
+                            }
+                            sm.set(row - 1, col - 1, assign_val);
                             if !suppress && !self.in_function {
                                 println!("{}({},{}) = {}", name, row, col, Value::Complex(assign_val));
                             }
@@ -482,14 +521,19 @@ impl Evaluator {
                 }
 
                 // If the name refers to a vector/matrix in the environment, this is indexing.
-                if matches!(self.env.get(name.as_str()), Some(Value::Vector(_)) | Some(Value::Matrix(_))) {
+                if matches!(self.env.get(name.as_str()), Some(Value::Vector(_)) | Some(Value::Matrix(_)) | Some(Value::SparseVector(_)) | Some(Value::SparseMatrix(_))) {
                     let container = self.env[name.as_str()].clone();
 
                     // For 2-argument matrix indexing, bind `end` context-sensitively per dimension.
                     let idx_vals: Vec<Value> = if args.len() == 2 {
-                        if let Value::Matrix(m) = &container {
-                            let nrows = m.nrows();
-                            let ncols = m.ncols();
+                        let (nrows, ncols) = match &container {
+                            Value::Matrix(m) => (m.nrows(), m.ncols()),
+                            Value::SparseMatrix(sm) => (sm.rows, sm.cols),
+                            Value::Vector(v) => (1, v.len()),
+                            Value::SparseVector(sv) => (1, sv.len),
+                            _ => unreachable!(),
+                        };
+                        if nrows > 1 || matches!(&container, Value::SparseMatrix(_) | Value::Matrix(_)) {
                             self.env.insert("end".to_string(), Value::Scalar(nrows as f64));
                             let row_val = self.eval_expr(&args[0])?;
                             self.env.insert("end".to_string(), Value::Scalar(ncols as f64));
@@ -497,11 +541,7 @@ impl Evaluator {
                             self.env.remove("end");
                             vec![row_val, col_val]
                         } else {
-                            let len = match &container {
-                                Value::Vector(v) => v.len(),
-                                _ => unreachable!(),
-                            };
-                            self.env.insert("end".to_string(), Value::Scalar(len as f64));
+                            self.env.insert("end".to_string(), Value::Scalar(ncols as f64));
                             let vals: Vec<Value> = args.iter()
                                 .map(|a| self.eval_expr(a))
                                 .collect::<Result<_, _>>()?;
@@ -512,6 +552,8 @@ impl Evaluator {
                         let len = match &container {
                             Value::Vector(v) => v.len(),
                             Value::Matrix(m) => m.nrows(),
+                            Value::SparseVector(sv) => sv.len,
+                            Value::SparseMatrix(sm) => sm.rows,
                             _ => unreachable!(),
                         };
                         self.env.insert("end".to_string(), Value::Scalar(len as f64));

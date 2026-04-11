@@ -4763,3 +4763,426 @@ mod optional_arg_tests {
     #[test]
     fn size_one_arg()    { try_run("size([1, 2, 3]);").unwrap(); }
 }
+
+// ── Sparse Phase 1 & 2 ─────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod sparse_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+
+    fn eval_str(src: &str) -> Evaluator {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts { ev.exec_stmt(stmt).unwrap(); }
+        ev
+    }
+
+    fn get_scalar(ev: &Evaluator, name: &str) -> f64 {
+        match ev.get(name).unwrap() {
+            Value::Scalar(n) => *n,
+            other => panic!("expected scalar for '{name}', got {other:?}"),
+        }
+    }
+
+    // ── Phase 1: Construction & Inspection ──────────────────────────────────
+
+    #[test]
+    fn sparsevec_basic() {
+        let ev = eval_str("sv = sparsevec([1, 5, 9], [1.0, -2.0, 3.0], 10)\nk = nnz(sv)");
+        assert_eq!(get_scalar(&ev, "k"), 3.0);
+    }
+
+    #[test]
+    fn sparse_matrix_basic() {
+        let ev = eval_str("S = sparse([1,2,3], [1,2,3], [10.0,20.0,30.0], 3, 3)\nk = nnz(S)");
+        assert_eq!(get_scalar(&ev, "k"), 3.0);
+    }
+
+    #[test]
+    fn sparse_duplicate_indices_summed() {
+        let ev = eval_str("S = sparse([1,1], [1,1], [5.0, 7.0], 2, 2)\nk = nnz(S)");
+        assert_eq!(get_scalar(&ev, "k"), 1.0);
+        let ev2 = eval_str("S = sparse([1,1], [1,1], [5.0, 7.0], 2, 2)\nv = S(1,1)");
+        assert_eq!(get_scalar(&ev2, "v"), 12.0);
+    }
+
+    #[test]
+    fn speye_basic() {
+        let ev = eval_str("I4 = speye(4)\nk = nnz(I4)");
+        assert_eq!(get_scalar(&ev, "k"), 4.0);
+    }
+
+    #[test]
+    fn speye_diagonal_values() {
+        let ev = eval_str("I3 = speye(3)\na = I3(1,1)\nb = I3(2,2)\nc = I3(3,3)\nd = I3(1,2)");
+        assert_eq!(get_scalar(&ev, "a"), 1.0);
+        assert_eq!(get_scalar(&ev, "b"), 1.0);
+        assert_eq!(get_scalar(&ev, "c"), 1.0);
+        assert_eq!(get_scalar(&ev, "d"), 0.0);
+    }
+
+    #[test]
+    fn spzeros_basic() {
+        let ev = eval_str("Z = spzeros(3, 4)\nk = nnz(Z)");
+        assert_eq!(get_scalar(&ev, "k"), 0.0);
+    }
+
+    #[test]
+    fn issparse_true() {
+        let ev = eval_str("a = issparse(speye(3))\nb = issparse(sparsevec([1],[1.0],3))");
+        assert_eq!(get_scalar(&ev, "a"), 1.0);
+        assert_eq!(get_scalar(&ev, "b"), 1.0);
+    }
+
+    #[test]
+    fn issparse_false() {
+        let ev = eval_str("a = issparse([1,2,3])\nb = issparse(5.0)");
+        assert_eq!(get_scalar(&ev, "a"), 0.0);
+        assert_eq!(get_scalar(&ev, "b"), 0.0);
+    }
+
+    #[test]
+    fn size_sparse() {
+        let ev = eval_str("S = sparse([1],[1],[1.0], 3, 5)\ns = size(S)");
+        match ev.get("s").unwrap() {
+            Value::Vector(v) => {
+                assert_eq!(v[0].re, 3.0);
+                assert_eq!(v[1].re, 5.0);
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn display_sparse_no_panic() {
+        let ev = eval_str("S = speye(3)");
+        let s = ev.get("S").unwrap();
+        let _ = format!("{}", s);
+    }
+
+    #[test]
+    fn display_empty_sparse_no_panic() {
+        let ev = eval_str("Z = spzeros(2, 2)");
+        let z = ev.get("Z").unwrap();
+        let _ = format!("{}", z);
+    }
+
+    // ── Phase 2: Conversion ─────────────────────────────────────────────────
+
+    #[test]
+    fn full_sparse_vec() {
+        let ev = eval_str("sv = sparsevec([1,3], [1.0, 2.0], 4)\nd = full(sv)");
+        match ev.get("d").unwrap() {
+            Value::Vector(v) => {
+                assert_eq!(v.len(), 4);
+                assert_eq!(v[0].re, 1.0);
+                assert_eq!(v[1].re, 0.0);
+                assert_eq!(v[2].re, 2.0);
+                assert_eq!(v[3].re, 0.0);
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn full_sparse_matrix() {
+        let ev = eval_str("S = speye(3)\nD = full(S)");
+        match ev.get("D").unwrap() {
+            Value::Matrix(m) => {
+                assert_eq!(m.nrows(), 3);
+                assert_eq!(m.ncols(), 3);
+                assert_eq!(m[[0,0]].re, 1.0);
+                assert_eq!(m[[1,1]].re, 1.0);
+                assert_eq!(m[[0,1]].re, 0.0);
+            }
+            other => panic!("expected matrix, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sparse_from_dense_roundtrip() {
+        let ev = eval_str("D = eye(3)\nS = sparse(D)\nk = nnz(S)\nis = issparse(S)");
+        assert_eq!(get_scalar(&ev, "k"), 3.0);
+        assert_eq!(get_scalar(&ev, "is"), 1.0);
+    }
+
+    #[test]
+    fn sparse_vec_from_dense() {
+        let ev = eval_str("v = [1, 0, 0, 2]\nsv = sparse(v)\nk = nnz(sv)\nis = issparse(sv)");
+        assert_eq!(get_scalar(&ev, "k"), 2.0);
+        assert_eq!(get_scalar(&ev, "is"), 1.0);
+    }
+
+    #[test]
+    fn full_identity_for_dense() {
+        let ev = eval_str("v = [1,2,3]\nd = full(v)\nn = len(d)");
+        assert_eq!(get_scalar(&ev, "n"), 3.0);
+    }
+
+    #[test]
+    fn find_sparse_matrix() {
+        let ev = eval_str("[I, J, V] = find(speye(3))");
+        match ev.get("I").unwrap() {
+            Value::Vector(v) => {
+                assert_eq!(v.len(), 3);
+                assert_eq!(v[0].re, 1.0);
+                assert_eq!(v[1].re, 2.0);
+                assert_eq!(v[2].re, 3.0);
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn find_sparse_vec() {
+        let ev = eval_str("sv = sparsevec([2, 5], [10.0, 20.0], 6)\n[I, V] = find(sv)");
+        match ev.get("I").unwrap() {
+            Value::Vector(v) => {
+                assert_eq!(v.len(), 2);
+                assert_eq!(v[0].re, 2.0);
+                assert_eq!(v[1].re, 5.0);
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn nonzeros_sparse() {
+        let ev = eval_str("S = sparse([1,2], [1,2], [10.0, 20.0], 3, 3)\nv = nonzeros(S)");
+        match ev.get("v").unwrap() {
+            Value::Vector(v) => {
+                assert_eq!(v.len(), 2);
+                assert_eq!(v[0].re, 10.0);
+                assert_eq!(v[1].re, 20.0);
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    // ── Phase 2: Index read/write ───────────────────────────────────────────
+
+    #[test]
+    fn sparse_vec_index_read() {
+        let ev = eval_str("sv = sparsevec([1,3], [10.0, 30.0], 5)\na = sv(1)\nb = sv(2)\nc = sv(3)");
+        assert_eq!(get_scalar(&ev, "a"), 10.0);
+        assert_eq!(get_scalar(&ev, "b"), 0.0);
+        assert_eq!(get_scalar(&ev, "c"), 30.0);
+    }
+
+    #[test]
+    fn sparse_matrix_index_read() {
+        let ev = eval_str("S = speye(3)\na = S(1,1)\nb = S(1,2)");
+        assert_eq!(get_scalar(&ev, "a"), 1.0);
+        assert_eq!(get_scalar(&ev, "b"), 0.0);
+    }
+
+    #[test]
+    fn sparse_matrix_index_write() {
+        let ev = eval_str("S = speye(3)\nS(2,2) = 99\nv = S(2,2)");
+        assert_eq!(get_scalar(&ev, "v"), 99.0);
+    }
+
+    #[test]
+    fn sparse_matrix_index_write_zero_removes() {
+        let ev = eval_str("S = speye(3)\nS(1,1) = 0\nk = nnz(S)");
+        assert_eq!(get_scalar(&ev, "k"), 2.0);
+    }
+
+    #[test]
+    fn sparse_vec_index_write() {
+        let ev = eval_str("sv = sparsevec([1], [5.0], 3)\nsv(2) = 10\na = sv(2)\nk = nnz(sv)");
+        assert_eq!(get_scalar(&ev, "a"), 10.0);
+        assert_eq!(get_scalar(&ev, "k"), 2.0);
+    }
+
+    // ── Phase 2: Auto-promotion arithmetic ──────────────────────────────────
+
+    #[test]
+    fn sparse_plus_dense_produces_dense() {
+        let ev = eval_str("S = speye(3)\nD = eye(3)\nR = S + D\nis = issparse(R)");
+        assert_eq!(get_scalar(&ev, "is"), 0.0);
+    }
+
+    #[test]
+    fn sparse_times_scalar() {
+        let ev = eval_str("S = speye(3)\nR = full(S * 5)\na = R(1,1)\nb = R(2,2)");
+        assert_eq!(get_scalar(&ev, "a"), 5.0);
+        assert_eq!(get_scalar(&ev, "b"), 5.0);
+    }
+
+    #[test]
+    fn speye_times_vector() {
+        let ev = eval_str("I3 = speye(3)\nx = [1,2,3]\ny = I3 * x'");
+        match ev.get("y").unwrap() {
+            Value::Vector(v) => {
+                assert_eq!(v.len(), 3);
+                assert_eq!(v[0].re, 1.0);
+                assert_eq!(v[1].re, 2.0);
+                assert_eq!(v[2].re, 3.0);
+            }
+            Value::Matrix(m) => {
+                assert_eq!(m.nrows(), 3);
+                assert_eq!(m[[0,0]].re, 1.0);
+                assert_eq!(m[[1,0]].re, 2.0);
+                assert_eq!(m[[2,0]].re, 3.0);
+            }
+            other => panic!("expected vector or matrix, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn transpose_sparse() {
+        let ev = eval_str("S = sparse([1], [2], [5.0], 2, 3)\nT = transpose(S)\ns = size(T)");
+        match ev.get("s").unwrap() {
+            Value::Vector(v) => {
+                assert_eq!(v[0].re, 3.0);
+                assert_eq!(v[1].re, 2.0);
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+        let ev2 = eval_str("S = sparse([1], [2], [5.0], 2, 3)\nT = transpose(S)\nv = T(2,1)");
+        assert_eq!(get_scalar(&ev2, "v"), 5.0);
+    }
+
+    #[test]
+    fn negate_sparse() {
+        let ev = eval_str("S = sparse([1], [1], [5.0], 2, 2)\nN = -S\nv = N(1,1)");
+        assert_eq!(get_scalar(&ev, "v"), -5.0);
+    }
+
+    // ── Phase 3: Native Sparse Arithmetic ───────────────────────────────────
+
+    #[test]
+    fn speye_times_scalar_stays_sparse() {
+        let ev = eval_str("S = speye(3) * 5\nis = issparse(S)\nk = nnz(S)\nv = S(2,2)");
+        assert_eq!(get_scalar(&ev, "is"), 1.0);
+        assert_eq!(get_scalar(&ev, "k"), 3.0);
+        assert_eq!(get_scalar(&ev, "v"), 5.0);
+    }
+
+    #[test]
+    fn scalar_times_speye_stays_sparse() {
+        let ev = eval_str("S = 3 * speye(4)\nis = issparse(S)\nv = S(1,1)");
+        assert_eq!(get_scalar(&ev, "is"), 1.0);
+        assert_eq!(get_scalar(&ev, "v"), 3.0);
+    }
+
+    #[test]
+    fn sparse_div_scalar() {
+        let ev = eval_str("S = speye(2) * 10\nR = S / 5\nis = issparse(R)\nv = R(1,1)");
+        assert_eq!(get_scalar(&ev, "is"), 1.0);
+        assert_eq!(get_scalar(&ev, "v"), 2.0);
+    }
+
+    #[test]
+    fn speye_plus_speye_stays_sparse() {
+        let ev = eval_str("S = speye(3) + speye(3)\nis = issparse(S)\nk = nnz(S)\nv = S(1,1)");
+        assert_eq!(get_scalar(&ev, "is"), 1.0);
+        assert_eq!(get_scalar(&ev, "k"), 3.0);
+        assert_eq!(get_scalar(&ev, "v"), 2.0);
+    }
+
+    #[test]
+    fn sparse_sub_sparse() {
+        let ev = eval_str("A = speye(3) * 5\nB = speye(3) * 2\nC = A - B\nis = issparse(C)\nv = C(2,2)");
+        assert_eq!(get_scalar(&ev, "is"), 1.0);
+        assert_eq!(get_scalar(&ev, "v"), 3.0);
+    }
+
+    #[test]
+    fn spmv_identity() {
+        // speye(4) * column vector [1,2,3,4]' should give [1,2,3,4]
+        let ev = eval_str("I4 = speye(4)\nx = [1,2,3,4]\ny = I4 * x'");
+        match ev.get("y").unwrap() {
+            Value::Matrix(m) => {
+                assert_eq!(m.nrows(), 4);
+                assert_eq!(m[[0,0]].re, 1.0);
+                assert_eq!(m[[1,0]].re, 2.0);
+                assert_eq!(m[[2,0]].re, 3.0);
+                assert_eq!(m[[3,0]].re, 4.0);
+            }
+            other => panic!("expected matrix, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn spmm_identity() {
+        // speye(2) * dense 2×2 matrix = same matrix
+        let ev = eval_str("I2 = speye(2)\nM = [1,2; 3,4]\nR = I2 * M\na = R(1,1)\nb = R(1,2)\nc = R(2,1)\nd = R(2,2)");
+        assert_eq!(get_scalar(&ev, "a"), 1.0);
+        assert_eq!(get_scalar(&ev, "b"), 2.0);
+        assert_eq!(get_scalar(&ev, "c"), 3.0);
+        assert_eq!(get_scalar(&ev, "d"), 4.0);
+    }
+
+    #[test]
+    fn spmv_non_identity() {
+        // S = [2,0; 0,3], x = [4;5] → [8;15]
+        let ev = eval_str("S = sparse([1,2], [1,2], [2.0, 3.0], 2, 2)\nx = [4,5]\ny = S * x'");
+        match ev.get("y").unwrap() {
+            Value::Matrix(m) => {
+                assert_eq!(m[[0,0]].re, 8.0);
+                assert_eq!(m[[1,0]].re, 15.0);
+            }
+            other => panic!("expected matrix, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sparse_transpose_dims() {
+        let ev = eval_str("S = sparse([1], [2], [5.0], 2, 3)\nT = S'\ns = size(T)\nis = issparse(T)");
+        assert_eq!(get_scalar(&ev, "is"), 1.0);
+        match ev.get("s").unwrap() {
+            Value::Vector(v) => {
+                assert_eq!(v[0].re, 3.0);
+                assert_eq!(v[1].re, 2.0);
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dot_sparse_sparse() {
+        let ev = eval_str("a = sparsevec([1,3], [2.0, 3.0], 4)\nb = sparsevec([1,3], [4.0, 5.0], 4)\nd = dot(a, b)");
+        // 2*4 + 3*5 = 8 + 15 = 23
+        assert_eq!(get_scalar(&ev, "d"), 23.0);
+    }
+
+    #[test]
+    fn dot_sparse_dense() {
+        let ev = eval_str("a = sparsevec([1,3], [2.0, 3.0], 3)\nb = [4, 5, 6]\nd = dot(a, b)");
+        // 2*4 + 0*5 + 3*6 = 8 + 18 = 26
+        assert_eq!(get_scalar(&ev, "d"), 26.0);
+    }
+
+    #[test]
+    fn dot_dense_sparse() {
+        let ev = eval_str("a = [1, 2, 3]\nb = sparsevec([2], [10.0], 3)\nd = dot(a, b)");
+        // 1*0 + 2*10 + 3*0 = 20
+        assert_eq!(get_scalar(&ev, "d"), 20.0);
+    }
+
+    #[test]
+    fn sparse_vec_add_stays_sparse() {
+        let ev = eval_str("a = sparsevec([1], [3.0], 4)\nb = sparsevec([3], [7.0], 4)\nc = a + b\nis = issparse(c)\nk = nnz(c)");
+        assert_eq!(get_scalar(&ev, "is"), 1.0);
+        assert_eq!(get_scalar(&ev, "k"), 2.0);
+    }
+
+    #[test]
+    fn sparse_vec_scale_stays_sparse() {
+        let ev = eval_str("a = sparsevec([1,2], [3.0, 4.0], 5)\nb = a * 10\nis = issparse(b)\nv = b(1)");
+        assert_eq!(get_scalar(&ev, "is"), 1.0);
+        assert_eq!(get_scalar(&ev, "v"), 30.0);
+    }
+
+    #[test]
+    fn sparse_cancel_to_zero_nnz() {
+        // Adding a sparse matrix to its negation should give nnz=0
+        let ev = eval_str("S = speye(3)\nZ = S + (-S)\nk = nnz(Z)");
+        assert_eq!(get_scalar(&ev, "k"), 0.0);
+    }
+}

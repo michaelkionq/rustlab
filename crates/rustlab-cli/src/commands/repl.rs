@@ -117,7 +117,7 @@ const HELP: &[HelpEntry] = &[
         detail: "vertcat(A, B, ...)  — stacks matrices vertically (same column count required)" },
     // Linear algebra
     HelpEntry { name: "dot",      brief: "Inner (dot) product of two vectors",
-        detail: "dot(u, v)  — sum of element-wise products; conjugates u for complex vectors" },
+        detail: "dot(u, v)  — sum of element-wise products; conjugates u for complex vectors\n  Accepts dense, sparse, or mixed dense/sparse vector operands.\n  sparse·sparse uses O(nnz) merge; sparse·dense uses O(nnz) gather." },
     HelpEntry { name: "cross",    brief: "3-element cross product",
         detail: "cross(u, v)  — both vectors must have exactly 3 elements" },
     HelpEntry { name: "outer",    brief: "Outer (tensor) product of two vectors → N×M matrix",
@@ -408,6 +408,27 @@ const HELP: &[HelpEntry] = &[
         detail: "figure_close(fig)  — drop live figure, restore normal terminal\n\nAlso fires automatically on script end or Ctrl-C via Drop.\n\nExample:\n  figure_close(fig)" },
     HelpEntry { name: "mag2db", brief: "Convert magnitude to dB: 20·log10(|X|)",
         detail: "mag2db(X)  — element-wise, floored at −200 dB (1e-10 floor)\n  X — scalar, complex, vector, or matrix\n\nExamples:\n  mag2db(1.0)         % 0 dB\n  mag2db(0.0)         % -200 dB\n  mag2db(fft(frame))  % spectrum in dB" },
+    // Sparse
+    HelpEntry { name: "sparse", brief: "Build sparse matrix or convert dense→sparse",
+        detail: "sparse(I, J, V, m, n)  — build m×n sparse matrix from 1-based row/col/value vectors\nsparse(A)              — convert dense matrix/vector to sparse (drops near-zeros)\n\nDuplicate (i,j) entries are summed.\n\nExamples:\n  S = sparse([1,2,3], [1,2,3], [10,20,30], 3, 3)\n  S2 = sparse(eye(3))" },
+    HelpEntry { name: "sparsevec", brief: "Build sparse vector from indices and values",
+        detail: "sparsevec(I, V, n)  — build sparse vector of length n\n  I — 1-based index vector\n  V — value vector (same length as I)\n  n — total length\n\nExample:\n  sv = sparsevec([1, 5, 9], [1.0, -2.0, 3.0], 10)" },
+    HelpEntry { name: "speye", brief: "Sparse identity matrix",
+        detail: "speye(n)  — n×n sparse identity matrix (nnz = n)\n\nExample:\n  I5 = speye(5)" },
+    HelpEntry { name: "spzeros", brief: "All-zero sparse matrix",
+        detail: "spzeros(m, n)  — m×n sparse matrix with no stored entries\n\nExample:\n  Z = spzeros(100, 100)" },
+    HelpEntry { name: "nnz", brief: "Number of non-zero entries",
+        detail: "nnz(S)  — number of stored non-zero entries\n  For dense inputs, returns numel.\n\nExample:\n  nnz(speye(5))  → 5" },
+    HelpEntry { name: "issparse", brief: "Test if value is sparse",
+        detail: "issparse(x)  — returns 1 if x is a sparse vector or matrix, 0 otherwise\n\nExample:\n  issparse(speye(3))  → 1\n  issparse(eye(3))    → 0" },
+    HelpEntry { name: "full", brief: "Convert sparse to dense",
+        detail: "full(S)  — convert sparse vector/matrix to dense\n  Dense inputs pass through unchanged.\n\nExample:\n  D = full(speye(3))  → 3×3 identity matrix" },
+    HelpEntry { name: "nonzeros", brief: "Extract non-zero values from sparse",
+        detail: "nonzeros(S)  — return a vector of the stored non-zero values (in storage order)\n\nExample:\n  nonzeros(speye(3))  → [1, 1, 1]" },
+    HelpEntry { name: "find", brief: "Find non-zero indices and values in sparse",
+        detail: "find(S)  — return [I, J, V] for sparse matrix (1-based) or [I, V] for sparse vector\n\nExamples:\n  [I, J, V] = find(speye(3))\n  [I, V] = find(sparsevec([1,3], [10,20], 5))" },
+    HelpEntry { name: "plot_limits", brief: "Set axis limits for a live figure panel",
+        detail: "plot_limits(fig, panel, xmin, xmax, ymin, ymax)  — fix axes for one panel\n\nExample:\n  plot_limits(fig, 1, 0, 1000, -100, 0)" },
 ];
 
 fn whos_type(v: &rustlab_script::Value) -> &'static str {
@@ -432,6 +453,8 @@ fn whos_type(v: &rustlab_script::Value) -> &'static str {
         Value::AudioIn  { .. } => "audio_in",
         Value::AudioOut { .. } => "audio_out",
         Value::LiveFigure(_)  => "live_figure",
+        Value::SparseVector(_) => "sparse_vector",
+        Value::SparseMatrix(_) => "sparse_matrix",
     }
 }
 
@@ -444,6 +467,8 @@ fn whos_size(v: &rustlab_script::Value) -> String {
         Value::Struct(f)      => format!("1×1 ({} fields)", f.len()),
         Value::Tuple(v)       => format!("1×{}", v.len()),
         Value::StateSpace { a, .. } => format!("{}×{}", a.nrows(), a.ncols()),
+        Value::SparseVector(sv) => format!("1×{}, nnz={}", sv.len, sv.nnz()),
+        Value::SparseMatrix(sm) => format!("{}×{}, nnz={}", sm.rows, sm.cols, sm.nnz()),
         Value::All            => "—".to_string(),
         _                     => "1×1".to_string(),
     }
@@ -504,6 +529,8 @@ fn whos_preview(v: &rustlab_script::Value) -> String {
             if fig.lock().unwrap().is_some() { "<live_figure>".to_string() }
             else                             { "<live_figure closed>".to_string() }
         }
+        Value::SparseVector(sv) => format!("sparse [1×{}, nnz={}]", sv.len, sv.nnz()),
+        Value::SparseMatrix(sm) => format!("sparse [{}×{}, nnz={}]", sm.rows, sm.cols, sm.nnz()),
     }
 }
 
@@ -630,6 +657,7 @@ fn print_help_list() {
         ("Controls",         &["tf","pole","zero","ss","ctrb","obsv",
                                "bode","step","margin","lqr","rlocus",
                                "rk4","lyap","gram","care","dare","place","freqresp"]),
+        ("Sparse",           &["sparse","sparsevec","speye","spzeros","full","nnz","issparse","nonzeros","find"]),
         ("Structs",          &["struct","isstruct","fieldnames","isfield","rmfield"]),
         ("Control Flow",     &["if","for","function","index_assign","chained_index"]),
         ("Output",           &["disp","fprintf","print"]),

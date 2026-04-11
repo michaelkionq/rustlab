@@ -1,6 +1,6 @@
 # Development Plan: Sparse Vectors and Matrices
 
-**Status:** Not started
+**Status:** Phase 1, 2, & 3 complete
 **Target example:** `examples/sparse.r`
 
 ---
@@ -63,7 +63,7 @@ arithmetic.
 ---
 
 ## Phase 1 — Core Types and Construction
-**Status: not started**
+**Status: complete**
 
 ### Goal
 Introduce `SparseVec` and `SparseMat` structs, add them as `Value` variants,
@@ -141,7 +141,7 @@ and implement the construction builtins `sparsevec` and `sparse`.
 ---
 
 ## Phase 2 — Conversion Between Sparse and Dense
-**Status: not started**
+**Status: complete**
 
 ### Goal
 Allow the user to convert freely between sparse and dense representations.
@@ -196,7 +196,7 @@ sparse inputs by converting first.
 ---
 
 ## Phase 3 — Native Sparse Arithmetic
-**Status: not started**
+**Status: complete**
 
 ### Goal
 Implement sparse-specific arithmetic that avoids materialising the full dense

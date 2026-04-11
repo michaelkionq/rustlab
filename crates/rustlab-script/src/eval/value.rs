@@ -3,7 +3,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 use ndarray::{Array1, Array2};
 use num_complex::Complex;
-use rustlab_core::{C64, CMatrix, CVector};
+use rustlab_core::{C64, CMatrix, CVector, SparseVec, SparseMat};
 use rustlab_dsp::fixed::QFmtSpec;
 use crate::ast::{BinOp, Expr};
 
@@ -51,6 +51,10 @@ pub enum Value {
     /// figure_close drop the inner LiveFigure (firing Drop → terminal restore)
     /// without invalidating other clones of the Arc.
     LiveFigure(Arc<Mutex<Option<rustlab_plot::LiveFigure>>>),
+    /// Sparse vector (COO format).
+    SparseVector(SparseVec),
+    /// Sparse matrix (COO format).
+    SparseMatrix(SparseMat),
 }
 
 impl Value {
@@ -64,6 +68,14 @@ impl Value {
                 num: num.iter().map(|&x| -x).collect(),
                 den,
             }),
+            Value::SparseVector(sv) => {
+                let entries = sv.entries.iter().map(|&(i, v)| (i, -v)).collect();
+                Ok(Value::SparseVector(SparseVec { len: sv.len, entries }))
+            }
+            Value::SparseMatrix(sm) => {
+                let entries = sm.entries.iter().map(|&(r, c, v)| (r, c, -v)).collect();
+                Ok(Value::SparseMatrix(SparseMat { rows: sm.rows, cols: sm.cols, entries }))
+            }
             Value::LiveFigure(_) => Err("cannot negate live_figure".to_string()),
             other => Err(format!("cannot negate {}", other.type_name())),
         }
@@ -90,6 +102,8 @@ impl Value {
             Value::AudioIn  { .. } => "audio_in",
             Value::AudioOut { .. } => "audio_out",
             Value::LiveFigure(_) => "live_figure",
+            Value::SparseVector(_) => "sparse_vector",
+            Value::SparseMatrix(_) => "sparse_matrix",
         }
     }
 
@@ -145,6 +159,10 @@ impl Value {
             }
             Value::Scalar(n)  => Ok(Value::Scalar(n)),
             Value::Complex(c) => Ok(Value::Complex(c.conj())),
+            Value::SparseMatrix(sm) => {
+                let entries = sm.entries.iter().map(|&(r, c, v)| (c, r, v.conj())).collect();
+                Ok(Value::SparseMatrix(SparseMat::new(sm.cols, sm.rows, entries)))
+            }
             other => Err(format!("cannot transpose {}", other.type_name())),
         }
     }
@@ -163,6 +181,10 @@ impl Value {
             Value::Matrix(m) => Ok(Value::Matrix(m.t().to_owned())),
             Value::Scalar(n) => Ok(Value::Scalar(n)),
             Value::Complex(c) => Ok(Value::Complex(c)),
+            Value::SparseMatrix(sm) => {
+                let entries = sm.entries.iter().map(|&(r, c, v)| (c, r, v)).collect();
+                Ok(Value::SparseMatrix(SparseMat::new(sm.cols, sm.rows, entries)))
+            }
             other => Err(format!("cannot transpose {}", other.type_name())),
         }
     }
@@ -257,6 +279,36 @@ impl Value {
                     other => Err(format!("matrix single-index with {} not supported; use M(i,j) for element access", other.type_name())),
                 }
             }
+            Value::SparseVector(sv) => {
+                match &idx {
+                    Value::Scalar(n) => {
+                        let i = (*n as usize).saturating_sub(1);
+                        if i >= sv.len {
+                            return Err(format!("index {} out of bounds (length {})", n, sv.len));
+                        }
+                        let c = sv.get(i);
+                        if c.im.abs() < 1e-12 { Ok(Value::Scalar(c.re)) } else { Ok(Value::Complex(c)) }
+                    }
+                    _ => Err(format!("sparse vector indexing: unsupported index type {}", idx.type_name())),
+                }
+            }
+            Value::SparseMatrix(sm) => {
+                match &idx {
+                    Value::Scalar(n) => {
+                        let i = (*n as usize).saturating_sub(1);
+                        if i >= sm.rows {
+                            return Err(format!("row index {} out of bounds ({} rows)", n, sm.rows));
+                        }
+                        // Return dense row vector
+                        let mut row = Array1::from_elem(sm.cols, Complex::new(0.0, 0.0));
+                        for &(r, c, v) in &sm.entries {
+                            if r == i { row[c] = v; }
+                        }
+                        Ok(Value::Vector(row))
+                    }
+                    _ => Err(format!("sparse matrix single-index: unsupported index type {}", idx.type_name())),
+                }
+            }
             other => Err(format!("cannot index into {}", other.type_name())),
         }
     }
@@ -302,6 +354,23 @@ impl Value {
                         Value::Vector(v).index_1d(col_idx)
                     }
                     _ => Err("2D indexing on a vector requires one dimension to be 1".to_string()),
+                }
+            }
+            Value::SparseMatrix(sm) => {
+                match (&row_idx, &col_idx) {
+                    (Value::Scalar(r), Value::Scalar(c)) => {
+                        let ri = (*r as usize).saturating_sub(1);
+                        let ci = (*c as usize).saturating_sub(1);
+                        if ri >= sm.rows || ci >= sm.cols {
+                            return Err(format!("index ({},{}) out of bounds for {}×{} sparse matrix", r, c, sm.rows, sm.cols));
+                        }
+                        let v = sm.get(ri, ci);
+                        if v.im.abs() < 1e-12 { Ok(Value::Scalar(v.re)) } else { Ok(Value::Complex(v)) }
+                    }
+                    _ => {
+                        // Fall back to dense for complex indexing
+                        Value::Matrix(sm.to_dense()).index_2d(row_idx, col_idx)
+                    }
                 }
             }
             other => Err(format!("2D indexing requires a matrix, got {}", other.type_name())),
@@ -749,6 +818,101 @@ impl Value {
                 }
             }
 
+            // ── Native sparse arithmetic ─────────────────────────────────────
+
+            // SparseMatrix + SparseMatrix, SparseMatrix - SparseMatrix
+            (Value::SparseMatrix(a), Value::SparseMatrix(b)) => {
+                match op {
+                    Add => Ok(Value::SparseMatrix(a.add(&b).map_err(|e| e)?)),
+                    Sub => Ok(Value::SparseMatrix(a.sub(&b).map_err(|e| e)?)),
+                    _ => {
+                        // Fall back to dense for other ops between two sparse matrices
+                        Self::binop(op, Value::Matrix(a.to_dense()), Value::Matrix(b.to_dense()))
+                    }
+                }
+            }
+
+            // SparseMatrix * Scalar / Scalar * SparseMatrix
+            (Value::SparseMatrix(sm), Value::Scalar(s)) => {
+                match op {
+                    Mul | ElemMul => Ok(Value::SparseMatrix(sm.scale(Complex::new(*s, 0.0)))),
+                    Add => Self::binop(op, Value::Matrix(sm.to_dense()), rhs),
+                    Sub => Self::binop(op, Value::Matrix(sm.to_dense()), rhs),
+                    Div | ElemDiv => Ok(Value::SparseMatrix(sm.scale(Complex::new(1.0 / s, 0.0)))),
+                    _ => Self::binop(op, Value::Matrix(sm.to_dense()), rhs),
+                }
+            }
+            (Value::Scalar(s), Value::SparseMatrix(sm)) => {
+                match op {
+                    Mul | ElemMul => Ok(Value::SparseMatrix(sm.scale(Complex::new(*s, 0.0)))),
+                    _ => Self::binop(op, lhs, Value::Matrix(sm.to_dense())),
+                }
+            }
+            (Value::SparseMatrix(sm), Value::Complex(c)) => {
+                match op {
+                    Mul | ElemMul => Ok(Value::SparseMatrix(sm.scale(*c))),
+                    Div | ElemDiv => Ok(Value::SparseMatrix(sm.scale(Complex::new(1.0, 0.0) / c))),
+                    _ => Self::binop(op, Value::Matrix(sm.to_dense()), rhs),
+                }
+            }
+            (Value::Complex(c), Value::SparseMatrix(sm)) => {
+                match op {
+                    Mul | ElemMul => Ok(Value::SparseMatrix(sm.scale(*c))),
+                    _ => Self::binop(op, lhs, Value::Matrix(sm.to_dense())),
+                }
+            }
+
+            // SparseMatrix * Matrix (SpMM)
+            (Value::SparseMatrix(sm), Value::Matrix(ref b)) => {
+                match op {
+                    Mul => Ok(Value::Matrix(sm.spmm(b).map_err(|e| e)?)),
+                    _ => Self::binop(op, Value::Matrix(sm.to_dense()), rhs),
+                }
+            }
+
+            // Matrix * SparseMatrix → dense fallback
+            (Value::Matrix(_), Value::SparseMatrix(sm)) => {
+                Self::binop(op, lhs, Value::Matrix(sm.to_dense()))
+            }
+
+            // SparseVector + SparseVector, SparseVector - SparseVector
+            (Value::SparseVector(a), Value::SparseVector(b)) => {
+                match op {
+                    Add => Ok(Value::SparseVector(a.add(&b).map_err(|e| e)?)),
+                    Sub => Ok(Value::SparseVector(a.sub(&b).map_err(|e| e)?)),
+                    _ => Self::binop(op, Value::Vector(a.to_dense()), Value::Vector(b.to_dense())),
+                }
+            }
+
+            // SparseVector * Scalar / Scalar * SparseVector
+            (Value::SparseVector(sv), Value::Scalar(s)) => {
+                match op {
+                    Mul | ElemMul => Ok(Value::SparseVector(sv.scale(Complex::new(*s, 0.0)))),
+                    Div | ElemDiv => Ok(Value::SparseVector(sv.scale(Complex::new(1.0 / s, 0.0)))),
+                    _ => Self::binop(op, Value::Vector(sv.to_dense()), rhs),
+                }
+            }
+            (Value::Scalar(s), Value::SparseVector(sv)) => {
+                match op {
+                    Mul | ElemMul => Ok(Value::SparseVector(sv.scale(Complex::new(*s, 0.0)))),
+                    _ => Self::binop(op, lhs, Value::Vector(sv.to_dense())),
+                }
+            }
+
+            // Remaining sparse fallback: promote to dense
+            (Value::SparseVector(sv), _) => {
+                Self::binop(op, Value::Vector(sv.to_dense()), rhs)
+            }
+            (_, Value::SparseVector(sv)) => {
+                Self::binop(op, lhs, Value::Vector(sv.to_dense()))
+            }
+            (Value::SparseMatrix(sm), _) => {
+                Self::binop(op, Value::Matrix(sm.to_dense()), rhs)
+            }
+            (_, Value::SparseMatrix(sm)) => {
+                Self::binop(op, lhs, Value::Matrix(sm.to_dense()))
+            }
+
             (a, b) => Err(format!(
                 "unsupported operand types for {:?}: {} and {}",
                 op, a.type_name(), b.type_name()
@@ -857,6 +1021,7 @@ impl Value {
             Value::Complex(c) => Ok(Array1::from_vec(vec![*c])),
             Value::Matrix(m) if m.ncols() == 1 => Ok(m.column(0).to_owned()),
             Value::Matrix(m) if m.nrows() == 1 => Ok(m.row(0).to_owned()),
+            Value::SparseVector(sv) => Ok(sv.to_dense()),
             other => Err(format!("expected vector, got {}", other.type_name())),
         }
     }
@@ -1003,6 +1168,40 @@ impl fmt::Display for Value {
                 write!(f, "  B: {}x{}", b.nrows(), b.ncols())?;
                 write!(f, "  C: {}x{}", c.nrows(), c.ncols())?;
                 write!(f, "  D: {}x{}", d.nrows(), d.ncols())
+            }
+            Value::SparseVector(sv) => {
+                write!(f, "sparse [1×{}, nnz={}]", sv.len, sv.nnz())?;
+                let show = sv.entries.len().min(MAX_ELEMS);
+                for &(i, v) in sv.entries.iter().take(show) {
+                    if v.im.abs() < 1e-12 {
+                        write!(f, "  ({})->{:.6}", i + 1, v.re)?;
+                    } else if v.im >= 0.0 {
+                        write!(f, "  ({})->{:.6}+{:.6}j", i + 1, v.re, v.im)?;
+                    } else {
+                        write!(f, "  ({})->{:.6}{:.6}j", i + 1, v.re, v.im)?;
+                    }
+                }
+                if sv.entries.len() > MAX_ELEMS {
+                    write!(f, "  ... ({} total)", sv.entries.len())?;
+                }
+                Ok(())
+            }
+            Value::SparseMatrix(sm) => {
+                write!(f, "sparse [{}×{}, nnz={}]", sm.rows, sm.cols, sm.nnz())?;
+                let show = sm.entries.len().min(MAX_ELEMS);
+                for &(r, c, v) in sm.entries.iter().take(show) {
+                    if v.im.abs() < 1e-12 {
+                        write!(f, "\n  ({},{})->{:.6}", r + 1, c + 1, v.re)?;
+                    } else if v.im >= 0.0 {
+                        write!(f, "\n  ({},{})->{:.6}+{:.6}j", r + 1, c + 1, v.re, v.im)?;
+                    } else {
+                        write!(f, "\n  ({},{})->{:.6}{:.6}j", r + 1, c + 1, v.re, v.im)?;
+                    }
+                }
+                if sm.entries.len() > MAX_ELEMS {
+                    write!(f, "\n  ... ({} total)", sm.entries.len())?;
+                }
+                Ok(())
             }
             Value::TransferFn { num, den } => {
                 let ns = format_poly(num);

@@ -434,6 +434,7 @@ primary     = NUMBER | STRING | IDENT
 | Transpose | `v'` | Conjugate transpose |
 | Element-wise | `.*` `./` `.^` | Always element-wise on vectors/matrices |
 | Matrix literal | `[1,2; 3,4]` | `;` separates rows |
+| Sparse types | `SparseVector`, `SparseMatrix` | COO format; 0-based internal, 1-based in script; auto-promote to dense in binops |
 
 ### All builtin functions
 
@@ -493,6 +494,15 @@ primary     = NUMBER | STRING | IDENT
 | `figure_draw` | `figure_draw(fig)` | Flush all panels to terminal in one atomic refresh |
 | `figure_close` | `figure_close(fig)` | Drop `LiveFigure`, restoring terminal; also fires via `Drop` on script exit |
 | `mag2db` | `mag2db(X)` | 20·log10(|X|) element-wise, floored at −200 dB (1e-10 floor) |
+| `sparse` | `sparse(I, J, V, m, n)` / `sparse(A)` | Build sparse matrix from COO triples (1-based), or convert dense→sparse |
+| `sparsevec` | `sparsevec(I, V, n)` | Build sparse vector of length n from 1-based indices and values |
+| `speye` | `speye(n)` | n×n sparse identity matrix |
+| `spzeros` | `spzeros(m, n)` | m×n all-zero sparse matrix |
+| `full` | `full(S)` | Convert sparse to dense; identity for dense inputs |
+| `nnz` | `nnz(S)` | Number of stored non-zero entries; numel for dense |
+| `issparse` | `issparse(x)` | 1 if sparse, 0 otherwise |
+| `nonzeros` | `nonzeros(S)` | Vector of non-zero values in storage order |
+| `find` | `find(S)` | `[I,J,V]` tuple for sparse matrix, `[I,V]` for sparse vector (1-based) |
 
 Window names: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`
 

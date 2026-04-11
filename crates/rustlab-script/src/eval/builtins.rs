@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::io::{Read as IoRead, Write as IoWrite};
 use rand::Rng;
 use rand_distr::{Normal, Uniform, Distribution};
-use rustlab_core::{C64, CVector, CMatrix};
+use rustlab_core::{C64, CVector, CMatrix, SparseVec, SparseMat};
 use rustlab_dsp::{
     fir_lowpass, fir_highpass, fir_bandpass,
     fir_lowpass_kaiser, fir_highpass_kaiser, fir_bandpass_kaiser,
@@ -238,6 +238,17 @@ impl BuiltinRegistry {
         r.register("audio_out",   builtin_audio_out);
         r.register("audio_read",  builtin_audio_read);
         r.register("audio_write", builtin_audio_write);
+
+        // Sparse
+        r.register("sparse",     builtin_sparse);
+        r.register("sparsevec",  builtin_sparsevec);
+        r.register("speye",      builtin_speye);
+        r.register("spzeros",    builtin_spzeros);
+        r.register("nnz",        builtin_nnz);
+        r.register("issparse",   builtin_issparse);
+        r.register("full",       builtin_full);
+        r.register("nonzeros",   builtin_nonzeros);
+        r.register("find",       builtin_find);
 
         // Live plotting
         r.register("figure_live",   builtin_figure_live);
@@ -1119,6 +1130,8 @@ fn builtin_size(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Vector(v) => (1usize, v.len()),
         Value::Matrix(m) => (m.nrows(), m.ncols()),
         Value::Scalar(_) | Value::Complex(_) => (1, 1),
+        Value::SparseVector(sv) => (1, sv.len),
+        Value::SparseMatrix(sm) => (sm.rows, sm.cols),
         other => return Err(ScriptError::Type(format!("size: unsupported type {}", other.type_name()))),
     };
     if args.len() == 2 {
@@ -2276,6 +2289,7 @@ fn builtin_eye(args: Vec<Value>) -> Result<Value, ScriptError> {
 /// transpose(A) — non-conjugate transpose (function form of `.'`)
 fn builtin_transpose(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("transpose", &args, 1)?;
+    // For sparse matrices, use non-conjugate transpose directly
     args.into_iter().next().unwrap()
         .non_conj_transpose()
         .map_err(ScriptError::Type)
@@ -2428,14 +2442,45 @@ fn builtin_vertcat(args: Vec<Value>) -> Result<Value, ScriptError> {
 /// dot(u, v) — inner (dot) product of two vectors
 fn builtin_dot(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("dot", &args, 2)?;
-    let u = args[0].to_cvector().map_err(ScriptError::Type)?;
-    let v = args[1].to_cvector().map_err(ScriptError::Type)?;
-    if u.len() != v.len() {
-        return Err(ScriptError::Type(format!(
-            "dot: vectors must have the same length ({} vs {})", u.len(), v.len()
-        )));
-    }
-    let result: C64 = u.iter().zip(v.iter()).map(|(&a, &b)| a * b).sum();
+    // Native sparse dot products
+    let result: C64 = match (&args[0], &args[1]) {
+        (Value::SparseVector(a), Value::SparseVector(b)) => {
+            if a.len != b.len {
+                return Err(ScriptError::Type(format!(
+                    "dot: vectors must have the same length ({} vs {})", a.len, b.len
+                )));
+            }
+            a.dot(b)
+        }
+        (Value::SparseVector(sv), _) => {
+            let dv = args[1].to_cvector().map_err(ScriptError::Type)?;
+            if sv.len != dv.len() {
+                return Err(ScriptError::Type(format!(
+                    "dot: vectors must have the same length ({} vs {})", sv.len, dv.len()
+                )));
+            }
+            sv.dot_dense(&dv)
+        }
+        (_, Value::SparseVector(sv)) => {
+            let dv = args[0].to_cvector().map_err(ScriptError::Type)?;
+            if dv.len() != sv.len {
+                return Err(ScriptError::Type(format!(
+                    "dot: vectors must have the same length ({} vs {})", dv.len(), sv.len
+                )));
+            }
+            sv.dot_dense(&dv)
+        }
+        _ => {
+            let u = args[0].to_cvector().map_err(ScriptError::Type)?;
+            let v = args[1].to_cvector().map_err(ScriptError::Type)?;
+            if u.len() != v.len() {
+                return Err(ScriptError::Type(format!(
+                    "dot: vectors must have the same length ({} vs {})", u.len(), v.len()
+                )));
+            }
+            u.iter().zip(v.iter()).map(|(&a, &b)| a * b).sum()
+        }
+    };
     if result.im.abs() < 1e-12 { Ok(Value::Scalar(result.re)) } else { Ok(Value::Complex(result)) }
 }
 
@@ -5198,6 +5243,172 @@ fn builtin_mag2db(args: Vec<Value>) -> Result<Value, ScriptError> {
         }
         other => Err(ScriptError::Runtime(format!(
             "mag2db: expected numeric, got {}", other.type_name()
+        ))),
+    }
+}
+
+// ─── Sparse builtins ──────────────────────────────────────────────────────────
+
+/// `sparse(I, J, V, m, n)` — build sparse matrix from index/value vectors (1-based).
+/// `sparse(A)` — convert dense matrix/vector/scalar to sparse.
+fn builtin_sparse(args: Vec<Value>) -> Result<Value, ScriptError> {
+    if args.len() == 1 {
+        // Dense → sparse conversion
+        return match &args[0] {
+            Value::Vector(v) => Ok(Value::SparseVector(SparseVec::from_dense(v))),
+            Value::Matrix(m) => Ok(Value::SparseMatrix(SparseMat::from_dense(m))),
+            Value::Scalar(n) => {
+                let c = Complex::new(*n, 0.0);
+                let m = Array2::from_elem((1, 1), c);
+                Ok(Value::SparseMatrix(SparseMat::from_dense(&m)))
+            }
+            Value::Complex(c) => {
+                let m = Array2::from_elem((1, 1), *c);
+                Ok(Value::SparseMatrix(SparseMat::from_dense(&m)))
+            }
+            Value::SparseVector(_) | Value::SparseMatrix(_) => {
+                Ok(args.into_iter().next().unwrap())
+            }
+            other => Err(ScriptError::Type(format!(
+                "sparse: cannot convert {} to sparse", other.type_name()
+            ))),
+        };
+    }
+    check_args("sparse", &args, 5)?;
+    let i_vec = args[0].to_cvector().map_err(ScriptError::Type)?;
+    let j_vec = args[1].to_cvector().map_err(ScriptError::Type)?;
+    let v_vec = args[2].to_cvector().map_err(ScriptError::Type)?;
+    let m = args[3].to_usize().map_err(ScriptError::Type)?;
+    let n = args[4].to_usize().map_err(ScriptError::Type)?;
+    if i_vec.len() != j_vec.len() || i_vec.len() != v_vec.len() {
+        return Err(ScriptError::Runtime(
+            "sparse: I, J, V must have the same length".to_string()
+        ));
+    }
+    let mut entries = Vec::with_capacity(i_vec.len());
+    for k in 0..i_vec.len() {
+        let ri = i_vec[k].re as usize;
+        let ci = j_vec[k].re as usize;
+        if ri < 1 || ri > m { return Err(ScriptError::Runtime(format!("sparse: row index {} out of range [1, {}]", ri, m))); }
+        if ci < 1 || ci > n { return Err(ScriptError::Runtime(format!("sparse: col index {} out of range [1, {}]", ci, n))); }
+        entries.push((ri - 1, ci - 1, v_vec[k]));
+    }
+    Ok(Value::SparseMatrix(SparseMat::new(m, n, entries)))
+}
+
+/// `sparsevec(I, V, n)` — build sparse vector from index/value vectors (1-based).
+fn builtin_sparsevec(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("sparsevec", &args, 3)?;
+    let i_vec = args[0].to_cvector().map_err(ScriptError::Type)?;
+    let v_vec = args[1].to_cvector().map_err(ScriptError::Type)?;
+    let n = args[2].to_usize().map_err(ScriptError::Type)?;
+    if i_vec.len() != v_vec.len() {
+        return Err(ScriptError::Runtime(
+            "sparsevec: I and V must have the same length".to_string()
+        ));
+    }
+    let mut entries = Vec::with_capacity(i_vec.len());
+    for k in 0..i_vec.len() {
+        let idx = i_vec[k].re as usize;
+        if idx < 1 || idx > n {
+            return Err(ScriptError::Runtime(format!(
+                "sparsevec: index {} out of range [1, {}]", idx, n
+            )));
+        }
+        entries.push((idx - 1, v_vec[k]));
+    }
+    Ok(Value::SparseVector(SparseVec::new(n, entries)))
+}
+
+/// `speye(n)` — n×n sparse identity matrix.
+fn builtin_speye(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("speye", &args, 1)?;
+    let n = args[0].to_usize().map_err(ScriptError::Type)?;
+    let entries: Vec<_> = (0..n).map(|i| (i, i, Complex::new(1.0, 0.0))).collect();
+    Ok(Value::SparseMatrix(SparseMat { rows: n, cols: n, entries }))
+}
+
+/// `spzeros(m, n)` — m×n all-zero sparse matrix.
+fn builtin_spzeros(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("spzeros", &args, 2)?;
+    let m = args[0].to_usize().map_err(ScriptError::Type)?;
+    let n = args[1].to_usize().map_err(ScriptError::Type)?;
+    Ok(Value::SparseMatrix(SparseMat { rows: m, cols: n, entries: Vec::new() }))
+}
+
+/// `nnz(S)` — number of non-zero entries (for dense, returns numel).
+fn builtin_nnz(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("nnz", &args, 1)?;
+    let count = match &args[0] {
+        Value::SparseVector(sv) => sv.nnz(),
+        Value::SparseMatrix(sm) => sm.nnz(),
+        Value::Vector(v) => v.len(),
+        Value::Matrix(m) => m.nrows() * m.ncols(),
+        Value::Scalar(_) | Value::Complex(_) => 1,
+        other => return Err(ScriptError::Type(format!("nnz: unsupported type {}", other.type_name()))),
+    };
+    Ok(Value::Scalar(count as f64))
+}
+
+/// `issparse(x)` — returns 1 if x is sparse, 0 otherwise.
+fn builtin_issparse(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("issparse", &args, 1)?;
+    let is = matches!(&args[0], Value::SparseVector(_) | Value::SparseMatrix(_));
+    Ok(Value::Scalar(if is { 1.0 } else { 0.0 }))
+}
+
+/// `full(S)` — convert sparse to dense. Dense inputs pass through.
+fn builtin_full(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("full", &args, 1)?;
+    match args.into_iter().next().unwrap() {
+        Value::SparseVector(sv) => Ok(Value::Vector(sv.to_dense())),
+        Value::SparseMatrix(sm) => Ok(Value::Matrix(sm.to_dense())),
+        other => Ok(other), // identity for dense
+    }
+}
+
+/// `nonzeros(S)` — return a vector of the non-zero values in storage order.
+fn builtin_nonzeros(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("nonzeros", &args, 1)?;
+    match &args[0] {
+        Value::SparseVector(sv) => {
+            let vals: Vec<C64> = sv.entries.iter().map(|&(_, v)| v).collect();
+            Ok(Value::Vector(Array1::from_vec(vals)))
+        }
+        Value::SparseMatrix(sm) => {
+            let vals: Vec<C64> = sm.entries.iter().map(|&(_, _, v)| v).collect();
+            Ok(Value::Vector(Array1::from_vec(vals)))
+        }
+        other => Err(ScriptError::Type(format!(
+            "nonzeros: expected sparse, got {}", other.type_name()
+        ))),
+    }
+}
+
+/// `find(S)` — return [I, J, V] (1-based) for sparse matrix, [I, V] for sparse vector.
+fn builtin_find(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("find", &args, 1)?;
+    match &args[0] {
+        Value::SparseVector(sv) => {
+            let indices: Vec<C64> = sv.entries.iter().map(|&(i, _)| Complex::new((i + 1) as f64, 0.0)).collect();
+            let values: Vec<C64> = sv.entries.iter().map(|&(_, v)| v).collect();
+            Ok(Value::Tuple(vec![
+                Value::Vector(Array1::from_vec(indices)),
+                Value::Vector(Array1::from_vec(values)),
+            ]))
+        }
+        Value::SparseMatrix(sm) => {
+            let rows: Vec<C64> = sm.entries.iter().map(|&(r, _, _)| Complex::new((r + 1) as f64, 0.0)).collect();
+            let cols: Vec<C64> = sm.entries.iter().map(|&(_, c, _)| Complex::new((c + 1) as f64, 0.0)).collect();
+            let vals: Vec<C64> = sm.entries.iter().map(|&(_, _, v)| v).collect();
+            Ok(Value::Tuple(vec![
+                Value::Vector(Array1::from_vec(rows)),
+                Value::Vector(Array1::from_vec(cols)),
+                Value::Vector(Array1::from_vec(vals)),
+            ]))
+        }
+        other => Err(ScriptError::Type(format!(
+            "find: expected sparse, got {}", other.type_name()
         ))),
     }
 }
