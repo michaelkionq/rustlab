@@ -40,6 +40,9 @@ impl Evaluator {
         // Also pi and e for convenience
         env.insert("pi".to_string(),    Value::Scalar(std::f64::consts::PI));
         env.insert("e".to_string(),     Value::Scalar(std::f64::consts::E));
+        // IEEE special values
+        env.insert("Inf".to_string(),   Value::Scalar(f64::INFINITY));
+        env.insert("NaN".to_string(),   Value::Scalar(f64::NAN));
         // Boolean literals
         env.insert("true".to_string(),  Value::Bool(true));
         env.insert("false".to_string(), Value::Bool(false));
@@ -61,7 +64,7 @@ impl Evaluator {
 
     /// Remove all user-defined variables and functions, keeping built-in constants (j, pi, e).
     pub fn clear_vars(&mut self) {
-        const BUILTIN_CONSTS: &[&str] = &["i", "j", "pi", "e", "true", "false"];
+        const BUILTIN_CONSTS: &[&str] = &["i", "j", "pi", "e", "Inf", "NaN", "true", "false"];
         self.env.retain(|k, _| BUILTIN_CONSTS.contains(&k.as_str()));
         self.user_fns.clear();
     }
@@ -76,7 +79,7 @@ impl Evaluator {
     /// Return all user-defined variables, sorted by name.
     /// Excludes built-in constants (j, pi, e).
     pub fn vars(&self) -> Vec<(&str, &Value)> {
-        const BUILTIN_CONSTS: &[&str] = &["i", "j", "pi", "e", "true", "false"];
+        const BUILTIN_CONSTS: &[&str] = &["i", "j", "pi", "e", "Inf", "NaN", "true", "false"];
         let mut entries: Vec<(&str, &Value)> = self.env.iter()
             .filter(|(k, _)| !BUILTIN_CONSTS.contains(&k.as_str()))
             .map(|(k, v)| (k.as_str(), v))
@@ -955,7 +958,7 @@ impl Evaluator {
         self.in_function = true;
         self.profiler.enter_higher_order(); // suppress inner call recordings
         // Seed with built-in constants
-        for name in &["i", "j", "pi", "e"] {
+        for name in &["i", "j", "pi", "e", "Inf", "NaN"] {
             if let Some(v) = saved_env.get(*name) {
                 self.env.insert((*name).to_string(), v.clone());
             }

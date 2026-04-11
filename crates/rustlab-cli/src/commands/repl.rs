@@ -125,7 +125,7 @@ const HELP: &[HelpEntry] = &[
     HelpEntry { name: "kron",     brief: "Kronecker tensor product of two matrices",
         detail: "kron(A, B)  — for A (m×n) and B (p×q) returns an mp×nq matrix\n  Block (i,j) equals A[i,j]*B. Accepts matrices, vectors, or scalars." },
     HelpEntry { name: "norm",     brief: "Euclidean norm of a vector or Frobenius norm of a matrix",
-        detail: "norm(v)  — L2 norm of a vector\nnorm(M)  — Frobenius norm of a matrix" },
+        detail: "norm(v)       — L2 norm of a vector\nnorm(v, p)    — p-norm (1, 2, Inf supported)\nnorm(M)       — Frobenius norm of a matrix\n  Also works on sparse vectors and matrices.\n  For sparse matrices: norm(S,1) = max column sum, norm(S,Inf) = max row sum." },
     HelpEntry { name: "det",      brief: "Determinant of a square matrix",
         detail: "det(M)  — computed via LU decomposition with partial pivoting" },
     HelpEntry { name: "inv",      brief: "Inverse of a square matrix",
@@ -133,7 +133,7 @@ const HELP: &[HelpEntry] = &[
     HelpEntry { name: "expm",     brief: "Matrix exponential  e^M",
         detail: "expm(M)  — scaling-and-squaring with a [6/6] Padé approximant\n  Used for time evolution: expm(-j*H*t)" },
     HelpEntry { name: "linsolve", brief: "Solve the linear system  A*x = b",
-        detail: "linsolve(A, b)  — A is n×n, b is a length-n vector\n  Returns x as a vector." },
+        detail: "linsolve(A, b)  — A is n×n (dense or sparse), b is a length-n vector\n  Sparse A is converted to dense internally.\n  Returns x as a vector." },
     HelpEntry { name: "eig",      brief: "Eigenvalues of a square matrix",
         detail: "eig(M)  — returns a complex vector of eigenvalues\n  Uses QR iteration via Hessenberg reduction." },
     HelpEntry { name: "laguerre", brief: "Associated Laguerre polynomial  L_n^α(x)",
@@ -265,6 +265,8 @@ const HELP: &[HelpEntry] = &[
         detail: "i and j are both pre-defined constants equal to sqrt(-1)\n  Example: z = 3 + j*4   or   z = 3 + i*4" },
     HelpEntry { name: "pi",   brief: "π  (3.14159…)",  detail: "pi  — pre-defined constant" },
     HelpEntry { name: "e",    brief: "Euler's number (2.71828…)", detail: "e  — pre-defined constant" },
+    HelpEntry { name: "Inf",  brief: "IEEE positive infinity",    detail: "Inf  — pre-defined constant (f64::INFINITY)\n  Useful with norm(v, Inf) for the infinity-norm." },
+    HelpEntry { name: "NaN",  brief: "IEEE Not-a-Number",         detail: "NaN  — pre-defined constant (f64::NAN)\n  NaN != NaN is true (IEEE semantics)." },
     HelpEntry { name: "range", brief: "Range syntax: start:stop  or  start:step:stop",
         detail: "1:5       → [1, 2, 3, 4, 5]\n0:0.5:2   → [0, 0.5, 1.0, 1.5, 2.0]\nUse v(end) for last element." },
     HelpEntry { name: "index", brief: "1-based indexing: v(i)  or  v(1:3)",
@@ -427,6 +429,12 @@ const HELP: &[HelpEntry] = &[
         detail: "nonzeros(S)  — return a vector of the stored non-zero values (in storage order)\n\nExample:\n  nonzeros(speye(3))  → [1, 1, 1]" },
     HelpEntry { name: "find", brief: "Find non-zero indices and values in sparse",
         detail: "find(S)  — return [I, J, V] for sparse matrix (1-based) or [I, V] for sparse vector\n\nExamples:\n  [I, J, V] = find(speye(3))\n  [I, V] = find(sparsevec([1,3], [10,20], 5))" },
+    HelpEntry { name: "spsolve", brief: "Solve sparse linear system  A*x = b",
+        detail: "spsolve(A, b)  — solve A*x = b where A is a sparse (or dense) matrix\n  Converts to dense internally and uses Gaussian elimination.\n\nExample:\n  x = spsolve(speye(3), [1, 2, 3])  → [1, 2, 3]" },
+    HelpEntry { name: "spdiags", brief: "Build sparse matrix from diagonals",
+        detail: "spdiags(V, D, m, n)  — place diagonals into an m×n sparse matrix\n  V — vector (single diag) or matrix (one column per diag)\n  D — scalar or vector of offsets (0=main, >0 super, <0 sub)\n\nExamples:\n  S = spdiags([1,2,3], 0, 3, 3)   — diagonal\n  T = spdiags([-ones(5,1), 2*ones(5,1), -ones(5,1)], [-1,0,1], 5, 5)" },
+    HelpEntry { name: "sprand", brief: "Random sparse matrix with given density",
+        detail: "sprand(m, n, density)  — m×n sparse matrix with ~density*m*n non-zeros\n  Values are uniform in [0, 1). Density must be in [0, 1].\n\nExample:\n  S = sprand(100, 100, 0.05)  → ~500 non-zeros" },
     HelpEntry { name: "plot_limits", brief: "Set axis limits for a live figure panel",
         detail: "plot_limits(fig, panel, xmin, xmax, ymin, ymax)  — fix axes for one panel\n\nExample:\n  plot_limits(fig, 1, 0, 1000, -100, 0)" },
 ];
@@ -467,8 +475,15 @@ fn whos_size(v: &rustlab_script::Value) -> String {
         Value::Struct(f)      => format!("1×1 ({} fields)", f.len()),
         Value::Tuple(v)       => format!("1×{}", v.len()),
         Value::StateSpace { a, .. } => format!("{}×{}", a.nrows(), a.ncols()),
-        Value::SparseVector(sv) => format!("1×{}, nnz={}", sv.len, sv.nnz()),
-        Value::SparseMatrix(sm) => format!("{}×{}, nnz={}", sm.rows, sm.cols, sm.nnz()),
+        Value::SparseVector(sv) => {
+            let fill = if sv.len > 0 { 100.0 * sv.nnz() as f64 / sv.len as f64 } else { 0.0 };
+            format!("1×{}, nnz={}, fill={:.0}%", sv.len, sv.nnz(), fill)
+        }
+        Value::SparseMatrix(sm) => {
+            let total = sm.rows * sm.cols;
+            let fill = if total > 0 { 100.0 * sm.nnz() as f64 / total as f64 } else { 0.0 };
+            format!("{}×{}, nnz={}, fill={:.0}%", sm.rows, sm.cols, sm.nnz(), fill)
+        }
         Value::All            => "—".to_string(),
         _                     => "1×1".to_string(),
     }
@@ -541,26 +556,35 @@ fn print_whos(ev: &rustlab_script::Evaluator) {
         println!("  {}", color::dim("(no variables defined)"));
         return;
     }
+    // Compute column widths from actual data
+    let name_w = vars.iter().map(|(n, _)| n.len())
+        .chain(fns.iter().map(|n| n.len()))
+        .max().unwrap_or(4).max(4);
+    let type_w = vars.iter().map(|(_, v)| whos_type(v).len())
+        .max().unwrap_or(4).max(4);
+    let size_w = vars.iter().map(|(_, v)| whos_size(v).len())
+        .max().unwrap_or(4).max(4);
     println!();
     println!("  {}  {}  {}  {}",
-        color::bold(&format!("{:<16}", "Name")),
-        color::bold(&format!("{:<10}", "Type")),
-        color::bold(&format!("{:<8}", "Size")),
+        color::bold(&format!("{:<nw$}", "Name", nw = name_w)),
+        color::bold(&format!("{:<tw$}", "Type", tw = type_w)),
+        color::bold(&format!("{:<sw$}", "Size", sw = size_w)),
         color::bold("Value"));
-    println!("  {}", color::dim(&"─".repeat(70)));
+    let total_w = name_w + type_w + size_w + 12; // 12 = padding between columns + "Value"
+    println!("  {}", color::dim(&"─".repeat(total_w.max(50))));
     for (name, val) in &vars {
-        println!("  {}  {}  {:<8}  {}",
-            color::green(&format!("{:<16}", name)),
-            color::cyan(&format!("{:<10}", whos_type(val))),
-            whos_size(val),
+        println!("  {}  {}  {}  {}",
+            color::green(&format!("{:<nw$}", name, nw = name_w)),
+            color::cyan(&format!("{:<tw$}", whos_type(val), tw = type_w)),
+            format!("{:<sw$}", whos_size(val), sw = size_w),
             whos_preview(val),
         );
     }
     for name in &fns {
-        println!("  {}  {}  {:<8}  {}",
-            color::green(&format!("{:<16}", name)),
-            color::cyan(&format!("{:<10}", "function")),
-            "",
+        println!("  {}  {}  {}  {}",
+            color::green(&format!("{:<nw$}", name, nw = name_w)),
+            color::cyan(&format!("{:<tw$}", "function", tw = type_w)),
+            format!("{:<sw$}", "", sw = size_w),
             color::dim("<user-defined>"));
     }
     println!();
@@ -657,12 +681,12 @@ fn print_help_list() {
         ("Controls",         &["tf","pole","zero","ss","ctrb","obsv",
                                "bode","step","margin","lqr","rlocus",
                                "rk4","lyap","gram","care","dare","place","freqresp"]),
-        ("Sparse",           &["sparse","sparsevec","speye","spzeros","full","nnz","issparse","nonzeros","find"]),
+        ("Sparse",           &["sparse","sparsevec","speye","spzeros","spdiags","sprand","full","nnz","issparse","nonzeros","find","spsolve"]),
         ("Structs",          &["struct","isstruct","fieldnames","isfield","rmfield"]),
         ("Control Flow",     &["if","for","function","index_assign","chained_index"]),
         ("Output",           &["disp","fprintf","print"]),
         ("I/O",              &["print","save","load","whos"]),
-        ("Language / REPL",  &["i / j","pi","e","range","index","index_assign","chained_index","clear","whos",
+        ("Language / REPL",  &["i / j","pi","e","Inf","NaN","range","index","index_assign","chained_index","clear","whos",
                                "arrayfun","feval","profile","profile_report"]),
         ("Filesystem",       &["run","ls","cd","pwd"]),
     ];

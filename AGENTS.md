@@ -150,7 +150,7 @@ together whenever a phase finishes.
 | Function Call Profiling | `dev/plans/profiling.md` | Complete — both phases (profile(), --profile flag) |
 | Real-Time Audio Streaming | `dev/plans/audio_streaming.md` | Complete — all 3 phases (while loop, FirState, audio I/O) |
 | Live Plot & Spectrum Monitor | `dev/plans/live_plot.md` | Complete — all 3 phases (LiveFigure, builtins, mag2db) |
-| Sparse Vectors and Matrices | `dev/plans/sparse.md` | Not started |
+| Sparse Vectors and Matrices | `dev/plans/sparse.md` | Complete — all 4 phases (types, conversion, arithmetic, solver/utilities) |
 
 ---
 
@@ -337,9 +337,9 @@ cargo install --path crates/rustlab-cli   # → ~/.cargo/bin/rustlab
 - `src/eval/profile.rs` — `Profiler` struct (opt-in, zero overhead when disabled); `print_report()` prints table to stderr
 - `src/lib.rs` — public entry points: `run(source)`, `run_profiled(source)`
 
-**Pre-populated environment constants:** `j = Complex(0,1)`, `i = Complex(0,1)`, `pi = 3.14159…`, `e = 2.71828…`, `true = Bool(true)`, `false = Bool(false)`
+**Pre-populated environment constants:** `j = Complex(0,1)`, `i = Complex(0,1)`, `pi = 3.14159…`, `e = 2.71828…`, `Inf = f64::INFINITY`, `NaN = f64::NAN`, `true = Bool(true)`, `false = Bool(false)`
 
-**`BUILTIN_CONSTS`:** These constant names (`i`, `j`, `pi`, `e`, `true`, `false`) survive `clear_vars()` — they are re-inserted automatically so the REPL never loses them.
+**`BUILTIN_CONSTS`:** These constant names (`i`, `j`, `pi`, `e`, `Inf`, `NaN`, `true`, `false`) survive `clear_vars()` — they are re-inserted automatically so the REPL never loses them.
 
 **How `Call` nodes are evaluated:** At eval time, if the name exists in `env` as a `Vector` or `Matrix`, it is treated as 1-based indexing — `end` is temporarily bound to the vector length. If the name holds a `Lambda`, it is called with its captured environment. Otherwise it is a `BuiltinRegistry` call.
 
@@ -503,6 +503,9 @@ primary     = NUMBER | STRING | IDENT
 | `issparse` | `issparse(x)` | 1 if sparse, 0 otherwise |
 | `nonzeros` | `nonzeros(S)` | Vector of non-zero values in storage order |
 | `find` | `find(S)` | `[I,J,V]` tuple for sparse matrix, `[I,V]` for sparse vector (1-based) |
+| `spsolve` | `spsolve(A, b)` | Solve A×x = b where A is sparse (converts to dense internally) |
+| `spdiags` | `spdiags(V, D, m, n)` | Build sparse matrix from diagonals; D=0 main, >0 super, <0 sub |
+| `sprand` | `sprand(m, n, density)` | Random sparse matrix with ~density×m×n non-zeros, values in [0,1) |
 
 Window names: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`
 

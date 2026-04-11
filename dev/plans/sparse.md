@@ -1,7 +1,7 @@
 # Development Plan: Sparse Vectors and Matrices
 
-**Status:** Phase 1, 2, & 3 complete
-**Target example:** `examples/sparse.r`
+**Status:** Complete (all 4 phases)
+**Target example:** `examples/sparse/sparse.r`
 
 ---
 
@@ -249,7 +249,7 @@ These are the operations that make sparse worthwhile for large problems.
 ---
 
 ## Phase 4 — Solver and Quality-of-Life Builtins
-**Status: not started**
+**Status: complete**
 
 ### Goal
 Add the builtins that make sparse matrices useful beyond construction:

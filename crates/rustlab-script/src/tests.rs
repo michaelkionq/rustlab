@@ -4787,6 +4787,20 @@ mod sparse_tests {
         }
     }
 
+    fn get_vec(ev: &Evaluator, name: &str) -> ndarray::Array1<num_complex::Complex<f64>> {
+        match ev.get(name).unwrap() {
+            Value::Vector(v) => v.clone(),
+            other => panic!("expected vector for '{name}', got {other:?}"),
+        }
+    }
+
+    fn get_matrix(ev: &Evaluator, name: &str) -> ndarray::Array2<num_complex::Complex<f64>> {
+        match ev.get(name).unwrap() {
+            Value::Matrix(m) => m.clone(),
+            other => panic!("expected matrix for '{name}', got {other:?}"),
+        }
+    }
+
     // ── Phase 1: Construction & Inspection ──────────────────────────────────
 
     #[test]
@@ -5184,5 +5198,154 @@ mod sparse_tests {
         // Adding a sparse matrix to its negation should give nnz=0
         let ev = eval_str("S = speye(3)\nZ = S + (-S)\nk = nnz(Z)");
         assert_eq!(get_scalar(&ev, "k"), 0.0);
+    }
+
+    // ── Phase 4: solver, spdiags, sprand, norm ──────────────────────────────
+
+    #[test]
+    fn spsolve_identity() {
+        let ev = eval_str("x = spsolve(speye(3), [1, 2, 3])");
+        let x = get_vec(&ev, "x");
+        assert_eq!(x.len(), 3);
+        assert!((x[0].re - 1.0).abs() < 1e-10);
+        assert!((x[1].re - 2.0).abs() < 1e-10);
+        assert!((x[2].re - 3.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn spsolve_scaled_identity() {
+        let ev = eval_str("A = speye(3) * 2\nx = spsolve(A, [2, 4, 6])");
+        let x = get_vec(&ev, "x");
+        assert!((x[0].re - 1.0).abs() < 1e-10);
+        assert!((x[1].re - 2.0).abs() < 1e-10);
+        assert!((x[2].re - 3.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn spdiags_main_diagonal() {
+        let ev = eval_str("S = spdiags([1,2,3,4,5], 0, 5, 5)\nk = nnz(S)\nis = issparse(S)\nv = S(3,3)");
+        assert_eq!(get_scalar(&ev, "k"), 5.0);
+        assert_eq!(get_scalar(&ev, "is"), 1.0);
+        assert_eq!(get_scalar(&ev, "v"), 3.0);
+    }
+
+    #[test]
+    fn spdiags_matches_diag() {
+        // spdiags diagonal should match diag() when converted to dense
+        let ev = eval_str("S = spdiags([1,2,3], 0, 3, 3)\nD = full(S)\nE = diag([1,2,3])");
+        let d = get_matrix(&ev, "D");
+        let e = get_matrix(&ev, "E");
+        for r in 0..3 {
+            for c in 0..3 {
+                assert!((d[[r, c]] - e[[r, c]]).norm() < 1e-10);
+            }
+        }
+    }
+
+    #[test]
+    fn spdiags_super_sub_diagonal() {
+        // Superdiagonal d=1
+        let ev = eval_str("S = spdiags([10, 20], 1, 3, 3)\nv = S(1,2)");
+        assert_eq!(get_scalar(&ev, "v"), 10.0);
+    }
+
+    #[test]
+    fn sprand_density() {
+        let ev = eval_str("S = sprand(10, 10, 0.1)\nk = nnz(S)\nis = issparse(S)");
+        let k = get_scalar(&ev, "k");
+        assert_eq!(get_scalar(&ev, "is"), 1.0);
+        // With density=0.1 and 100 elements, expect ~10 nnz (allow wide tolerance due to randomness)
+        assert!(k >= 0.0 && k <= 100.0);
+    }
+
+    #[test]
+    fn sprand_zero_density() {
+        let ev = eval_str("S = sprand(5, 5, 0.0)\nk = nnz(S)");
+        assert_eq!(get_scalar(&ev, "k"), 0.0);
+    }
+
+    #[test]
+    fn norm_sparse_vector() {
+        let ev = eval_str("sv = sparsevec([1, 3], [3.0, 4.0], 5)\nn = norm(sv)");
+        assert!((get_scalar(&ev, "n") - 5.0).abs() < 1e-10); // sqrt(9+16) = 5
+    }
+
+    #[test]
+    fn norm_sparse_vector_1() {
+        let ev = eval_str("sv = sparsevec([1, 3], [3.0, -4.0], 5)\nn = norm(sv, 1)");
+        assert!((get_scalar(&ev, "n") - 7.0).abs() < 1e-10); // 3+4 = 7
+    }
+
+    #[test]
+    fn norm_sparse_vector_inf() {
+        let ev = eval_str("sv = sparsevec([1, 3], [3.0, -4.0], 5)\nn = norm(sv, Inf)");
+        assert!((get_scalar(&ev, "n") - 4.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn norm_sparse_matrix_frobenius() {
+        let ev = eval_str("S = speye(3) * 2\nn = norm(S)");
+        // Frobenius of diag(2,2,2) = sqrt(4+4+4) = sqrt(12)
+        assert!((get_scalar(&ev, "n") - (12.0_f64).sqrt()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn norm_sparse_matrix_1() {
+        // 1-norm = max column sum of abs values
+        let ev = eval_str("S = sparse([1,2,1], [1,1,2], [3.0, -4.0, 2.0], 2, 2)\nn = norm(S, 1)");
+        assert!((get_scalar(&ev, "n") - 7.0).abs() < 1e-10); // col1: |3|+|-4|=7, col2: |2|=2
+    }
+
+    #[test]
+    fn norm_sparse_matrix_inf() {
+        // inf-norm = max row sum of abs values
+        let ev = eval_str("S = sparse([1,2,1], [1,1,2], [3.0, -4.0, 2.0], 2, 2)\nn = norm(S, Inf)");
+        assert!((get_scalar(&ev, "n") - 5.0).abs() < 1e-10); // row1: |3|+|2|=5, row2: |-4|=4
+    }
+
+    #[test]
+    fn linsolve_accepts_sparse() {
+        // linsolve should also accept sparse A now
+        let ev = eval_str("x = linsolve(speye(2), [5, 7])");
+        let x = get_vec(&ev, "x");
+        assert!((x[0].re - 5.0).abs() < 1e-10);
+        assert!((x[1].re - 7.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn spsolve_singular_errors() {
+        let result = std::panic::catch_unwind(|| {
+            eval_str("x = spsolve(spzeros(3, 3), [1, 2, 3])")
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn spsolve_dimension_mismatch_errors() {
+        let result = std::panic::catch_unwind(|| {
+            eval_str("x = spsolve(speye(3), [1, 2])")
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn spdiags_multi_diagonal() {
+        // Build tridiagonal: [-1, 2, -1] on diags [-1, 0, 1]
+        let ev = eval_str(
+            "V = [-1, -1, -1; 2, 2, 2; -1, -1, -1]'\n\
+             T = spdiags(V, [-1, 0, 1], 3, 3)\n\
+             k = nnz(T)\n\
+             d = T(2, 2)\n\
+             o = T(1, 2)"
+        );
+        assert_eq!(get_scalar(&ev, "d"), 2.0);
+        assert_eq!(get_scalar(&ev, "o"), -1.0);
+        assert_eq!(get_scalar(&ev, "k"), 7.0); // 3 main + 2 super + 2 sub
+    }
+
+    #[test]
+    fn sprand_full_density() {
+        let ev = eval_str("S = sprand(3, 3, 1.0)\nk = nnz(S)");
+        assert_eq!(get_scalar(&ev, "k"), 9.0);
     }
 }

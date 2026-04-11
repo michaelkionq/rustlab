@@ -14,6 +14,7 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 |---|---|
 | `j`, `i` | Imaginary unit; complex literal: `z = 3.0 + j*4.0` |
 | `pi`, `e` | Built-in constants |
+| `Inf`, `NaN` | IEEE infinity and Not-a-Number |
 | `true`, `false` | Boolean constants — usable in `if` and `while` conditions |
 | `v(1)`, `v(end)`, `v(2:4)` | 1-based indexing; `end` = last element; slice returns Vector |
 | `v(i) = val`, `M(r,c) = val` | Indexed assignment; vectors auto-grow as needed |
@@ -129,14 +130,14 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `cross(u, v)` | 3-element cross product |
 | `outer(u, v)` | Outer product → N×M matrix |
 | `kron(A, B)` | Kronecker tensor product |
-| `norm(v)` | L2 norm of vector; Frobenius norm of matrix |
+| `norm(v)`, `norm(v,p)` | Vector p-norm (1, 2, Inf); matrix Frobenius; works on sparse |
 | `inv(M)` | Matrix inverse |
 | `det(M)` | Determinant |
 | `trace(M)` | Trace |
 | `rank(M)` | Numerical rank |
 | `eig(M)` | Eigenvalues (column vector) |
 | `expm(M)` | Matrix exponential $e^M$ (Padé approximant) |
-| `linsolve(A, b)` | Solve A·x = b; returns x |
+| `linsolve(A, b)` | Solve A·x = b (A may be dense or sparse); returns x |
 | `roots(p)` | Roots of polynomial with coefficients p |
 
 ---
@@ -253,6 +254,9 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `sparsevec(I, V, n)` | Build sparse vector of length n from 1-based indices |
 | `speye(n)` | n×n sparse identity matrix |
 | `spzeros(m, n)` | m×n all-zero sparse matrix |
+| `spdiags(V, D, m, n)` | Build sparse matrix from diagonals (D=0 main, >0 super, <0 sub) |
+| `sprand(m, n, density)` | Random sparse matrix with ~density×m×n non-zeros, values in [0,1) |
+| `spsolve(A, b)` | Solve A×x = b where A is sparse |
 | `full(S)` | Convert sparse to dense (identity for dense inputs) |
 | `nnz(S)` | Number of stored non-zero entries |
 | `issparse(x)` | 1 if sparse, 0 otherwise |

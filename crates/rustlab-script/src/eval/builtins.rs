@@ -249,6 +249,9 @@ impl BuiltinRegistry {
         r.register("full",       builtin_full);
         r.register("nonzeros",   builtin_nonzeros);
         r.register("find",       builtin_find);
+        r.register("spsolve",   builtin_spsolve);
+        r.register("spdiags",   builtin_spdiags);
+        r.register("sprand",    builtin_sprand);
 
         // Live plotting
         r.register("figure_live",   builtin_figure_live);
@@ -2552,6 +2555,37 @@ fn builtin_norm(args: Vec<Value>) -> Result<Value, ScriptError> {
         }
         Value::Scalar(n) => Ok(Value::Scalar(n.abs())),
         Value::Complex(c) => Ok(Value::Scalar(c.norm())),
+        Value::SparseVector(sv) => {
+            let p: f64 = if args.len() == 2 { args[1].to_scalar().map_err(ScriptError::Type)? } else { 2.0 };
+            let n = if p == 1.0 {
+                sv.entries.iter().map(|(_, c)| c.norm()).sum::<f64>()
+            } else if p == 2.0 {
+                sv.entries.iter().map(|(_, c)| c.norm_sqr()).sum::<f64>().sqrt()
+            } else if p == f64::INFINITY {
+                sv.entries.iter().map(|(_, c)| c.norm()).fold(0.0_f64, f64::max)
+            } else {
+                sv.entries.iter().map(|(_, c)| c.norm().powf(p)).sum::<f64>().powf(1.0 / p)
+            };
+            Ok(Value::Scalar(n))
+        }
+        Value::SparseMatrix(sm) => {
+            let p: f64 = if args.len() == 2 { args[1].to_scalar().map_err(ScriptError::Type)? } else { 2.0 };
+            if p == 1.0 {
+                // Max absolute column sum
+                let mut col_sums = vec![0.0_f64; sm.cols];
+                for &(_, c, v) in &sm.entries { col_sums[c] += v.norm(); }
+                Ok(Value::Scalar(col_sums.into_iter().fold(0.0_f64, f64::max)))
+            } else if p == f64::INFINITY {
+                // Max absolute row sum
+                let mut row_sums = vec![0.0_f64; sm.rows];
+                for &(r, _, v) in &sm.entries { row_sums[r] += v.norm(); }
+                Ok(Value::Scalar(row_sums.into_iter().fold(0.0_f64, f64::max)))
+            } else {
+                // Frobenius for p=2, or convert to dense for other p
+                let n = sm.entries.iter().map(|(_, _, c)| c.norm_sqr()).sum::<f64>().sqrt();
+                Ok(Value::Scalar(n))
+            }
+        }
         other => Err(ScriptError::Type(format!("norm: unsupported type {}", other.type_name()))),
     }
 }
@@ -2762,6 +2796,7 @@ fn builtin_linsolve(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("linsolve", &args, 2)?;
     let a = match &args[0] {
         Value::Matrix(m) => m.clone(),
+        Value::SparseMatrix(sm) => sm.to_dense(),
         other => return Err(ScriptError::Type(format!("linsolve: A must be a matrix, got {}", other.type_name()))),
     };
     let b = args[1].to_cvector().map_err(ScriptError::Type)?;
@@ -5411,4 +5446,193 @@ fn builtin_find(args: Vec<Value>) -> Result<Value, ScriptError> {
             "find: expected sparse, got {}", other.type_name()
         ))),
     }
+}
+
+/// `spsolve(A, b)` — solve A*x = b where A is sparse.
+/// Internally converts to dense and uses Gaussian elimination.
+fn builtin_spsolve(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("spsolve", &args, 2)?;
+    let a = match &args[0] {
+        Value::SparseMatrix(sm) => sm.to_dense(),
+        Value::Matrix(m) => m.clone(),
+        other => return Err(ScriptError::Type(format!(
+            "spsolve: A must be a sparse or dense matrix, got {}", other.type_name()
+        ))),
+    };
+    let b = args[1].to_cvector().map_err(ScriptError::Type)?;
+    let n = a.nrows();
+    if n != a.ncols() {
+        return Err(ScriptError::Type(format!(
+            "spsolve: A must be square (got {}×{})", n, a.ncols()
+        )));
+    }
+    if n != b.len() {
+        return Err(ScriptError::Type(format!(
+            "spsolve: A is {}×{} but b has length {}", n, n, b.len()
+        )));
+    }
+    // Augmented [A | b]
+    let mut aug: Array2<C64> = Array2::zeros((n, n + 1));
+    for i in 0..n {
+        for j in 0..n { aug[[i, j]] = a[[i, j]]; }
+        aug[[i, n]] = b[i];
+    }
+    // Forward elimination with partial pivoting
+    for k in 0..n {
+        let mut max_idx = k;
+        let mut max_val = aug[[k, k]].norm();
+        for i in k + 1..n {
+            let v = aug[[i, k]].norm();
+            if v > max_val { max_val = v; max_idx = i; }
+        }
+        if max_idx != k {
+            for j in 0..n + 1 {
+                let tmp = aug[[k, j]];
+                aug[[k, j]] = aug[[max_idx, j]];
+                aug[[max_idx, j]] = tmp;
+            }
+        }
+        if aug[[k, k]].norm() < 1e-14 {
+            return Err(ScriptError::Type("spsolve: matrix is singular or nearly singular".to_string()));
+        }
+        for i in k + 1..n {
+            let factor = aug[[i, k]] / aug[[k, k]];
+            for j in k..n + 1 {
+                let sub = factor * aug[[k, j]];
+                aug[[i, j]] -= sub;
+            }
+        }
+    }
+    // Back substitution
+    let mut x: CVector = Array1::zeros(n);
+    for i in (0..n).rev() {
+        let mut s = aug[[i, n]];
+        for j in i + 1..n { s -= aug[[i, j]] * x[j]; }
+        x[i] = s / aug[[i, i]];
+    }
+    if x.len() == 1 {
+        let c = x[0];
+        if c.im.abs() < 1e-12 { Ok(Value::Scalar(c.re)) } else { Ok(Value::Complex(c)) }
+    } else {
+        Ok(Value::Vector(x))
+    }
+}
+
+/// `spdiags(V, D, m, n)` — place diagonals into an m×n sparse matrix.
+/// V is a vector (single diagonal) or matrix (one column per diagonal).
+/// D is a scalar or vector of diagonal offsets (0 = main, >0 super, <0 sub).
+fn builtin_spdiags(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("spdiags", &args, 4)?;
+    let m = args[2].to_usize().map_err(ScriptError::Type)?;
+    let n = args[3].to_usize().map_err(ScriptError::Type)?;
+
+    // Parse diagonal offsets
+    let diags: Vec<i64> = match &args[1] {
+        Value::Scalar(d) => vec![*d as i64],
+        Value::Vector(v) => v.iter().map(|c| c.re as i64).collect(),
+        other => return Err(ScriptError::Type(format!(
+            "spdiags: D must be a scalar or vector, got {}", other.type_name()
+        ))),
+    };
+
+    // Parse values: vector for single diagonal, matrix for multiple (one column per diag)
+    let mut entries: Vec<(usize, usize, C64)> = Vec::new();
+    match &args[0] {
+        Value::Vector(v) => {
+            if diags.len() != 1 {
+                return Err(ScriptError::Runtime(
+                    "spdiags: when V is a vector, D must be a single diagonal offset".to_string()
+                ));
+            }
+            let d = diags[0];
+            for (idx, &val) in v.iter().enumerate() {
+                let (r, c) = if d >= 0 { (idx, idx + d as usize) } else { (idx + (-d) as usize, idx) };
+                if r < m && c < n {
+                    entries.push((r, c, val));
+                }
+            }
+        }
+        Value::Matrix(mat) => {
+            if mat.ncols() != diags.len() {
+                return Err(ScriptError::Runtime(format!(
+                    "spdiags: V has {} columns but D has {} offsets",
+                    mat.ncols(), diags.len()
+                )));
+            }
+            for (col_idx, &d) in diags.iter().enumerate() {
+                for row_idx in 0..mat.nrows() {
+                    let val = mat[[row_idx, col_idx]];
+                    let (r, c) = if d >= 0 { (row_idx, row_idx + d as usize) } else { (row_idx + (-d) as usize, row_idx) };
+                    if r < m && c < n {
+                        entries.push((r, c, val));
+                    }
+                }
+            }
+        }
+        Value::Scalar(s) => {
+            if diags.len() != 1 {
+                return Err(ScriptError::Runtime(
+                    "spdiags: when V is a scalar, D must be a single diagonal offset".to_string()
+                ));
+            }
+            let d = diags[0];
+            let val = Complex::new(*s, 0.0);
+            let diag_len = if d >= 0 {
+                (m).min(n.saturating_sub(d as usize))
+            } else {
+                (n).min(m.saturating_sub((-d) as usize))
+            };
+            for idx in 0..diag_len {
+                let (r, c) = if d >= 0 { (idx, idx + d as usize) } else { (idx + (-d) as usize, idx) };
+                entries.push((r, c, val));
+            }
+        }
+        other => return Err(ScriptError::Type(format!(
+            "spdiags: V must be a scalar, vector, or matrix, got {}", other.type_name()
+        ))),
+    }
+
+    Ok(Value::SparseMatrix(SparseMat::new(m, n, entries)))
+}
+
+/// `sprand(m, n, density)` — random sparse matrix with approximately density*m*n non-zeros.
+fn builtin_sprand(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("sprand", &args, 3)?;
+    let m = args[0].to_usize().map_err(ScriptError::Type)?;
+    let n = args[1].to_usize().map_err(ScriptError::Type)?;
+    let density = args[2].to_scalar().map_err(ScriptError::Type)?;
+    if density < 0.0 || density > 1.0 {
+        return Err(ScriptError::Runtime(
+            "sprand: density must be in [0, 1]".to_string()
+        ));
+    }
+    let mut rng = rand::thread_rng();
+    let val_dist = Uniform::new(0.0_f64, 1.0);
+    let total = m * n;
+    let target_nnz = (density * total as f64).round() as usize;
+    let mut entries: Vec<(usize, usize, C64)> = Vec::with_capacity(target_nnz);
+
+    if density >= 0.5 {
+        // For high density, iterate all positions and keep with probability=density
+        for r in 0..m {
+            for c in 0..n {
+                if rng.gen::<f64>() < density {
+                    entries.push((r, c, Complex::new(val_dist.sample(&mut rng), 0.0)));
+                }
+            }
+        }
+    } else {
+        // For low density, sample positions directly
+        use std::collections::HashSet;
+        let mut positions = HashSet::new();
+        while positions.len() < target_nnz && positions.len() < total {
+            let r = rng.gen_range(0..m);
+            let c = rng.gen_range(0..n);
+            if positions.insert((r, c)) {
+                entries.push((r, c, Complex::new(val_dist.sample(&mut rng), 0.0)));
+            }
+        }
+    }
+
+    Ok(Value::SparseMatrix(SparseMat::new(m, n, entries)))
 }
