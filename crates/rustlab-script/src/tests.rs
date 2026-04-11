@@ -3901,3 +3901,865 @@ ref_full = convolve(x, h);
         assert!(try_run("figure_close(42);").is_err());
     }
 }
+
+// ─── Tier 1: Arg-count and type error tests ─────────────────────────────────
+
+#[cfg(test)]
+mod arg_error_tests {
+    fn try_run(src: &str) -> Result<crate::Evaluator, crate::error::ScriptError> {
+        let src = format!("{}\n", src);
+        let tokens = crate::lexer::tokenize(&src).unwrap();
+        let stmts = crate::parser::parse(tokens).unwrap();
+        let mut ev = crate::Evaluator::new();
+        ev.run(&stmts)?;
+        Ok(ev)
+    }
+
+    fn assert_err_contains(src: &str, substr: &str) {
+        match try_run(src) {
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(msg.contains(substr),
+                    "expected error containing '{substr}', got: {msg}");
+            }
+            Ok(_) => panic!("expected an error containing '{substr}', but script succeeded"),
+        }
+    }
+
+    // ── Too few / too many args (exact-count builtins) ──────────────────
+
+    #[test] fn sin_zero_args()  { assert_err_contains("sin()", "sin"); }
+    #[test] fn sin_two_args()   { assert_err_contains("sin(1, 2)", "sin"); }
+    #[test] fn cos_zero_args()  { assert_err_contains("cos()", "cos"); }
+    #[test] fn dot_one_arg()    { assert_err_contains("dot([1])", "dot"); }
+    #[test] fn dot_three_args() { assert_err_contains("dot([1],[2],[3])", "dot"); }
+    #[test] fn linspace_one_arg() { assert_err_contains("linspace(1)", "linspace"); }
+    #[test] fn fir_lowpass_two_args() { assert_err_contains("fir_lowpass(31, 1000)", "fir_lowpass"); }
+    #[test] fn cross_one_arg()  { assert_err_contains("cross([1,2,3])", "cross"); }
+    #[test] fn eig_zero_args()  { assert_err_contains("eig()", "eig"); }
+    #[test] fn inv_zero_args()  { assert_err_contains("inv()", "inv"); }
+
+    // ── Range-count builtins: too few / too many ─────────────────────────
+
+    #[test] fn zeros_zero_args()  { assert_err_contains("zeros()", "zeros"); }
+    #[test] fn zeros_three_args() { assert_err_contains("zeros(1,2,3)", "zeros"); }
+    #[test] fn ones_zero_args()   { assert_err_contains("ones()", "ones"); }
+    #[test] fn size_zero_args()   { assert_err_contains("size()", "size"); }
+    #[test] fn diag_zero_args()   { assert_err_contains("diag()", "diag"); }
+    #[test] fn norm_zero_args()   { assert_err_contains("norm()", "norm"); }
+
+    // ── ArgCountRange error message includes both bounds ─────────────────
+
+    #[test]
+    fn arg_count_range_message_format() {
+        match try_run("zeros(1,2,3)") {
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(msg.contains("1..2") || (msg.contains("1") && msg.contains("2")),
+                    "range error should mention both bounds, got: {msg}");
+            }
+            Ok(_) => panic!("expected error for zeros(1,2,3)"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod type_error_tests {
+    fn try_run(src: &str) -> Result<crate::Evaluator, crate::error::ScriptError> {
+        let src = format!("{}\n", src);
+        let tokens = crate::lexer::tokenize(&src).unwrap();
+        let stmts = crate::parser::parse(tokens).unwrap();
+        let mut ev = crate::Evaluator::new();
+        ev.run(&stmts)?;
+        Ok(ev)
+    }
+
+    #[test] fn sin_string()      { assert!(try_run("sin(\"hello\")").is_err()); }
+    #[test] fn abs_string()      { assert!(try_run("abs(\"x\")").is_err()); }
+    #[test] fn sqrt_string()     { assert!(try_run("sqrt(\"x\")").is_err()); }
+    #[test] fn exp_string()      { assert!(try_run("exp(\"x\")").is_err()); }
+    #[test] fn log_string()      { assert!(try_run("log(\"x\")").is_err()); }
+    #[test] fn reshape_string()  { assert!(try_run("reshape(\"x\", 2, 3)").is_err()); }
+    #[test] fn inv_string()       { assert!(try_run("inv(\"x\")").is_err()); }
+    #[test] fn eig_string()      { assert!(try_run("eig(\"hello\")").is_err()); }
+    #[test] fn det_string()      { assert!(try_run("det(\"x\")").is_err()); }
+    #[test] fn transpose_string() { assert!(try_run("transpose(\"x\")").is_err()); }
+    #[test] fn fft_string()      { assert!(try_run("fft(\"x\")").is_err()); }
+    #[test] fn convolve_strings() { assert!(try_run("convolve(\"a\", \"b\")").is_err()); }
+}
+
+// ─── Tier 2a: Evaluator edge cases ──────────────────────────────────────────
+
+#[cfg(test)]
+mod evaluator_edge_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+
+    fn run(src: &str) -> Evaluator {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts).unwrap();
+        ev
+    }
+
+    fn try_run(src: &str) -> Result<Evaluator, crate::error::ScriptError> {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts)?;
+        Ok(ev)
+    }
+
+    fn get_scalar(ev: &Evaluator, name: &str) -> f64 {
+        match ev.get(name).unwrap() {
+            Value::Scalar(n) => *n,
+            other => panic!("expected scalar for '{name}', got {other:?}"),
+        }
+    }
+
+    fn close(a: f64, b: f64) -> bool { (a - b).abs() < 1e-9 }
+
+    // ── For loop ────────────────────────────────────────────────────────
+
+    #[test]
+    fn for_over_scalar() {
+        // Scalar iteration: single pass, loop var = the scalar
+        let ev = run("s = 0;\nfor x = 5\n  s = s + x;\nend");
+        assert!(close(get_scalar(&ev, "s"), 5.0));
+    }
+
+    #[test]
+    fn for_over_empty_vector() {
+        // Empty vector: zero passes, s stays at initial value
+        let ev = run("s = 42;\nfor x = []\n  s = 0;\nend");
+        assert!(close(get_scalar(&ev, "s"), 42.0));
+    }
+
+    #[test]
+    fn for_accumulates() {
+        let ev = run("s = 0;\nfor x = 1:5\n  s = s + x;\nend");
+        assert!(close(get_scalar(&ev, "s"), 15.0));
+    }
+
+    #[test]
+    fn nested_for_if() {
+        let ev = run("s = 0;\nfor i = 1:4\n  if i > 2\n    s = s + i;\n  end\nend");
+        assert!(close(get_scalar(&ev, "s"), 7.0)); // 3 + 4
+    }
+
+    // ── While loop ──────────────────────────────────────────────────────
+
+    #[test]
+    fn while_basic() {
+        let ev = run("n = 0;\nwhile n < 5\n  n = n + 1;\nend");
+        assert!(close(get_scalar(&ev, "n"), 5.0));
+    }
+
+    #[test]
+    fn while_compound_condition() {
+        let ev = run("a = 0;\nb = 10;\nwhile (a < 5) && (b > 6)\n  a = a + 1;\n  b = b - 1;\nend");
+        assert!(close(get_scalar(&ev, "a"), 4.0));
+        assert!(close(get_scalar(&ev, "b"), 6.0));
+    }
+
+    #[test]
+    fn while_false_never_executes() {
+        let ev = run("x = 99;\nwhile 0\n  x = 0;\nend");
+        assert!(close(get_scalar(&ev, "x"), 99.0));
+    }
+
+    // ── Return inside nested block ──────────────────────────────────────
+
+    #[test]
+    fn return_inside_nested_if() {
+        let ev = run("function y = f(x)\n  if x > 0\n    y = 1;\n    return\n  end\n  y = -1;\nend\nr = f(5);");
+        assert!(close(get_scalar(&ev, "r"), 1.0));
+    }
+
+    #[test]
+    fn return_skips_remaining_body() {
+        let ev = run("function y = g()\n  y = 10;\n  return\n  y = 20;\nend\nr = g();");
+        assert!(close(get_scalar(&ev, "r"), 10.0));
+    }
+
+    // ── Semicolon suppression ───────────────────────────────────────────
+
+    #[test]
+    fn semicolon_still_assigns() {
+        let ev = run("x = 42;");
+        assert!(close(get_scalar(&ev, "x"), 42.0));
+    }
+
+    // ── Complex as while condition ───────────────────────────────────────
+
+    #[test]
+    fn while_complex_zero_is_falsy() {
+        let ev = run("x = 99;\nwhile 0 + 0*j\n  x = 0;\nend");
+        assert!(close(get_scalar(&ev, "x"), 99.0));
+    }
+
+    // ── For over non-iterable errors ────────────────────────────────────
+
+    #[test]
+    fn for_over_string_errors() {
+        assert!(try_run("for x = \"hello\"\n  y = 1;\nend").is_err());
+    }
+}
+
+// ─── Tier 2b: Index assignment edge cases ───────────────────────────────────
+
+#[cfg(test)]
+mod index_assign_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+
+    fn run(src: &str) -> Evaluator {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts).unwrap();
+        ev
+    }
+
+    fn try_run(src: &str) -> Result<Evaluator, crate::error::ScriptError> {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts)?;
+        Ok(ev)
+    }
+
+    fn close(a: f64, b: f64) -> bool { (a - b).abs() < 1e-9 }
+
+    #[test]
+    fn auto_create_vector() {
+        let ev = run("v(3) = 7;");
+        match ev.get("v").unwrap() {
+            Value::Vector(v) => {
+                assert_eq!(v.len(), 3);
+                assert!(close(v[0].re, 0.0)); // zero-filled
+                assert!(close(v[1].re, 0.0));
+                assert!(close(v[2].re, 7.0));
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn in_place_update() {
+        let ev = run("v = [10, 20, 30];\nv(2) = 99;");
+        match ev.get("v").unwrap() {
+            Value::Vector(v) => {
+                assert!(close(v[0].re, 10.0));
+                assert!(close(v[1].re, 99.0));
+                assert!(close(v[2].re, 30.0));
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn grow_vector() {
+        let ev = run("v = [1, 2, 3];\nv(6) = 60;");
+        match ev.get("v").unwrap() {
+            Value::Vector(v) => {
+                assert_eq!(v.len(), 6);
+                assert!(close(v[0].re, 1.0));
+                assert!(close(v[2].re, 3.0));
+                assert!(close(v[3].re, 0.0)); // zero-filled gap
+                assert!(close(v[5].re, 60.0));
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn matrix_element_assign() {
+        let ev = run("M = eye(2);\nM(1,2) = 5;");
+        match ev.get("M").unwrap() {
+            Value::Matrix(m) => {
+                assert!(close(m[[0, 0]].re, 1.0));
+                assert!(close(m[[0, 1]].re, 5.0));
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn matrix_row_assign() {
+        let ev = run("M = eye(2);\nM(2) = [7, 8];");
+        match ev.get("M").unwrap() {
+            Value::Matrix(m) => {
+                assert!(close(m[[1, 0]].re, 7.0));
+                assert!(close(m[[1, 1]].re, 8.0));
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn index_zero_errors() {
+        assert!(try_run("v = [1,2,3];\nv(0) = 1;").is_err());
+    }
+
+    #[test]
+    fn matrix_out_of_bounds_errors() {
+        assert!(try_run("M = eye(2);\nM(3,1) = 1;").is_err());
+    }
+
+    #[test]
+    fn matrix_col_out_of_bounds_errors() {
+        assert!(try_run("M = eye(2);\nM(1,3) = 1;").is_err());
+    }
+}
+
+// ─── Tier 2c: Parser error messages ─────────────────────────────────────────
+
+#[cfg(test)]
+mod parser_error_tests {
+    fn parse_err(src: &str) -> String {
+        let src = format!("{}\n", src);
+        let tokens = crate::lexer::tokenize(&src).unwrap();
+        crate::parser::parse(tokens).unwrap_err().to_string()
+    }
+
+    #[test]
+    fn missing_end_if() {
+        let err = parse_err("if 1 < 2\n  x = 1\n");
+        assert!(err.contains("end") || err.contains("End") || err.contains("missing"),
+            "error should mention missing 'end', got: {err}");
+    }
+
+    #[test]
+    fn missing_end_for() {
+        let err = parse_err("for i = 1:3\n  x = i\n");
+        assert!(err.contains("end") || err.contains("missing"),
+            "error should mention missing 'end', got: {err}");
+    }
+
+    #[test]
+    fn missing_end_while() {
+        let err = parse_err("while 1\n  x = 1\n");
+        assert!(err.contains("end") || err.contains("missing"),
+            "error should mention missing 'end', got: {err}");
+    }
+
+    #[test]
+    fn missing_end_function() {
+        let err = parse_err("function foo()\n  x = 1\n");
+        assert!(err.contains("end") || err.contains("missing"),
+            "error should mention missing 'end', got: {err}");
+    }
+
+    #[test]
+    fn stray_end_top_level() {
+        let err = parse_err("x = 1\nend\n");
+        assert!(err.contains("end") || err.contains("unexpected"),
+            "stray end should error, got: {err}");
+    }
+
+    #[test]
+    fn else_without_if() {
+        let err = parse_err("else\n  x = 1\nend\n");
+        assert!(err.contains("else") || err.contains("if"),
+            "else without if should error, got: {err}");
+    }
+}
+
+// ─── Tier 2d: Figure state machine (non-rendering) ─────────────────────────
+
+#[cfg(test)]
+mod figure_state_tests {
+    use rustlab_plot::figure::FIGURE;
+
+    fn reset_figure() {
+        FIGURE.with(|f| f.borrow_mut().reset());
+    }
+
+    fn run(src: &str) {
+        // Reset state before each test to avoid cross-test pollution
+        reset_figure();
+        let src = format!("{}\n", src);
+        let tokens = crate::lexer::tokenize(&src).unwrap();
+        let stmts = crate::parser::parse(tokens).unwrap();
+        let mut ev = crate::Evaluator::new();
+        ev.run(&stmts).unwrap();
+    }
+
+    #[test]
+    fn figure_resets_state() {
+        run("title(\"old\");\nfigure();");
+        FIGURE.with(|f| {
+            let fig = f.borrow();
+            assert_eq!(fig.current().title, "", "figure() should reset title");
+            assert!(!fig.hold, "figure() should reset hold");
+        });
+    }
+
+    #[test]
+    fn hold_on_off() {
+        run("hold(\"on\");");
+        FIGURE.with(|f| assert!(f.borrow().hold, "hold('on') should set hold=true"));
+        run("hold(\"off\");");
+        FIGURE.with(|f| assert!(!f.borrow().hold, "hold('off') should set hold=false"));
+    }
+
+    #[test]
+    fn title_sets_current_subplot() {
+        run("title(\"My Title\");");
+        FIGURE.with(|f| {
+            assert_eq!(f.borrow().current().title, "My Title");
+        });
+    }
+
+    #[test]
+    fn xlabel_ylabel() {
+        run("xlabel(\"Time\");\nylabel(\"Amplitude\");");
+        FIGURE.with(|f| {
+            let fig = f.borrow();
+            assert_eq!(fig.current().xlabel, "Time");
+            assert_eq!(fig.current().ylabel, "Amplitude");
+        });
+    }
+
+    #[test]
+    fn xlim_ylim() {
+        run("xlim([0, 10]);\nylim([-1, 1]);");
+        FIGURE.with(|f| {
+            let fig = f.borrow();
+            assert_eq!(fig.current().xlim, (Some(0.0), Some(10.0)));
+            assert_eq!(fig.current().ylim, (Some(-1.0), Some(1.0)));
+        });
+    }
+
+    #[test]
+    fn subplot_creates_panels() {
+        run("subplot(2, 1, 1);\ntitle(\"Top\");\nsubplot(2, 1, 2);\ntitle(\"Bottom\");");
+        FIGURE.with(|f| {
+            let fig = f.borrow();
+            assert_eq!(fig.subplot_rows, 2);
+            assert_eq!(fig.subplot_cols, 1);
+            assert_eq!(fig.subplots.len(), 2);
+            assert_eq!(fig.subplots[0].title, "Top");
+            assert_eq!(fig.subplots[1].title, "Bottom");
+        });
+    }
+
+    #[test]
+    fn grid_on_off() {
+        run("grid(\"off\");");
+        FIGURE.with(|f| assert!(!f.borrow().current().grid));
+        run("grid(\"on\");");
+        FIGURE.with(|f| assert!(f.borrow().current().grid));
+    }
+}
+
+// ─── Tier 2e: Struct operations ─────────────────────────────────────────────
+
+#[cfg(test)]
+mod struct_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+
+    fn run(src: &str) -> Evaluator {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts).unwrap();
+        ev
+    }
+
+    fn try_run(src: &str) -> Result<Evaluator, crate::error::ScriptError> {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts)?;
+        Ok(ev)
+    }
+
+    fn close(a: f64, b: f64) -> bool { (a - b).abs() < 1e-9 }
+
+    #[test]
+    fn struct_creation() {
+        let ev = run("s = struct(\"x\", 1, \"y\", 2);");
+        match ev.get("s").unwrap() {
+            Value::Struct(fields) => {
+                assert_eq!(fields.len(), 2);
+                assert!(matches!(fields.get("x"), Some(Value::Scalar(n)) if close(*n, 1.0)));
+                assert!(matches!(fields.get("y"), Some(Value::Scalar(n)) if close(*n, 2.0)));
+            }
+            other => panic!("expected struct, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn field_access() {
+        let ev = run("s = struct(\"x\", 42);\nv = s.x;");
+        match ev.get("v").unwrap() {
+            Value::Scalar(n) => assert!(close(*n, 42.0)),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn field_assignment_existing_struct() {
+        let ev = run("s = struct(\"x\", 1);\ns.y = 99;");
+        match ev.get("s").unwrap() {
+            Value::Struct(fields) => {
+                assert!(matches!(fields.get("y"), Some(Value::Scalar(n)) if close(*n, 99.0)));
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn auto_create_struct() {
+        let ev = run("thing.val = 7;");
+        match ev.get("thing").unwrap() {
+            Value::Struct(fields) => {
+                assert!(matches!(fields.get("val"), Some(Value::Scalar(n)) if close(*n, 7.0)));
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn isstruct_true() {
+        let ev = run("s = struct(\"a\", 1);\nb = isstruct(s);");
+        match ev.get("b").unwrap() {
+            Value::Bool(true) => {}
+            other => panic!("expected true, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn isstruct_false() {
+        let ev = run("b = isstruct(5);");
+        match ev.get("b").unwrap() {
+            Value::Bool(false) => {}
+            other => panic!("expected false, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn isfield_true_false() {
+        let ev = run("s = struct(\"x\", 1);\na = isfield(s, \"x\");\nb = isfield(s, \"nope\");");
+        match ev.get("a").unwrap() {
+            Value::Bool(true) => {}
+            other => panic!("expected true, got {other:?}"),
+        }
+        match ev.get("b").unwrap() {
+            Value::Bool(false) => {}
+            other => panic!("expected false, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rmfield() {
+        let ev = run("s = struct(\"x\", 1, \"y\", 2);\ns2 = rmfield(s, \"x\");");
+        match ev.get("s2").unwrap() {
+            Value::Struct(fields) => {
+                assert!(!fields.contains_key("x"), "x should be removed");
+                assert!(fields.contains_key("y"), "y should remain");
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn field_assign_on_non_struct_errors() {
+        assert!(try_run("x = 5;\nx.foo = 1;").is_err());
+    }
+
+    #[test]
+    fn fieldnames_does_not_error() {
+        // fieldnames prints to stdout and returns None; just verify it doesn't error
+        let ev = run("s = struct(\"alpha\", 1, \"beta\", 2);\nfieldnames(s);");
+        // s should still be a struct
+        assert!(matches!(ev.get("s").unwrap(), Value::Struct(_)));
+    }
+}
+
+// ─── Tier 3: Lambda and function handle tests ───────────────────────────────
+
+#[cfg(test)]
+mod lambda_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+
+    fn run(src: &str) -> Evaluator {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts).unwrap();
+        ev
+    }
+
+    fn try_run(src: &str) -> Result<Evaluator, crate::error::ScriptError> {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts)?;
+        Ok(ev)
+    }
+
+    fn get_scalar(ev: &Evaluator, name: &str) -> f64 {
+        match ev.get(name).unwrap() {
+            Value::Scalar(n) => *n,
+            other => panic!("expected scalar for '{name}', got {other:?}"),
+        }
+    }
+
+    fn close(a: f64, b: f64) -> bool { (a - b).abs() < 1e-9 }
+
+    // ── Basic lambda ────────────────────────────────────────────────────
+
+    #[test]
+    fn lambda_square() {
+        let ev = run("sq = @(x) x^2;\nr = sq(5);");
+        assert!(close(get_scalar(&ev, "r"), 25.0));
+    }
+
+    #[test]
+    fn lambda_multi_arg() {
+        let ev = run("hyp = @(a, b) sqrt(a^2 + b^2);\nr = hyp(3, 4);");
+        assert!(close(get_scalar(&ev, "r"), 5.0));
+    }
+
+    #[test]
+    fn lambda_composition() {
+        let ev = run("sq = @(x) x^2;\ninc = @(x) x + 1;\nr = sq(inc(4));");
+        assert!(close(get_scalar(&ev, "r"), 25.0));
+    }
+
+    // ── Lexical capture ─────────────────────────────────────────────────
+
+    #[test]
+    fn lambda_captures_env() {
+        let ev = run("g = 0.5;\natten = @(x) x * g;\nr = atten(10);");
+        assert!(close(get_scalar(&ev, "r"), 5.0));
+    }
+
+    #[test]
+    fn lambda_capture_is_snapshot() {
+        // Changing the variable after lambda creation does not affect it
+        let ev = run("g = 0.5;\natten = @(x) x * g;\ng = 99;\nr = atten(10);");
+        assert!(close(get_scalar(&ev, "r"), 5.0));
+    }
+
+    // ── Element-wise lambda on vector ───────────────────────────────────
+
+    #[test]
+    fn lambda_on_vector() {
+        let ev = run("dbl = @(v) v .* 2;\nr = dbl([1, 2, 3]);");
+        match ev.get("r").unwrap() {
+            Value::Vector(v) => {
+                assert!(close(v[0].re, 2.0));
+                assert!(close(v[1].re, 4.0));
+                assert!(close(v[2].re, 6.0));
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    // ── Function handles ────────────────────────────────────────────────
+
+    #[test]
+    fn funchandle_builtin() {
+        let ev = run("h = @sin;\nr = h(pi / 2);");
+        assert!(close(get_scalar(&ev, "r"), 1.0));
+    }
+
+    #[test]
+    fn funchandle_abs() {
+        let ev = run("h = @abs;\nr = h(-7);");
+        assert!(close(get_scalar(&ev, "r"), 7.0));
+    }
+
+    #[test]
+    fn funchandle_user_fn() {
+        let ev = run("function y = cube(x)\n  y = x^3;\nend\nh = @cube;\nr = h(3);");
+        assert!(close(get_scalar(&ev, "r"), 27.0));
+    }
+
+    // ── Passing lambdas as arguments ────────────────────────────────────
+
+    #[test]
+    fn lambda_as_argument() {
+        let ev = run("function y = apply(f, x)\n  y = f(x);\nend\nsq = @(x) x^2;\nr = apply(sq, 6);");
+        assert!(close(get_scalar(&ev, "r"), 36.0));
+    }
+
+    #[test]
+    fn funchandle_as_argument() {
+        let ev = run("function y = apply(f, x)\n  y = f(x);\nend\nr = apply(@sqrt, 16);");
+        assert!(close(get_scalar(&ev, "r"), 4.0));
+    }
+
+    #[test]
+    fn apply_twice() {
+        let ev = run("function y = twice(f, x)\n  y = f(f(x));\nend\ninc = @(x) x + 1;\nr = twice(inc, 0);");
+        assert!(close(get_scalar(&ev, "r"), 2.0));
+    }
+
+    // ── Higher-order: lambda returning lambda ───────────────────────────
+
+    #[test]
+    fn lambda_returning_lambda() {
+        let ev = run("make_gain = @(g) @(v) v .* g;\nboost = make_gain(3);\nr = boost(10);");
+        assert!(close(get_scalar(&ev, "r"), 30.0));
+    }
+
+    // ── arrayfun ────────────────────────────────────────────────────────
+
+    #[test]
+    fn arrayfun_scalar_output() {
+        let ev = run("r = arrayfun(@(x) x^2, [1, 2, 3, 4]);");
+        match ev.get("r").unwrap() {
+            Value::Vector(v) => {
+                assert_eq!(v.len(), 4);
+                assert!(close(v[0].re, 1.0));
+                assert!(close(v[1].re, 4.0));
+                assert!(close(v[2].re, 9.0));
+                assert!(close(v[3].re, 16.0));
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn arrayfun_with_funchandle() {
+        let ev = run("r = arrayfun(@sqrt, [4, 9, 16]);");
+        match ev.get("r").unwrap() {
+            Value::Vector(v) => {
+                assert!(close(v[0].re, 2.0));
+                assert!(close(v[1].re, 3.0));
+                assert!(close(v[2].re, 4.0));
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn arrayfun_vector_output_gives_matrix() {
+        let ev = run("r = arrayfun(@(x) [x, x^2], [1, 2, 3]);");
+        match ev.get("r").unwrap() {
+            Value::Matrix(m) => {
+                assert_eq!(m.nrows(), 3);
+                assert_eq!(m.ncols(), 2);
+                assert!(close(m[[0, 0]].re, 1.0));
+                assert!(close(m[[0, 1]].re, 1.0));
+                assert!(close(m[[2, 0]].re, 3.0));
+                assert!(close(m[[2, 1]].re, 9.0));
+            }
+            other => panic!("expected matrix, got {other:?}"),
+        }
+    }
+
+    // ── feval ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn feval_builtin() {
+        let ev = run("r = feval(\"sqrt\", 144);");
+        assert!(close(get_scalar(&ev, "r"), 12.0));
+    }
+
+    #[test]
+    fn feval_user_fn() {
+        let ev = run("function y = dbl(x)\n  y = x * 2;\nend\nr = feval(\"dbl\", 5);");
+        assert!(close(get_scalar(&ev, "r"), 10.0));
+    }
+
+    // ── Error cases ─────────────────────────────────────────────────────
+
+    #[test]
+    fn lambda_wrong_arg_count() {
+        assert!(try_run("f = @(x) x^2;\nf(1, 2);").is_err());
+    }
+
+    #[test]
+    fn funchandle_undefined_errors() {
+        assert!(try_run("h = @nonexistent_fn;\nh(1);").is_err());
+    }
+}
+
+// ─── Tier 3: Optional-arg builtin negative tests ────────────────────────────
+
+#[cfg(test)]
+mod optional_arg_tests {
+    fn try_run(src: &str) -> Result<crate::Evaluator, crate::error::ScriptError> {
+        let src = format!("{}\n", src);
+        let tokens = crate::lexer::tokenize(&src).unwrap();
+        let stmts = crate::parser::parse(tokens).unwrap();
+        let mut ev = crate::Evaluator::new();
+        ev.run(&stmts)?;
+        Ok(ev)
+    }
+
+    fn assert_err(src: &str) {
+        assert!(try_run(src).is_err(), "expected error for: {src}");
+    }
+
+    // ── zeros/ones: accept 1-2 args ─────────────────────────────────────
+    #[test] fn zeros_too_many() { assert_err("zeros(1, 2, 3)"); }
+    #[test] fn ones_too_many()  { assert_err("ones(1, 2, 3)"); }
+
+    // ── rand/randn: accept 1-2 args ─────────────────────────────────────
+    #[test] fn rand_too_many()  { assert_err("rand(1, 2, 3)"); }
+    #[test] fn randn_too_many() { assert_err("randn(1, 2, 3)"); }
+    #[test] fn rand_zero_args() { assert_err("rand()"); }
+
+    // ── trapz: accept 1-2 args ──────────────────────────────────────────
+    #[test] fn trapz_zero_args()  { assert_err("trapz()"); }
+    #[test] fn trapz_three_args() { assert_err("trapz([1],[2],[3])"); }
+
+    // ── size: accept 1-2 args ───────────────────────────────────────────
+    #[test] fn size_three_args() { assert_err("size([1], 1, 2)"); }
+
+    // ── diag: accept 1-2 args ───────────────────────────────────────────
+    #[test] fn diag_three_args() { assert_err("diag([1], 1, 2)"); }
+
+    // ── norm: accept 1-2 args ───────────────────────────────────────────
+    #[test] fn norm_three_args() { assert_err("norm([1], 2, 3)"); }
+
+    // ── layernorm: accept 1-2 args ──────────────────────────────────────
+    #[test] fn layernorm_zero_args()  { assert_err("layernorm()"); }
+    #[test] fn layernorm_three_args() { assert_err("layernorm([1], 1, 2)"); }
+
+    // ── tf: accept 1-2 args ─────────────────────────────────────────────
+    #[test] fn tf_zero_args()  { assert_err("tf()"); }
+    #[test] fn tf_three_args() { assert_err("tf([1], [1], [1])"); }
+
+    // ── step/bode: accept 1-2 args ──────────────────────────────────────
+    #[test]
+    fn step_zero_args() { assert_err("step()"); }
+    #[test]
+    fn bode_zero_args() { assert_err("bode()"); }
+
+    // ── Verify that optional args DO work (positive cases) ──────────────
+    #[test]
+    fn zeros_one_arg()   { try_run("zeros(3);").unwrap(); }
+    #[test]
+    fn zeros_two_args()  { try_run("zeros(2, 3);").unwrap(); }
+    #[test]
+    fn ones_one_arg()    { try_run("ones(3);").unwrap(); }
+    #[test]
+    fn ones_two_args()   { try_run("ones(2, 3);").unwrap(); }
+    #[test]
+    fn diag_one_arg()    { try_run("diag([1, 2, 3]);").unwrap(); }
+    #[test]
+    fn norm_one_arg()    { try_run("norm([1, 2, 3]);").unwrap(); }
+    #[test]
+    fn trapz_one_arg()   { try_run("trapz([1, 2, 3]);").unwrap(); }
+    #[test]
+    fn size_one_arg()    { try_run("size([1, 2, 3]);").unwrap(); }
+}

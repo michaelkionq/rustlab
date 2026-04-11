@@ -75,3 +75,84 @@ impl OverflowMode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── RoundMode ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn round_mode_from_str_all_variants() {
+        assert_eq!(RoundMode::from_str("floor"),     Some(RoundMode::Floor));
+        assert_eq!(RoundMode::from_str("ceil"),      Some(RoundMode::Ceil));
+        assert_eq!(RoundMode::from_str("zero"),      Some(RoundMode::Zero));
+        assert_eq!(RoundMode::from_str("round"),     Some(RoundMode::Round));
+        assert_eq!(RoundMode::from_str("round_even"), Some(RoundMode::RoundEven));
+    }
+
+    #[test]
+    fn round_mode_aliases() {
+        assert_eq!(RoundMode::from_str("truncate"),   Some(RoundMode::Floor));
+        assert_eq!(RoundMode::from_str("trunc"),      Some(RoundMode::Floor));
+        assert_eq!(RoundMode::from_str("even"),       Some(RoundMode::RoundEven));
+        assert_eq!(RoundMode::from_str("convergent"), Some(RoundMode::RoundEven));
+    }
+
+    #[test]
+    fn round_mode_case_insensitive() {
+        assert_eq!(RoundMode::from_str("FLOOR"), Some(RoundMode::Floor));
+        assert_eq!(RoundMode::from_str("Round_Even"), Some(RoundMode::RoundEven));
+    }
+
+    #[test]
+    fn round_mode_hyphen_alias() {
+        assert_eq!(RoundMode::from_str("round-even"), Some(RoundMode::RoundEven));
+    }
+
+    #[test]
+    fn round_mode_unknown_returns_none() {
+        assert_eq!(RoundMode::from_str("banana"), None);
+        assert_eq!(RoundMode::from_str(""), None);
+    }
+
+    #[test]
+    fn round_mode_round_trip() {
+        for mode in [RoundMode::Floor, RoundMode::Ceil, RoundMode::Zero,
+                     RoundMode::Round, RoundMode::RoundEven] {
+            assert_eq!(RoundMode::from_str(mode.as_str()), Some(mode));
+        }
+    }
+
+    // ── OverflowMode ────────────────────────────────────────────────────────
+
+    #[test]
+    fn overflow_mode_from_str_all_variants() {
+        assert_eq!(OverflowMode::from_str("saturate"), Some(OverflowMode::Saturate));
+        assert_eq!(OverflowMode::from_str("wrap"),     Some(OverflowMode::Wrap));
+    }
+
+    #[test]
+    fn overflow_mode_aliases() {
+        assert_eq!(OverflowMode::from_str("sat"), Some(OverflowMode::Saturate));
+    }
+
+    #[test]
+    fn overflow_mode_case_insensitive() {
+        assert_eq!(OverflowMode::from_str("SATURATE"), Some(OverflowMode::Saturate));
+        assert_eq!(OverflowMode::from_str("Wrap"), Some(OverflowMode::Wrap));
+    }
+
+    #[test]
+    fn overflow_mode_unknown_returns_none() {
+        assert_eq!(OverflowMode::from_str("clamp"), None);
+        assert_eq!(OverflowMode::from_str(""), None);
+    }
+
+    #[test]
+    fn overflow_mode_round_trip() {
+        for mode in [OverflowMode::Saturate, OverflowMode::Wrap] {
+            assert_eq!(OverflowMode::from_str(mode.as_str()), Some(mode));
+        }
+    }
+}

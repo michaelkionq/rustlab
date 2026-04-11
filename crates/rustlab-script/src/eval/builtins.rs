@@ -277,9 +277,10 @@ fn check_args(name: &str, args: &[Value], expected: usize) -> Result<(), ScriptE
 
 fn check_args_range(name: &str, args: &[Value], min: usize, max: usize) -> Result<(), ScriptError> {
     if args.len() < min || args.len() > max {
-        Err(ScriptError::ArgCount {
+        Err(ScriptError::ArgCountRange {
             name: name.to_string(),
-            expected: min,
+            min,
+            max,
             got: args.len(),
         })
     } else {

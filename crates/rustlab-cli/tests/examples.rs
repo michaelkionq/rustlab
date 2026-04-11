@@ -122,3 +122,12 @@ fn example_fixed_point() {
     assert!(snr_values[4] > 60.0,
         "16-bit SNR below expected floor of 60 dB: {:.1}", snr_values[4]);
 }
+
+// ── Non-interactive examples (no terminal plot calls) ─────────────────────
+
+#[test] fn example_functions()       { run_example_ok("functions"); }
+#[test] fn example_lambda()          { run_example_ok("lambda"); }
+#[test] fn example_lambda_pipeline() { run_example_ok("lambda_pipeline"); }
+#[test] fn example_profiling()       { run_example_ok("profiling"); }
+#[test] fn example_upfirdn()         { run_example_ok("upfirdn"); }
+#[test] fn example_vectors()         { run_example_ok("vectors"); }

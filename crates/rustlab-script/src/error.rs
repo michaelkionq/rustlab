@@ -16,6 +16,8 @@ pub enum ScriptError {
     UndefinedFn(String),
     #[error("wrong number of arguments for {name}: expected {expected}, got {got}")]
     ArgCount { name: String, expected: usize, got: usize },
+    #[error("wrong number of arguments for {name}: expected {min}..{max}, got {got}")]
+    ArgCountRange { name: String, min: usize, max: usize, got: usize },
     #[error(transparent)]
     Dsp(#[from] rustlab_dsp::error::DspError),
     #[error(transparent)]

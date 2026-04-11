@@ -15,7 +15,7 @@ use crate::compute_histogram;
 use std::io::stdout;
 
 /// Format a float like C's `%.3g`: use scientific for very large/small numbers, otherwise 3 sig figs.
-fn fmt_g(v: f64) -> String {
+pub(crate) fn fmt_g(v: f64) -> String {
     if v == 0.0 { return "0".to_string(); }
     let abs = v.abs();
     if abs < 0.001 || abs >= 10000.0 {
@@ -519,4 +519,22 @@ pub fn plot_histogram(data: &RVector, n_bins: usize, title: &str) -> Result<(), 
         });
     });
     render_figure_terminal()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fmt_g;
+
+    #[test] fn zero()           { assert_eq!(fmt_g(0.0), "0"); }
+    #[test] fn small_positive() { assert_eq!(fmt_g(5.5), "5.50"); }
+    #[test] fn tens()           { assert_eq!(fmt_g(42.7), "42.7"); }
+    #[test] fn hundreds()       { assert_eq!(fmt_g(256.0), "256"); }
+    #[test] fn very_small()     { assert!(fmt_g(0.00001).contains("e")); }
+    #[test] fn very_large()     { assert!(fmt_g(99999.0).contains("e")); }
+    #[test] fn negative()       { assert_eq!(fmt_g(-5.5), "-5.50"); }
+    #[test] fn negative_small() { assert!(fmt_g(-0.0001).contains("e")); }
+    #[test] fn one()            { assert_eq!(fmt_g(1.0), "1.00"); }
+    #[test] fn boundary_001()   { assert_eq!(fmt_g(0.001), "0.00"); }
+    #[test] fn boundary_10000() { assert!(fmt_g(10000.0).contains("e")); }
+    #[test] fn pi()             { assert_eq!(fmt_g(std::f64::consts::PI), "3.14"); }
 }
