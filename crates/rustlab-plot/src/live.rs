@@ -1,6 +1,6 @@
 use crossterm::{event::{self, Event, KeyCode, KeyModifiers}, execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
 use ratatui::{Terminal, backend::CrosstermBackend};
-use std::io::{stdout, IsTerminal};
+use std::io::{stdin, stdout, IsTerminal};
 use crate::{ascii::draw_subplots, error::PlotError, figure::{LineStyle, PlotKind, Series, SeriesColor, SubplotState}};
 
 /// A persistent live-updating terminal plot that stays open across multiple
@@ -15,6 +15,7 @@ pub struct LiveFigure {
     panels:   Vec<SubplotState>,
     rows:     usize,
     cols:     usize,
+    raw_mode: bool,
 }
 
 impl LiveFigure {
@@ -25,12 +26,19 @@ impl LiveFigure {
             return Err(PlotError::NotATty);
         }
         execute!(stdout(), EnterAlternateScreen)?;
-        enable_raw_mode()?;
+        // Only enable raw mode when stdin is a real terminal.  When stdin is
+        // a pipe (e.g. audio PCM), tcsetattr would fail.  In that case Ctrl-C
+        // already works: it kills the upstream process, closing the pipe,
+        // which triggers AudioEof for a clean exit.
+        let raw_mode = stdin().is_terminal();
+        if raw_mode {
+            enable_raw_mode()?;
+        }
         let backend = CrosstermBackend::new(stdout());
         let terminal = Terminal::new(backend)
             .map_err(|e| PlotError::Terminal(e.to_string()))?;
         let panels = (0..rows * cols).map(|_| SubplotState::new()).collect();
-        Ok(Self { terminal, panels, rows, cols })
+        Ok(Self { terminal, panels, rows, cols, raw_mode })
     }
 
     /// Replace the data in panel `idx` (0-based).  Does **not** redraw —
@@ -71,20 +79,24 @@ impl LiveFigure {
             .draw(|f| draw_subplots(f, panels, rows, cols))
             .map_err(|e| PlotError::Terminal(e.to_string()))?;
 
-        // Drain all pending key events (non-blocking).
-        while event::poll(std::time::Duration::ZERO)
-            .map_err(|e| PlotError::Terminal(e.to_string()))?
-        {
-            if let Event::Key(key) = event::read()
+        // Drain pending key events when raw mode is active (stdin is a tty).
+        // When stdin is a pipe, key polling is not available — Ctrl-C works
+        // via SIGINT killing the upstream process instead.
+        if self.raw_mode {
+            while event::poll(std::time::Duration::ZERO)
                 .map_err(|e| PlotError::Terminal(e.to_string()))?
             {
-                if key.code == KeyCode::Char('c')
-                    && key.modifiers.contains(KeyModifiers::CONTROL)
+                if let Event::Key(key) = event::read()
+                    .map_err(|e| PlotError::Terminal(e.to_string()))?
                 {
-                    return Err(PlotError::Interrupted);
-                }
-                if key.code == KeyCode::Char('q') {
-                    return Err(PlotError::Interrupted);
+                    if key.code == KeyCode::Char('c')
+                        && key.modifiers.contains(KeyModifiers::CONTROL)
+                    {
+                        return Err(PlotError::Interrupted);
+                    }
+                    if key.code == KeyCode::Char('q') {
+                        return Err(PlotError::Interrupted);
+                    }
                 }
             }
         }
@@ -100,7 +112,9 @@ impl std::fmt::Debug for LiveFigure {
 
 impl Drop for LiveFigure {
     fn drop(&mut self) {
-        let _ = disable_raw_mode();
+        if self.raw_mode {
+            let _ = disable_raw_mode();
+        }
         let _ = execute!(stdout(), LeaveAlternateScreen);
     }
 }
