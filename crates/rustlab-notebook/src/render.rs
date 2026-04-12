@@ -27,13 +27,21 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
                 body.push_str(&html);
                 body.push_str("</div>\n");
             }
-            Rendered::Code { source, error, figure } => {
+            Rendered::Code { source, text_output, error, figure } => {
                 body.push_str("<div class=\"code-block\">\n");
 
                 // Source code
                 body.push_str("<pre class=\"source\"><code>");
                 body.push_str(&escape_html(source));
                 body.push_str("</code></pre>\n");
+
+                // Text output (if any)
+                let trimmed_output = text_output.trim();
+                if !trimmed_output.is_empty() {
+                    body.push_str("<pre class=\"output\">");
+                    body.push_str(&escape_html(trimmed_output));
+                    body.push_str("</pre>\n");
+                }
 
                 // Error (if any)
                 if let Some(err) = error {
@@ -188,6 +196,18 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
     font-size: 0.85rem;
     line-height: 1.5;
     color: #cdd6f4;
+  }}
+  .output {{
+    background: #181825;
+    border: 1px solid #313244;
+    border-radius: 6px;
+    padding: 0.8rem 1rem;
+    margin-top: 0.5rem;
+    color: #a6adc8;
+    font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    line-height: 1.5;
   }}
   .error {{
     background: #1e0a0a;

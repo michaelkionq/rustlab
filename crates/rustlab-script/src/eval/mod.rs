@@ -1,4 +1,5 @@
 pub mod builtins;
+pub mod output;
 pub mod profile;
 pub mod toml_io;
 pub mod value;
@@ -138,10 +139,10 @@ impl Evaluator {
                 let val = self.eval_expr(expr)?;
                 if !suppress && !self.in_function {
                     let display = val.format_display(self.number_format);
-                    if self.color_output {
-                        println!("\x1b[32m{}\x1b[0m = {}", name, display);
+                    if self.color_output && !output::capturing() {
+                        output::script_println(&format!("\x1b[32m{}\x1b[0m = {}", name, display));
                     } else {
-                        println!("{} = {}", name, display);
+                        output::script_println(&format!("{} = {}", name, display));
                     }
                 }
                 self.env.insert(name.clone(), val);
@@ -158,10 +159,10 @@ impl Evaluator {
                 let val = self.eval_expr(expr)?;
                 if !suppress && !self.in_function {
                     let display = val.format_display(self.number_format);
-                    if self.color_output {
-                        println!("\x1b[32m{}.{}\x1b[0m = {}", object, field, display);
+                    if self.color_output && !output::capturing() {
+                        output::script_println(&format!("\x1b[32m{}.{}\x1b[0m = {}", object, field, display));
                     } else {
-                        println!("{}.{} = {}", object, field, display);
+                        output::script_println(&format!("{}.{} = {}", object, field, display));
                     }
                 }
                 match self.env.get_mut(object) {
@@ -224,22 +225,22 @@ impl Evaluator {
                 match mode.as_str() {
                     "short" | "default" => {
                         self.number_format = NumberFormat::Short;
-                        println!("format: short");
+                        output::script_println("format: short");
                     }
                     "long" => {
                         self.number_format = NumberFormat::Long;
-                        println!("format: long");
+                        output::script_println("format: long");
                     }
                     "hex" => {
                         self.number_format = NumberFormat::Hex;
-                        println!("format: hex");
+                        output::script_println("format: hex");
                     }
                     "commas" => {
                         self.number_format = NumberFormat::Commas;
-                        println!("format: commas");
+                        output::script_println("format: commas");
                     }
                     "" => {
-                        println!("format: {}", self.number_format.name());
+                        output::script_println(&format!("format: {}", self.number_format.name()));
                     }
                     other => {
                         return Err(ScriptError::runtime(format!(
@@ -318,10 +319,10 @@ impl Evaluator {
                             if name == "~" { continue; } // discard
                             if !suppress && !self.in_function {
                                 let display = v.format_display(self.number_format);
-                                if self.color_output {
-                                    println!("\x1b[32m{}\x1b[0m = {}", name, display);
+                                if self.color_output && !output::capturing() {
+                                    output::script_println(&format!("\x1b[32m{}\x1b[0m = {}", name, display));
                                 } else {
-                                    println!("{} = {}", name, display);
+                                    output::script_println(&format!("{} = {}", name, display));
                                 }
                             }
                             self.env.insert(name.clone(), v);
@@ -336,10 +337,10 @@ impl Evaluator {
                         }
                         if names[0] != "~" {
                             if !suppress && !self.in_function {
-                                if self.color_output {
-                                    println!("\x1b[32m{}\x1b[0m = {}", names[0], single);
+                                if self.color_output && !output::capturing() {
+                                    output::script_println(&format!("\x1b[32m{}\x1b[0m = {}", names[0], single));
                                 } else {
-                                    println!("{} = {}", names[0], single);
+                                    output::script_println(&format!("{} = {}", names[0], single));
                                 }
                             }
                             self.env.insert(names[0].clone(), single);
@@ -421,7 +422,7 @@ impl Evaluator {
                                 }
                                 sv.set(idx - 1, assign_val);
                                 if !suppress && !self.in_function {
-                                    println!("{}({}) = {}", name, idx, Value::Complex(assign_val));
+                                    output::script_println(&format!("{}({}) = {}", name, idx, Value::Complex(assign_val)));
                                 }
                             }
                             _ => unreachable!(),
@@ -449,8 +450,8 @@ impl Evaluator {
                                     m[[idx - 1, col]] = v;
                                 }
                                 if !suppress && !self.in_function {
-                                    println!("{}({}) = [{}]", name, idx,
-                                        row_data.iter().map(|c| format!("{}", Value::Complex(*c))).collect::<Vec<_>>().join(", "));
+                                    output::script_println(&format!("{}({}) = [{}]", name, idx,
+                                        row_data.iter().map(|c| format!("{}", Value::Complex(*c))).collect::<Vec<_>>().join(", ")));
                                 }
                             }
                             _ => unreachable!(),
@@ -486,7 +487,7 @@ impl Evaluator {
                     };
                     vec[idx - 1] = assign_val;
                     if !suppress && !self.in_function {
-                        println!("{}({}) = {}", name, idx, Value::Complex(assign_val));
+                        output::script_println(&format!("{}({}) = {}", name, idx, Value::Complex(assign_val)));
                     }
                     } // end else scalar assignment
                 } else if idx_vals.len() == 2 {
@@ -516,7 +517,7 @@ impl Evaluator {
                             }
                             m[[row - 1, col - 1]] = assign_val;
                             if !suppress && !self.in_function {
-                                println!("{}({},{}) = {}", name, row, col, Value::Complex(assign_val));
+                                output::script_println(&format!("{}({},{}) = {}", name, row, col, Value::Complex(assign_val)));
                             }
                         }
                         Some(Value::SparseMatrix(sm)) => {
@@ -528,7 +529,7 @@ impl Evaluator {
                             }
                             sm.set(row - 1, col - 1, assign_val);
                             if !suppress && !self.in_function {
-                                println!("{}({},{}) = {}", name, row, col, Value::Complex(assign_val));
+                                output::script_println(&format!("{}({},{}) = {}", name, row, col, Value::Complex(assign_val)));
                             }
                         }
                         _ => return Err(ScriptError::runtime(format!(
@@ -566,7 +567,7 @@ impl Evaluator {
                                     .map_err(|e| ScriptError::runtime(e))?;
                                 if !suppress {
                                     let names: Vec<&str> = vars.iter().map(|(n, _)| n.as_str()).collect();
-                                    println!("loaded: {}", names.join(", "));
+                                    output::script_println(&format!("loaded: {}", names.join(", ")));
                                 }
                                 for (var_name, val) in vars {
                                     self.env.insert(var_name, val);
@@ -579,7 +580,7 @@ impl Evaluator {
 
                 let val = self.eval_expr(expr)?;
                 if !suppress && !self.in_function && !matches!(val, Value::None) {
-                    println!("{}", val.format_display(self.number_format));
+                    output::script_println(&val.format_display(self.number_format));
                 }
             }
         }

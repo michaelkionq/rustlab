@@ -10,6 +10,7 @@ pub enum Rendered {
     /// An executed code block with its results.
     Code {
         source: String,
+        text_output: String,
         error: Option<String>,
         figure: Option<FigureState>,
     },
@@ -19,7 +20,9 @@ pub enum Rendered {
 ///
 /// Code blocks run in sequence through a shared evaluator (variables
 /// persist across blocks). After each code block, the current figure
-/// is captured if it has any series data.
+/// is captured if it has any series data, and any text output (from
+/// assignments, `disp()`, `print()`, etc.) is captured via the
+/// evaluator's output buffer.
 pub fn execute_notebook(blocks: &[Block]) -> Vec<Rendered> {
     let mut ev = Evaluator::new();
     let mut rendered = Vec::with_capacity(blocks.len());
@@ -34,7 +37,10 @@ pub fn execute_notebook(blocks: &[Block]) -> Vec<Rendered> {
                 // what this block produces.
                 FIGURE.with(|fig| fig.borrow_mut().reset());
 
+                // Capture text output during execution
+                rustlab_script::start_capture();
                 let error = run_code_block(&mut ev, source);
+                let text_output = rustlab_script::stop_capture();
 
                 // Capture figure if it has data
                 let figure = FIGURE.with(|fig| {
@@ -48,6 +54,7 @@ pub fn execute_notebook(blocks: &[Block]) -> Vec<Rendered> {
 
                 rendered.push(Rendered::Code {
                     source: source.clone(),
+                    text_output,
                     error,
                     figure,
                 });

@@ -40,6 +40,7 @@ mod tests;
 
 pub use eval::Evaluator;
 pub use eval::Value;
+pub use eval::output::{start_capture, stop_capture, capturing};
 pub use error::ScriptError;
 
 /// Execute a `.r` script from source text.

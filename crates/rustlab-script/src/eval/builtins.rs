@@ -1496,11 +1496,12 @@ fn builtin_snr(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 fn builtin_print(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("print", &args, 0, 16)?;
+    let mut out = String::new();
     for (i, v) in args.iter().enumerate() {
-        if i > 0 { print!(" "); }
-        print!("{}", v);
+        if i > 0 { out.push(' '); }
+        out.push_str(&format!("{}", v));
     }
-    println!();
+    super::output::script_println(&out);
     Ok(Value::None)
 }
 
@@ -3304,8 +3305,8 @@ fn builtin_whos_file(args: Vec<Value>) -> Result<Value, ScriptError> {
     let file = std::fs::File::open(&path).map_err(|e| ScriptError::runtime(e.to_string()))?;
     let mut zip = ZipArchive::new(file).map_err(|e| ScriptError::runtime(e.to_string()))?;
 
-    println!("\n  {:<20} {:<10} {}", "Name", "Type", "Size");
-    println!("  {}", "─".repeat(44));
+    super::output::script_println(&format!("\n  {:<20} {:<10} {}", "Name", "Type", "Size"));
+    super::output::script_println(&format!("  {}", "─".repeat(44)));
 
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| ScriptError::runtime(e.to_string()))?;
@@ -3333,9 +3334,9 @@ fn builtin_whos_file(args: Vec<Value>) -> Result<Value, ScriptError> {
             } else { ("?".to_string(), "?".to_string()) }
         } else { ("?".to_string(), "?".to_string()) };
 
-        println!("  {:<20} {:<10} {}", name, info.0, info.1);
+        super::output::script_println(&format!("  {:<20} {:<10} {}", name, info.0, info.1));
     }
-    println!();
+    super::output::script_println("");
     Ok(Value::None)
 }
 
@@ -3360,7 +3361,7 @@ fn builtin_struct(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 fn builtin_disp(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("disp", &args, 1)?;
-    println!("{}", args[0]);
+    super::output::script_println(&format!("{}", args[0]));
     Ok(Value::None)
 }
 
@@ -3370,7 +3371,7 @@ fn builtin_fprintf(args: Vec<Value>) -> Result<Value, ScriptError> {
     }
     let fmt = args[0].to_str().map_err(|e| ScriptError::type_err(e))?;
     let output = apply_format(&fmt, &args[1..]).map_err(|e| ScriptError::runtime(e))?;
-    print!("{}", output);
+    super::output::script_print(&output);
     Ok(Value::None)
 }
 
@@ -3619,7 +3620,7 @@ fn builtin_fieldnames(args: Vec<Value>) -> Result<Value, ScriptError> {
             let mut names: Vec<_> = fields.keys().cloned().collect();
             names.sort();
             for name in &names {
-                println!("  {}", name);
+                super::output::script_println(&format!("  {}", name));
             }
             Ok(Value::None)
         }
