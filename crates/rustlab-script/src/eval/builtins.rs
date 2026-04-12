@@ -263,6 +263,7 @@ impl BuiltinRegistry {
         r.register("figure_draw",   builtin_figure_draw);
         r.register("figure_close",  builtin_figure_close);
         r.register("mag2db",        builtin_mag2db);
+        r.register("sleep",         builtin_sleep);
 
         r
     }
@@ -917,6 +918,20 @@ fn builtin_max(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Scalar(s) => Ok(Value::Scalar(*s)),
         _ => Err(ScriptError::type_err("max: argument must be a non-empty vector, matrix, or scalar".to_string())),
     }
+}
+
+/// sleep(seconds) — pause execution for the given duration
+fn builtin_sleep(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("sleep", &args, 1)?;
+    let secs = match &args[0] {
+        Value::Scalar(s) => *s,
+        _ => return Err(ScriptError::type_err("sleep: argument must be a scalar (seconds)".to_string())),
+    };
+    if secs < 0.0 {
+        return Err(ScriptError::type_err("sleep: duration must be non-negative".to_string()));
+    }
+    std::thread::sleep(std::time::Duration::from_secs_f64(secs));
+    Ok(Value::Scalar(0.0))
 }
 
 fn builtin_error(args: Vec<Value>) -> Result<Value, ScriptError> {

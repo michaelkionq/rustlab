@@ -352,6 +352,8 @@ const HELP: &[HelpEntry] = &[
         detail: "if cond1\n  body1\nelseif cond2\n  body2\nelseif cond3\n  body3\nelse\n  default\nend\n\nMultiple elseif arms are allowed; first true condition wins." },
     HelpEntry { name: "error", brief: "Halt execution with an error message",
         detail: "error('msg')  — stop the script and display the message\n  error('Invalid input')  → runtime error: Invalid input" },
+    HelpEntry { name: "sleep", brief: "Pause execution for a duration in seconds",
+        detail: "sleep(seconds)\n  sleep(0.01)   — pause for 10 ms\n  sleep(1.5)    — pause for 1.5 seconds\n\nUseful for real-time control loops and animation pacing." },
     // User-defined functions
     HelpEntry { name: "function", brief: "Define a named function",
         detail: "function y = foo(x)\n  y = x * 2\nend\n\nfunction bar(a, b)\n  print(a + b)\nend\n\nSyntax:\n  function retvar = name(param1, param2, ...)\n    body\n  end\n  function name(param, ...)   % no return value\n    body\n  end\n\nuse 'return' to exit early." },
@@ -707,7 +709,7 @@ fn print_help_list() {
         ("Control Flow",     &["if","elseif","switch","for","function","error","index_assign","chained_index"]),
         ("Output",           &["disp","fprintf","sprintf","commas","print"]),
         ("Formatting",       &["format","underscores"]),
-        ("I/O",              &["print","save","load","whos"]),
+        ("I/O",              &["print","save","load","whos","sleep"]),
         ("Language / REPL",  &["i / j","pi","e","Inf","NaN","range","index","index_assign","chained_index","compound_assign","clear","whos",
                                "arrayfun","feval","profile","profile_report"]),
         ("Filesystem",       &["run","ls","cd","pwd"]),
