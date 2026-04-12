@@ -1,12 +1,16 @@
 # Spectral Estimation
 
-Comparing two approaches to estimating the power spectrum of a noisy
-multi-tone signal.
+Comparing two approaches to estimating the power spectral density of a
+noisy multi-tone signal.
 
 ## Test Signal
 
-Two sinusoids at f1 = 0.15 and f2 = 0.18 cycles/sample, plus noise.
-These are intentionally close together to test frequency resolution.
+Two sinusoids at $f_1 = 0.15$ and $f_2 = 0.18$ cycles/sample, plus
+additive white Gaussian noise:
+
+$$x[n] = \sin(2\pi f_1 n) + 0.8\sin(2\pi f_2 n) + 0.3\,w[n]$$
+
+These frequencies are intentionally close together to test resolution.
 
 ```rustlab
 N = 1024;
@@ -20,7 +24,10 @@ grid on
 
 ## Direct FFT (Periodogram)
 
-The simplest spectral estimate — magnitude-squared of the FFT:
+The periodogram estimates the PSD as the magnitude-squared DFT, normalized
+by $N$:
+
+$$\hat{P}_{xx}[k] = \frac{1}{N} \left| \sum_{n=0}^{N-1} x[n]\,e^{-j2\pi kn/N} \right|^2$$
 
 ```rustlab
 X = fft(x);
@@ -33,11 +40,15 @@ ylabel("Power (dB)")
 grid on
 ```
 
-Both tones are visible, but the periodogram is noisy.
+Both tones are visible, but the periodogram is noisy due to spectral
+leakage from the implicit rectangular window.
 
 ## Windowed FFT (Hann)
 
-Applying a Hann window reduces leakage at the cost of slightly wider peaks:
+Applying a Hann window $w[n] = 0.5 - 0.5\cos(2\pi n / N)$ reduces
+sidelobe leakage at the cost of slightly wider main lobes:
+
+$$\hat{P}_{ww}[k] = \frac{1}{\sum w[n]^2} \left| \sum_{n=0}^{N-1} x[n]\,w[n]\,e^{-j2\pi kn/N} \right|^2$$
 
 ```rustlab
 w = window("hann", N);
@@ -51,7 +62,8 @@ ylabel("Power (dB)")
 grid on
 ```
 
-The noise floor drops and the two tones are clearly resolved.
+The noise floor drops and the two tones at $f_1$ and $f_2$ are clearly
+resolved.
 
 ## Comparison
 
@@ -66,5 +78,5 @@ title("Hann Window"); ylabel("dB"); xlabel("Frequency"); grid on
 
 | Window      | Main Lobe Width | First Sidelobe |
 |-------------|-----------------|----------------|
-| Rectangular | 2/N             | -13 dB         |
-| Hann        | 4/N             | -31 dB         |
+| Rectangular | $2/N$           | $-13$ dB       |
+| Hann        | $4/N$           | $-31$ dB       |

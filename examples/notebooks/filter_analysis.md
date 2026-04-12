@@ -2,9 +2,9 @@
 
 ## Design
 
-We design a 64-tap FIR lowpass filter with a cutoff at 3 kHz (sample rate
-16 kHz) using `fir_lowpass`, then verify its frequency response with
-`freqz`.
+We design a 64-tap FIR lowpass filter with cutoff frequency $f_c = 3$ kHz
+at sample rate $f_s = 16$ kHz using a Hamming window, then verify its
+frequency response $H(e^{j\omega})$.
 
 ```rustlab
 h = fir_lowpass(64, 3000, 16000, "hamming");
@@ -18,23 +18,32 @@ ylabel("Magnitude (dB)")
 grid on
 ```
 
-The passband is flat and the stopband rejection is strong.
+The passband is flat and the stopband rejection is strong. The normalized
+cutoff is $\omega_c = 2\pi f_c / f_s = 0.375\pi$ rad/sample.
 
 ## Impulse Response
 
+The impulse response $h[n]$ of an FIR filter directly gives its coefficients:
+
 ```rustlab
 stem(h)
-title("Filter Impulse Response")
-xlabel("Sample")
+title("Filter Impulse Response h[n]")
+xlabel("Sample n")
 ylabel("Amplitude")
 grid on
 ```
 
-The symmetric shape confirms this is a linear-phase Type I FIR filter.
+The symmetric shape confirms this is a linear-phase Type I FIR filter,
+guaranteeing constant group delay $\tau = (N-1)/2 = 31.5$ samples.
 
 ## Filtering a Noisy Signal
 
-Now we test the filter on a noisy sinusoid using convolution.
+Now we test the filter on a noisy sinusoid. The input is:
+
+$$x[n] = \sin(2\pi \cdot 0.1 \cdot n) + 0.5 \cdot w[n]$$
+
+where $w[n]$ is white Gaussian noise. We apply the filter via convolution
+$y = h * x$:
 
 ```rustlab
 n = 0:255;
