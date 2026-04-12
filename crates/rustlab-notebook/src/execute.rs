@@ -13,6 +13,8 @@ pub enum Rendered {
         text_output: String,
         error: Option<String>,
         figure: Option<FigureState>,
+        /// If true, source code should be hidden in rendered output.
+        hidden: bool,
     },
 }
 
@@ -32,7 +34,7 @@ pub fn execute_notebook(blocks: &[Block]) -> Vec<Rendered> {
             Block::Markdown(text) => {
                 rendered.push(Rendered::Markdown(text.clone()));
             }
-            Block::Code(source) => {
+            Block::Code { source, hidden } => {
                 // Reset figure before each code block so we only capture
                 // what this block produces.
                 FIGURE.with(|fig| fig.borrow_mut().reset());
@@ -57,6 +59,7 @@ pub fn execute_notebook(blocks: &[Block]) -> Vec<Rendered> {
                     text_output,
                     error,
                     figure,
+                    hidden: *hidden,
                 });
             }
         }

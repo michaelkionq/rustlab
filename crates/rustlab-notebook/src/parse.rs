@@ -4,7 +4,12 @@ pub enum Block {
     /// Raw markdown text (to be rendered as HTML).
     Markdown(String),
     /// A ```rustlab fenced code block (source to be executed).
-    Code(String),
+    Code {
+        source: String,
+        /// If true, the source code is hidden in the rendered output
+        /// (the block is still executed for its side effects).
+        hidden: bool,
+    },
 }
 
 /// Parse a markdown notebook into a sequence of blocks.
@@ -18,6 +23,7 @@ pub fn parse_notebook(src: &str) -> Vec<Block> {
     let mut markdown_buf = String::new();
     let mut code_buf = String::new();
     let mut in_rustlab = false;
+    let mut code_hidden = false;
 
     for line in src.lines() {
         let trimmed = line.trim();
@@ -25,9 +31,10 @@ pub fn parse_notebook(src: &str) -> Vec<Block> {
         if in_rustlab {
             if trimmed == "```" {
                 // End of rustlab code block
-                blocks.push(Block::Code(code_buf.clone()));
+                blocks.push(Block::Code { source: code_buf.clone(), hidden: code_hidden });
                 code_buf.clear();
                 in_rustlab = false;
+                code_hidden = false;
             } else {
                 if !code_buf.is_empty() {
                     code_buf.push('\n');
@@ -35,12 +42,26 @@ pub fn parse_notebook(src: &str) -> Vec<Block> {
                 code_buf.push_str(line);
             }
         } else if trimmed == "```rustlab" || trimmed.starts_with("```rustlab ") {
+            // Check if the preceding markdown line is a <!-- hide --> directive
+            let hide = markdown_buf.lines().last()
+                .map(|l| l.trim())
+                .map_or(false, |l| l == "<!-- hide -->");
+            if hide {
+                // Remove the directive from the markdown buffer
+                if let Some(pos) = markdown_buf.rfind("<!-- hide -->") {
+                    markdown_buf.truncate(pos);
+                    // Trim trailing whitespace/newlines left behind
+                    let trimmed_len = markdown_buf.trim_end().len();
+                    markdown_buf.truncate(trimmed_len);
+                }
+            }
             // Start of rustlab code block — flush markdown buffer
             if !markdown_buf.is_empty() {
                 blocks.push(Block::Markdown(markdown_buf.clone()));
                 markdown_buf.clear();
             }
             in_rustlab = true;
+            code_hidden = hide;
         } else {
             if !markdown_buf.is_empty() {
                 markdown_buf.push('\n');
@@ -52,7 +73,7 @@ pub fn parse_notebook(src: &str) -> Vec<Block> {
     // Flush remaining content
     if in_rustlab && !code_buf.is_empty() {
         // Unclosed code block — treat as code anyway
-        blocks.push(Block::Code(code_buf));
+        blocks.push(Block::Code { source: code_buf, hidden: code_hidden });
     }
     if !markdown_buf.is_empty() {
         blocks.push(Block::Markdown(markdown_buf));
@@ -98,7 +119,7 @@ mod tests {
         let blocks = parse_notebook(src);
         assert_eq!(blocks.len(), 3);
         assert!(matches!(&blocks[0], Block::Markdown(s) if s.contains("Title")));
-        assert!(matches!(&blocks[1], Block::Code(s) if s == "x = 1:10"));
+        assert!(matches!(&blocks[1], Block::Code { source, hidden } if source == "x = 1:10" && !hidden));
         assert!(matches!(&blocks[2], Block::Markdown(s) if s.contains("More text")));
     }
 
@@ -124,9 +145,20 @@ mod tests {
         let blocks = parse_notebook(src);
         assert_eq!(blocks.len(), 5);
         assert!(matches!(&blocks[0], Block::Markdown(_)));
-        assert!(matches!(&blocks[1], Block::Code(s) if s == "a = 1"));
+        assert!(matches!(&blocks[1], Block::Code { source, hidden } if source == "a = 1" && !hidden));
         assert!(matches!(&blocks[2], Block::Markdown(_)));
-        assert!(matches!(&blocks[3], Block::Code(s) if s == "b = 2"));
+        assert!(matches!(&blocks[3], Block::Code { source, hidden } if source == "b = 2" && !hidden));
         assert!(matches!(&blocks[4], Block::Markdown(_)));
+    }
+
+    #[test]
+    fn hide_directive() {
+        let src = "Setup:\n\n<!-- hide -->\n```rustlab\nx = 42\n```\n\nVisible:\n\n```rustlab\ndisp(x)\n```";
+        let blocks = parse_notebook(src);
+        assert_eq!(blocks.len(), 4);
+        assert!(matches!(&blocks[0], Block::Markdown(s) if s.contains("Setup:")));
+        assert!(matches!(&blocks[1], Block::Code { source, hidden } if source == "x = 42" && *hidden));
+        assert!(matches!(&blocks[2], Block::Markdown(s) if s.contains("Visible:")));
+        assert!(matches!(&blocks[3], Block::Code { source, hidden } if source == "disp(x)" && !hidden));
     }
 }

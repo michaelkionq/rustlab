@@ -27,13 +27,15 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
                 body.push_str(&html);
                 body.push_str("</div>\n");
             }
-            Rendered::Code { source, text_output, error, figure } => {
+            Rendered::Code { source, text_output, error, figure, hidden } => {
                 body.push_str("<div class=\"code-block\">\n");
 
-                // Source code
-                body.push_str("<pre class=\"source\"><code>");
-                body.push_str(&escape_html(source));
-                body.push_str("</code></pre>\n");
+                // Source code (unless hidden)
+                if !hidden {
+                    body.push_str("<pre class=\"source\"><code>");
+                    body.push_str(&highlight_rustlab(source));
+                    body.push_str("</code></pre>\n");
+                }
 
                 // Text output (if any)
                 let trimmed_output = text_output.trim();
@@ -91,6 +93,7 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
     display: flex;
     min-height: 100vh;
   }}
+  /* ── Navigation sidebar ── */
   nav {{
     position: fixed;
     top: 0;
@@ -101,6 +104,8 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
     border-right: 1px solid #313244;
     padding: 1.5rem 0;
     overflow-y: auto;
+    z-index: 100;
+    transition: transform 0.25s ease;
   }}
   nav .nav-title {{
     font-size: 1.1rem;
@@ -130,11 +135,30 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
     padding-left: 2.6rem;
     font-size: 0.8rem;
   }}
+  /* ── Hamburger toggle (hidden on desktop) ── */
+  .nav-toggle {{
+    display: none;
+    position: fixed;
+    top: 0.7rem;
+    left: 0.7rem;
+    z-index: 200;
+    background: #313244;
+    border: 1px solid #45475a;
+    border-radius: 6px;
+    color: #cdd6f4;
+    font-size: 1.3rem;
+    width: 2.4rem;
+    height: 2.4rem;
+    cursor: pointer;
+    line-height: 1;
+  }}
+  /* ── Main content ── */
   main {{
     margin-left: 220px;
     flex: 1;
     padding: 2rem 2.5rem;
     max-width: 960px;
+    min-width: 0;
   }}
   .prose {{
     line-height: 1.7;
@@ -247,9 +271,33 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
     padding-top: 1rem;
     border-top: 1px solid #313244;
   }}
+  /* ── Syntax highlighting (Catppuccin Mocha) ── */
+  .syn-kw  {{ color: #cba6f7; }}           /* keywords: if, for, function, ... */
+  .syn-fn  {{ color: #89b4fa; }}           /* function calls */
+  .syn-num {{ color: #fab387; }}           /* numbers */
+  .syn-str {{ color: #a6e3a1; }}           /* strings */
+  .syn-com {{ color: #6c7086; font-style: italic; }}  /* comments */
+  .syn-op  {{ color: #89dceb; }}           /* operators */
+  /* ── Responsive: collapse sidebar on narrow screens ── */
+  @media (max-width: 768px) {{
+    nav {{
+      transform: translateX(-100%);
+    }}
+    nav.open {{
+      transform: translateX(0);
+    }}
+    .nav-toggle {{
+      display: block;
+    }}
+    main {{
+      margin-left: 0;
+      padding: 3rem 1rem 2rem;
+    }}
+  }}
 </style>
 </head>
 <body>
+<button class="nav-toggle" onclick="document.querySelector('nav').classList.toggle('open')" aria-label="Toggle navigation">&#9776;</button>
 <nav>
   <div class="nav-title">{title}</div>
 {nav}
@@ -326,4 +374,147 @@ fn escape_html(s: &str) -> String {
      .replace('<', "&lt;")
      .replace('>', "&gt;")
      .replace('"', "&quot;")
+}
+
+// ── Syntax highlighting ─────────────────────────────────────────────────────
+
+const KEYWORDS: &[&str] = &[
+    "function", "end", "return", "if", "elseif", "else",
+    "for", "while", "switch", "case", "otherwise",
+];
+
+/// Produce syntax-highlighted HTML for a rustlab code snippet.
+/// Returns HTML with <span class="syn-*"> wrappers (already escaped).
+fn highlight_rustlab(source: &str) -> String {
+    let mut out = String::with_capacity(source.len() * 2);
+    let chars: Vec<char> = source.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+
+    while i < len {
+        let ch = chars[i];
+
+        // Comment: % to end of line
+        if ch == '%' {
+            out.push_str("<span class=\"syn-com\">");
+            while i < len && chars[i] != '\n' {
+                push_escaped_char(&mut out, chars[i]);
+                i += 1;
+            }
+            out.push_str("</span>");
+            continue;
+        }
+
+        // String: "..." or '...' (single-char or multi-char)
+        if ch == '"' || (ch == '\'' && is_string_quote(&chars, i)) {
+            let quote = ch;
+            out.push_str("<span class=\"syn-str\">");
+            push_escaped_char(&mut out, ch);
+            i += 1;
+            while i < len && chars[i] != quote && chars[i] != '\n' {
+                push_escaped_char(&mut out, chars[i]);
+                i += 1;
+            }
+            if i < len && chars[i] == quote {
+                push_escaped_char(&mut out, chars[i]);
+                i += 1;
+            }
+            out.push_str("</span>");
+            continue;
+        }
+
+        // Number: digits, optionally with . or e
+        if ch.is_ascii_digit() || (ch == '.' && i + 1 < len && chars[i + 1].is_ascii_digit()) {
+            out.push_str("<span class=\"syn-num\">");
+            while i < len && (chars[i].is_ascii_digit() || chars[i] == '.' || chars[i] == 'e' || chars[i] == 'E'
+                || ((chars[i] == '+' || chars[i] == '-') && i > 0 && (chars[i-1] == 'e' || chars[i-1] == 'E')))
+            {
+                push_escaped_char(&mut out, chars[i]);
+                i += 1;
+            }
+            // Trailing 'i' or 'j' for complex literals
+            if i < len && (chars[i] == 'i' || chars[i] == 'j') {
+                push_escaped_char(&mut out, chars[i]);
+                i += 1;
+            }
+            out.push_str("</span>");
+            continue;
+        }
+
+        // Identifier or keyword
+        if ch.is_ascii_alphabetic() || ch == '_' {
+            let start = i;
+            while i < len && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+            let word: String = chars[start..i].iter().collect();
+
+            if KEYWORDS.contains(&word.as_str()) {
+                out.push_str("<span class=\"syn-kw\">");
+                out.push_str(&escape_html(&word));
+                out.push_str("</span>");
+            } else if i < len && chars[i] == '(' {
+                // Function call
+                out.push_str("<span class=\"syn-fn\">");
+                out.push_str(&escape_html(&word));
+                out.push_str("</span>");
+            } else {
+                out.push_str(&escape_html(&word));
+            }
+            continue;
+        }
+
+        // Operators
+        if is_operator(ch) {
+            out.push_str("<span class=\"syn-op\">");
+            // Handle two-char operators
+            if i + 1 < len {
+                let next = chars[i + 1];
+                let two: String = [ch, next].iter().collect();
+                if matches!(two.as_str(), ".^" | ".*" | "./" | ".'" | "==" | "~=" | "<=" | ">=" | "&&" | "||") {
+                    push_escaped_char(&mut out, ch);
+                    push_escaped_char(&mut out, next);
+                    i += 2;
+                    out.push_str("</span>");
+                    continue;
+                }
+            }
+            push_escaped_char(&mut out, ch);
+            i += 1;
+            out.push_str("</span>");
+            continue;
+        }
+
+        // Everything else (whitespace, parens, etc.)
+        push_escaped_char(&mut out, ch);
+        i += 1;
+    }
+
+    out
+}
+
+/// Determine if a single quote at position `i` starts a string literal
+/// (as opposed to being the transpose operator).
+fn is_string_quote(chars: &[char], i: usize) -> bool {
+    if i == 0 { return true; }
+    let prev = chars[i - 1];
+    // After ), ], identifier char, or digit — it's transpose
+    if prev == ')' || prev == ']' || prev.is_ascii_alphanumeric() || prev == '_' || prev == '.' {
+        return false;
+    }
+    true
+}
+
+fn is_operator(ch: char) -> bool {
+    matches!(ch, '+' | '-' | '*' | '/' | '\\' | '^' | '=' | '<' | '>' | '~' | '&' | '|' | ':' | ';' | ',')
+}
+
+fn push_escaped_char(out: &mut String, ch: char) {
+    match ch {
+        '&' => out.push_str("&amp;"),
+        '<' => out.push_str("&lt;"),
+        '>' => out.push_str("&gt;"),
+        '"' => out.push_str("&quot;"),
+        _ => out.push(ch),
+    }
 }

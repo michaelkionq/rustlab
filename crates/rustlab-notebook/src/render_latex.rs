@@ -17,11 +17,13 @@ pub fn render_latex(title: &str, blocks: &[Rendered], plot_dir: &Path) -> String
             Rendered::Markdown(md) => {
                 body.push_str(&markdown_to_latex(md));
             }
-            Rendered::Code { source, text_output, error, figure } => {
-                // Source code
-                body.push_str("\\begin{verbatim}\n");
-                body.push_str(source);
-                body.push_str("\n\\end{verbatim}\n\n");
+            Rendered::Code { source, text_output, error, figure, hidden } => {
+                // Source code (unless hidden)
+                if !hidden {
+                    body.push_str("\\begin{verbatim}\n");
+                    body.push_str(source);
+                    body.push_str("\n\\end{verbatim}\n\n");
+                }
 
                 // Text output
                 let trimmed = text_output.trim();
