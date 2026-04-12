@@ -1030,16 +1030,19 @@ All plot functions accumulate series into a shared **figure state** and render i
 
 ### Figure State
 
-#### `figure()` / `figure("file.html")`
-Reset the figure to a blank state (clears all subplots and series).
+#### `figure()` / `figure("file.html")` / `figure(N)`
+Create a new figure or switch between existing figures. Returns a numeric handle.
 
-With no arguments, returns to normal TUI (terminal) plotting. With an HTML path argument, switches to HTML output mode — all subsequent plot commands (`plot`, `xlabel`, `ylabel`, `title`, `grid`, `clf`, etc.) write to the HTML file instead of the terminal. Refresh the browser to see updates.
+Multiple figures can coexist — each has its own plot data, labels, and output mode (TUI, HTML, or viewer). With no arguments, creates a new TUI figure. With an HTML path, creates a new HTML-mode figure. With a numeric argument, switches to that figure (creating it if it doesn't exist).
 ```
-figure()              % reset, TUI mode
-figure("temp.html")   % reset, HTML output mode
-plot(x, y)            % writes to temp.html, no TUI
-xlabel("Time")        % updates temp.html
-figure()              % back to TUI
+fig1 = figure()              % new figure (TUI mode), handle = 1
+plot(sin(t))
+fig2 = figure("temp.html")  % new figure (HTML mode), handle = 2
+plot(cos(t))                 % writes to temp.html
+figure(fig1)                 % switch back to fig1
+hold on
+plot(cos(t))                 % adds to fig1 (TUI)
+figure(5)                    % create/switch to figure 5
 ```
 
 #### `hold on` / `hold off`
@@ -1170,14 +1173,15 @@ plotdb(freqz(h, 512, sr), "Lowpass Response")
 plotdb(spectrum(fft(x), sr), "Signal Spectrum")
 ```
 
-### `histogram(v [, n_bins])`
+### `hist(v [, n_bins])`
 Bar chart histogram of `v`. Default bin count is 10. Displays interactively and returns a **2×n matrix**:
 - Row 1: bin centers
 - Row 2: counts
 ```
-histogram(randn(2000), 30)
-H = histogram(data, 20)   # capture bin data
+hist(randn(2000), 30)
+H = hist(data, 20)   # capture bin data
 ```
+Alias: `histogram()`
 
 ### `bar(y)` / `bar(x, y)` / `bar(y, title)` / `bar(x, y, title)`
 Bar chart. Each element of `y` is rendered as a filled vertical bar. `x` specifies the bar centre positions (defaults to 0, 1, 2, …).

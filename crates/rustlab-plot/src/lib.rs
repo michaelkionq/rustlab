@@ -20,27 +20,30 @@ pub use live::LiveFigure;
 #[cfg(feature = "viewer")]
 pub use viewer_live::ViewerFigure;
 #[cfg(feature = "viewer")]
-pub use viewer_live::{connect_viewer, disconnect_viewer, viewer_active, sync_viewer};
+pub use viewer_live::{connect_viewer, disconnect_viewer, viewer_active, viewer_new_figure, sync_viewer};
 pub use file::{
     render_figure_file,
     save_db, save_histogram, save_imagesc_cmap, save_plot, save_stem,
     save_bar, save_scatter,
 };
 pub use figure::{
-    colormap_rgb, FigureState, LineStyle, PlotKind, Series, SeriesColor, SubplotState,
+    colormap_rgb, FigureState, FigureOutput, LineStyle, PlotKind, Series, SeriesColor, SubplotState,
     FIGURE,
+    figure_new, figure_new_html, figure_switch,
+    current_figure_id, current_figure_output, set_current_figure_output,
 };
 pub use html::{render_figure_html, set_html_figure_path, clear_html_figure_path, sync_html_file};
 
 use rustlab_core::RVector;
 
-/// Sync all active non-terminal outputs (HTML file, viewer).
+/// Sync the current figure to its non-terminal output (HTML file or viewer).
 /// Called after FIGURE state mutations that don't go through render_figure_terminal().
 pub fn sync_figure_outputs() {
-    sync_html_file();
-    #[cfg(feature = "viewer")]
-    if viewer_active() {
-        sync_viewer();
+    match current_figure_output() {
+        FigureOutput::Html(_) => sync_html_file(),
+        #[cfg(feature = "viewer")]
+        FigureOutput::Viewer(_) => sync_viewer(),
+        FigureOutput::Terminal => {}
     }
 }
 

@@ -102,6 +102,7 @@ mod bool_tests {
 }
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod lexer_tests {
     use crate::lexer::{tokenize, Token};
 
@@ -216,6 +217,7 @@ mod lexer_tests {
 }
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod parser_tests {
     use crate::{lexer, parser};
     use crate::ast::{Stmt, StmtKind, Expr, BinOp};
@@ -1386,6 +1388,7 @@ mod eig_tests {
 // ── Phase 1: Language Foundations ────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod phase1_tests {
     use crate::{lexer, parser, Evaluator};
     use crate::eval::value::Value;
@@ -5682,6 +5685,7 @@ if income > 0, tax = tax + income * r1; end
 // ── Comma formatting tests ──────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod comma_tests {
     use crate::{lexer, parser, Evaluator};
     use crate::eval::value::{Value, insert_commas};
@@ -5831,6 +5835,7 @@ mod comma_tests {
 // ── Underscore digit separator tests ────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod underscore_literal_tests {
     use crate::{lexer, parser, Evaluator};
     use crate::eval::value::Value;
@@ -5913,6 +5918,7 @@ mod underscore_literal_tests {
     }
 }
 
+#[allow(clippy::approx_constant, clippy::write_with_newline)]
 mod string_index_tests {
     use crate::{lexer, parser, Evaluator};
     use crate::eval::value::Value;
@@ -6014,6 +6020,7 @@ mod string_index_tests {
     }
 }
 
+#[allow(clippy::approx_constant, clippy::write_with_newline)]
 mod toml_tests {
     use crate::{lexer, parser, Evaluator};
     use crate::eval::value::Value;

@@ -220,15 +220,15 @@ pub(crate) fn draw_subplots(
 
 /// Render the current FIGURE state to the terminal.
 pub fn render_figure_terminal() -> Result<(), PlotError> {
-    // Skip when HTML figure mode is active — output goes to the HTML file only.
-    if crate::html::html_figure_active() {
-        return Ok(());
-    }
-    // Skip when viewer is connected — output goes to the viewer.
-    #[cfg(feature = "viewer")]
-    if crate::viewer_live::viewer_active() {
-        crate::viewer_live::sync_viewer();
-        return Ok(());
+    // Route based on the current figure's output mode.
+    match crate::figure::current_figure_output() {
+        crate::figure::FigureOutput::Html(_) => return Ok(()),
+        #[cfg(feature = "viewer")]
+        crate::figure::FigureOutput::Viewer(_) => {
+            crate::viewer_live::sync_viewer();
+            return Ok(());
+        }
+        crate::figure::FigureOutput::Terminal => {}
     }
     // Skip silently when stdout is not a real terminal (e.g. script mode, CI).
     use std::io::IsTerminal;

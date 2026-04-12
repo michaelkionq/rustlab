@@ -68,7 +68,7 @@ rustlab
 ```
 
 ```
-rustlab 0.1.0 — type 'exit' or press Ctrl+D to quit
+rustlab 0.1.4 — type 'exit' or press Ctrl+D to quit
 Tip: end a line with ; to suppress output
 
 >> a = 1:5
@@ -282,7 +282,7 @@ fieldnames(s)              # prints: x, y, z
 
 ### Builtin Functions (highlights)
 
-rustlab ships with 130+ builtins. Here are the most commonly used; see [`docs/quickref.md`](docs/quickref.md) for the complete list and [`docs/functions.md`](docs/functions.md) for full signatures and examples.
+rustlab ships with 180+ builtins. Here are the most commonly used; see [`docs/quickref.md`](docs/quickref.md) for the complete list and [`docs/functions.md`](docs/functions.md) for full signatures and examples.
 
 | Category | Key functions |
 |----------|--------------|

@@ -25,7 +25,7 @@ use rustlab_plot::{
     imagesc_terminal, save_imagesc_cmap,
     push_xy_line, push_xy_stem, push_xy_bar, push_xy_scatter,
     LineStyle, SeriesColor, FIGURE, LiveFigure, LivePlot,
-    sync_html_file, sync_figure_outputs, set_html_figure_path, clear_html_figure_path,
+    sync_figure_outputs,
 };
 use ndarray::{Array1, Array2};
 use num_complex::Complex;
@@ -111,6 +111,7 @@ impl BuiltinRegistry {
         r.register("randn",     builtin_randn);
         r.register("randi",     builtin_randi);
         r.register("histogram", builtin_histogram);
+        r.register("hist",      builtin_histogram);
         r.register("savehist",  builtin_savehist);
         r.register("mean",     builtin_mean);
         r.register("median",   builtin_median);
@@ -1746,19 +1747,30 @@ fn builtin_savedb(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 // ─── Figure state builtins ─────────────────────────────────────────────────
 
-/// figure() — reset figure state to blank, return to TUI mode.
-/// figure("file.html") — reset and switch to HTML output mode.
+/// figure()           — create a new figure, return its numeric handle.
+/// figure(N)          — switch to figure N (create if it doesn't exist).
+/// figure("file.html") — create a new figure in HTML output mode.
 fn builtin_figure(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("figure", &args, 0, 1)?;
-    clear_html_figure_path();
-    FIGURE.with(|fig| fig.borrow_mut().reset());
+
     if args.len() == 1 {
+        // Numeric arg → switch to existing figure (or create it)
+        if let Value::Scalar(n) = &args[0] {
+            let id = *n as u32;
+            rustlab_plot::figure_switch(id)
+                .map_err(|e| ScriptError::runtime(e.to_string()))?;
+            return Ok(Value::Scalar(id as f64));
+        }
+        // String arg → new HTML figure
         let path = args[0].to_str().map_err(|e| ScriptError::type_err(e))?;
-        set_html_figure_path(&path);
-        sync_html_file();
+        let id = rustlab_plot::figure_new_html(&path);
         eprintln!("HTML figure active: {}", path);
+        return Ok(Value::Scalar(id as f64));
     }
-    Ok(Value::None)
+
+    // No args → new TUI/viewer figure
+    let id = rustlab_plot::figure_new();
+    Ok(Value::Scalar(id as f64))
 }
 
 /// hold("on"|1) / hold("off"|0) — set hold on/off.
@@ -4702,7 +4714,7 @@ fn extract_xy_path_title(args: &[Value], name: &str) -> Result<(Vec<f64>, Vec<f6
 
 // ─── Controls Bootcamp builtins ───────────────────────────────────────────────
 
-/// logspace(a, b, n) — n log-spaced points from 10^a to 10^b (MATLAB convention).
+/// logspace(a, b, n) — n log-spaced points from 10^a to 10^b.
 fn builtin_logspace(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("logspace", &args, 3)?;
     let a = args[0].to_scalar().map_err(|_| ScriptError::type_err(

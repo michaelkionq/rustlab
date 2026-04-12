@@ -97,13 +97,27 @@ impl FigureWindow {
                     }
 
                     plot.show(ui, |plot_ui| {
-                        // Apply explicit bounds
-                        if let (Some(x0), Some(x1)) = panel.xlim {
-                            if let (Some(y0), Some(y1)) = panel.ylim {
+                        // Apply explicit bounds (x and y independently)
+                        let cur = plot_ui.plot_bounds();
+                        match (panel.xlim, panel.ylim) {
+                            ((Some(x0), Some(x1)), (Some(y0), Some(y1))) => {
                                 plot_ui.set_plot_bounds(PlotBounds::from_min_max(
                                     [x0, y0], [x1, y1],
                                 ));
                             }
+                            ((Some(x0), Some(x1)), _) => {
+                                plot_ui.set_plot_bounds(PlotBounds::from_min_max(
+                                    [x0, *cur.range_y().start()],
+                                    [x1, *cur.range_y().end()],
+                                ));
+                            }
+                            (_, (Some(y0), Some(y1))) => {
+                                plot_ui.set_plot_bounds(PlotBounds::from_min_max(
+                                    [*cur.range_x().start(), y0],
+                                    [*cur.range_x().end(), y1],
+                                ));
+                            }
+                            _ => {}
                         }
 
                         for series in &panel.series {

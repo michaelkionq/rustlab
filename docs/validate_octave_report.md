@@ -116,7 +116,7 @@ the n_points bins stay within the positive-frequency half of the spectrum.
 The windowed-sinc formula `h[n] = 2·fc·sinc(2·fc·(n−m))·w[n]` was not
 normalized after windowing. For narrow-band filters (e.g. fc=1 kHz at
 sr=44.1 kHz with a 32-tap Hann window) the passband gain was approximately
-−4 dB instead of 0 dB. MATLAB's `fir1` and Octave's equivalent both normalize.
+−4 dB instead of 0 dB. Octave's `fir1` normalizes after windowing.
 
 **Fix:** After computing the windowed coefficients, divide by their sum
 (`dc_gain = Σ h[n]`). Derived filters (highpass via spectral inversion,

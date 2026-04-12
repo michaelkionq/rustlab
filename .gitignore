@@ -28,3 +28,6 @@ prompts/
 
 # Generated example outputs
 examples/*.csv
+examples/*.html
+examples/*.toml
+*.html

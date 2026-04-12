@@ -261,19 +261,37 @@ impl Evaluator {
                 {
                     if *on {
                         match rustlab_plot::connect_viewer() {
-                            Ok(true)  => eprintln!("viewer connected"),
-                            Ok(false) => eprintln!("viewer: rustlab-viewer is not running"),
-                            Err(e)    => eprintln!("viewer: {}", e),
+                            Ok(true)  => {
+                                let fig_id = rustlab_plot::viewer_live::get_viewer_fig_id()
+                                    .unwrap_or(1);
+                                rustlab_plot::set_current_figure_output(
+                                    rustlab_plot::FigureOutput::Viewer(fig_id),
+                                );
+                                eprintln!("viewer: connected — plots will render in rustlab-viewer");
+                            }
+                            Ok(false) => {
+                                eprintln!("viewer: could not connect — is rustlab-viewer running?");
+                                eprintln!("  start it with:  cargo run --bin rustlab-viewer --features viewer");
+                                eprintln!("  plots will continue to render in the terminal");
+                            }
+                            Err(e)    => {
+                                eprintln!("viewer: connection failed — {}", e);
+                                eprintln!("  plots will continue to render in the terminal");
+                            }
                         }
                     } else {
                         rustlab_plot::disconnect_viewer();
-                        eprintln!("viewer disconnected");
+                        rustlab_plot::set_current_figure_output(
+                            rustlab_plot::FigureOutput::Terminal,
+                        );
+                        eprintln!("viewer: disconnected — plots will render in the terminal");
                     }
                 }
                 #[cfg(not(feature = "viewer"))]
                 {
                     let _ = on;
-                    eprintln!("viewer: not available (build with --features viewer)");
+                    eprintln!("viewer: not available in this build");
+                    eprintln!("  rebuild with:  cargo build --features viewer");
                 }
             }
             StmtKind::Run { path } => {

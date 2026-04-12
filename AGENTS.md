@@ -320,7 +320,8 @@ cargo install --path crates/rustlab-cli   # → ~/.cargo/bin/rustlab
 **Key files:**
 - `src/ascii.rs` — `plot_real`, `plot_complex`, `stem_real`, and the shared `draw_subplots(f, subplots, rows, cols)` helper used by both `render_figure_terminal` and `LiveFigure::redraw`.
 - `src/live.rs` — `LiveFigure` struct implementing the `LivePlot` trait: `new(rows, cols)`, `update_panel(idx, x, y)`, `set_panel_labels(idx, title, xlabel, ylabel)`, `redraw()`. `Drop` impl restores the terminal.
-- `src/html.rs` — `render_figure_html(path)`: exports current FIGURE state to a self-contained HTML file with Plotly.js (CDN). Also provides HTML figure mode (`set_html_figure_path`, `sync_html_file`, `html_figure_active`) where `figure("file.html")` causes all subsequent plot commands to auto-update the HTML file instead of rendering to the terminal; `figure()` returns to TUI mode.
+- `src/figure.rs` — `FigureState`, `FIGURE` thread-local, and the multi-figure store (`FigureStore`). `figure_new()`, `figure_new_html(path)`, `figure_switch(id)` manage figure handles. Each figure tracks its own `FigureOutput` mode (Terminal, Html, or Viewer). The swap approach keeps a single active `FIGURE` workspace with inactive figures stored in a HashMap.
+- `src/html.rs` — `render_figure_html(path)`: exports current FIGURE state to a self-contained HTML file with Plotly.js (CDN). Also provides HTML figure mode (`set_html_figure_path`, `sync_html_file`, `html_figure_active`) where `figure("file.html")` causes all subsequent plot commands to auto-update the HTML file instead of rendering to the terminal.
 - `src/viewer_client.rs` — (feature `viewer`) thin Unix socket client for communicating with `rustlab-viewer`.
 - `src/viewer_live.rs` — (feature `viewer`) `ViewerFigure` implementing `LivePlot`, routes live plot data to the viewer over IPC. Also provides `connect_viewer()`, `disconnect_viewer()`, `viewer_active()`, `sync_viewer()` for routing regular (non-live) plot commands to the viewer when `viewer on` is active.
 
@@ -518,6 +519,7 @@ primary     = NUMBER | STRING | IDENT
 | `audio_out` | `audio_out(sr, frame_size)` | Create `Value::AudioOut` descriptor (metadata only; no I/O) |
 | `audio_read` | `audio_read(src)` | Read one frame of f32 LE samples from stdin; raises `ScriptError::AudioEof` on clean EOF |
 | `audio_write` | `audio_write(dst, y)` | Write real parts of frame as f32 LE to stdout; flushes after each call |
+| `figure` | `figure()` / `figure("f.html")` / `figure(N)` | Create new figure (returns numeric handle) or switch to figure N; each figure has its own state and output mode (TUI/HTML/viewer) |
 | `figure_live` | `figure_live(rows, cols)` | Open persistent live terminal plot; returns `Value::LiveFigure`; errors if not a tty |
 | `plot_update` | `plot_update(fig, panel, y)` / `plot_update(fig, panel, x, y)` | Replace panel data (1-based panel); no immediate redraw |
 | `plot_labels` | `plot_labels(fig, panel, title, xlabel, ylabel)` | Set title and axis labels on a live panel |

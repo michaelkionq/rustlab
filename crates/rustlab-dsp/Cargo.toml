@@ -1,7 +1,11 @@
 [package]
-name    = "rustlab-dsp"
-version.workspace = true
-edition.workspace = true
+name        = "rustlab-dsp"
+version.workspace     = true
+edition.workspace     = true
+authors.workspace     = true
+license.workspace     = true
+repository.workspace  = true
+description = "DSP algorithms — FIR/IIR filters, FFT, windowing, and resampling"
 
 [dependencies]
 rustlab-core.workspace = true

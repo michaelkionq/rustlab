@@ -1,7 +1,12 @@
 [package]
-name    = "rustlab-cli"
-version.workspace = true
-edition.workspace = true
+name        = "rustlab-cli"
+version.workspace     = true
+edition.workspace     = true
+authors.workspace     = true
+license.workspace     = true
+repository.workspace  = true
+description = "Command-line interface and REPL for rustlab"
+default-run = "rustlab"
 
 [features]
 default = []
@@ -13,9 +18,9 @@ path = "src/main.rs"
 
 [dependencies]
 rustlab-core.workspace   = true
-rustlab-dsp              = { path = "../rustlab-dsp" }
-rustlab-plot             = { path = "../rustlab-plot" }
-rustlab-script           = { path = "../rustlab-script" }
+rustlab-dsp.workspace    = true
+rustlab-plot.workspace   = true
+rustlab-script.workspace = true
 clap                     = { version = "4", features = ["derive"] }
 rustyline                = { version = "14", features = ["derive"] }
 anyhow.workspace         = true

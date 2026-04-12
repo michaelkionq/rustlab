@@ -1,7 +1,11 @@
 [package]
-name    = "rustlab-script"
-version.workspace = true
-edition.workspace = true
+name        = "rustlab-script"
+version.workspace     = true
+edition.workspace     = true
+authors.workspace     = true
+license.workspace     = true
+repository.workspace  = true
+description = "Interpreter and builtins for the rustlab scripting language"
 
 [features]
 default = []
@@ -9,8 +13,8 @@ viewer  = ["rustlab-plot/viewer"]
 
 [dependencies]
 rustlab-core.workspace  = true
-rustlab-dsp             = { path = "../rustlab-dsp" }
-rustlab-plot            = { path = "../rustlab-plot" }
+rustlab-dsp.workspace   = true
+rustlab-plot.workspace  = true
 num-complex.workspace   = true
 ndarray.workspace       = true
 thiserror.workspace     = true

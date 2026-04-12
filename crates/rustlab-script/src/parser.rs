@@ -480,7 +480,7 @@ impl Parser {
     fn parse_run_stmt(&mut self) -> Result<Stmt, ScriptError> {
         let line = self.current_line();
         self.advance(); // consume 'run'
-        // Collect the rest of the line as a file path (unquoted, like MATLAB)
+        // Collect the rest of the line as a file path (unquoted)
         let mut path_chars = Vec::new();
         loop {
             match self.peek_token() {

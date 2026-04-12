@@ -14,7 +14,7 @@ sparse impulse responses, etc.).
 
 The implementation is split into four phases, each independently testable and
 committable.  Each phase builds on the previous one.  All operations follow
-MATLAB-style 1-based indexing and use the existing complex scalar type `C64`.
+1-based indexing and use the existing complex scalar type `C64`.
 
 ---
 
@@ -174,7 +174,7 @@ sparse inputs by converting first.
 - [ ] **2d. `nonzeros(S)` builtin** — return a vector of the non-zero values
   (in storage order).
 
-- [ ] **2e. `find(S)` builtin** — MATLAB-style: return `[I, J, V]` as a Tuple
+- [ ] **2e. `find(S)` builtin** — return `[I, J, V]` as a Tuple
   of three vectors (1-based row indices, column indices, values).
   For a sparse vector, return `[I, V]`.
 
@@ -269,7 +269,7 @@ power-iteration eigensolver for the dominant eigenvalue.
 
 - [ ] **4b. `spdiags(v, d, m, n)` builtin** — place vector `v` on diagonal `d`
   of an `m×n` sparse matrix.  `d=0` is main diagonal, `d>0` superdiagonal,
-  `d<0` subdiagonal.  MATLAB convention.
+  `d<0` subdiagonal.
   ```
   T = spdiags([-1, 2, -1], [-1, 0, 1], 5, 5)  # tridiagonal
   ```

@@ -3195,7 +3195,7 @@ dependencies = [
 
 [[package]]
 name = "rustlab-cli"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "clap",
@@ -3211,7 +3211,7 @@ dependencies = [
 
 [[package]]
 name = "rustlab-core"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "ndarray",
  "ndarray-linalg",
@@ -3221,7 +3221,7 @@ dependencies = [
 
 [[package]]
 name = "rustlab-dsp"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "ndarray",
  "num-complex",
@@ -3231,7 +3231,7 @@ dependencies = [
 
 [[package]]
 name = "rustlab-plot"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "crossterm",
  "libc",
@@ -3248,7 +3248,7 @@ dependencies = [
 
 [[package]]
 name = "rustlab-proto"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "libc",
  "rmp-serde",
@@ -3257,7 +3257,7 @@ dependencies = [
 
 [[package]]
 name = "rustlab-script"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "ndarray",
@@ -3274,7 +3274,7 @@ dependencies = [
 
 [[package]]
 name = "rustlab-viewer"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "eframe",
  "egui",

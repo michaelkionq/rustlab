@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 /// Named or RGB color for a plot series.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -150,6 +151,194 @@ impl FigureState {
 
 thread_local! {
     pub static FIGURE: RefCell<FigureState> = RefCell::new(FigureState::new());
+}
+
+// ─── Multi-figure store (figure handles) ──────────────────────────────────
+
+/// Output routing mode for a figure.
+#[derive(Debug, Clone)]
+pub enum FigureOutput {
+    Terminal,
+    Html(String),
+    #[cfg(feature = "viewer")]
+    Viewer(u32),
+}
+
+struct StoredFigure {
+    state: FigureState,
+    output: FigureOutput,
+}
+
+struct FigureStore {
+    figures: HashMap<u32, StoredFigure>,
+    /// ID of the active figure. 0 = anonymous (no `figure()` called yet).
+    current_id: u32,
+    /// Next auto-assigned ID.
+    next_id: u32,
+    /// Output mode of the active figure (kept in sync with thread-locals).
+    current_output: FigureOutput,
+}
+
+thread_local! {
+    static STORE: RefCell<FigureStore> = RefCell::new(FigureStore {
+        figures: HashMap::new(),
+        current_id: 0,
+        next_id: 1,
+        current_output: FigureOutput::Terminal,
+    });
+}
+
+/// Snapshot the active workspace (FIGURE + output mode) into a StoredFigure.
+fn snapshot_current() -> StoredFigure {
+    let state = FIGURE.with(|f| f.borrow().clone());
+    let output = STORE.with(|s| s.borrow().current_output.clone());
+    StoredFigure { state, output }
+}
+
+/// Restore a StoredFigure into the active workspace thread-locals.
+fn restore(stored: StoredFigure) {
+    FIGURE.with(|f| *f.borrow_mut() = stored.state);
+    match &stored.output {
+        FigureOutput::Terminal => {
+            crate::html::clear_html_figure_path();
+            #[cfg(feature = "viewer")]
+            if crate::viewer_live::viewer_active() {
+                // Viewer is connected but this figure renders to terminal —
+                // we don't touch VIEWER_CONN, just mark output as terminal.
+            }
+        }
+        FigureOutput::Html(path) => {
+            crate::html::set_html_figure_path(path);
+        }
+        #[cfg(feature = "viewer")]
+        FigureOutput::Viewer(fig_id) => {
+            crate::html::clear_html_figure_path();
+            crate::viewer_live::set_viewer_fig_id(*fig_id);
+        }
+    }
+    STORE.with(|s| s.borrow_mut().current_output = stored.output);
+}
+
+/// Save the current figure into the store (assigns ID if anonymous).
+fn save_current() {
+    STORE.with(|s| {
+        let mut store = s.borrow_mut();
+        let id = if store.current_id == 0 {
+            let id = store.next_id;
+            store.next_id += 1;
+            store.current_id = id;
+            id
+        } else {
+            store.current_id
+        };
+        drop(store); // release borrow before snapshot_current reads STORE
+        let snap = snapshot_current();
+        s.borrow_mut().figures.insert(id, snap);
+    });
+}
+
+/// Determine the default output mode for a new figure.
+fn default_new_output() -> FigureOutput {
+    #[cfg(feature = "viewer")]
+    if crate::viewer_live::viewer_active() {
+        let fig_id = crate::viewer_live::allocate_viewer_fig_id();
+        return FigureOutput::Viewer(fig_id);
+    }
+    FigureOutput::Terminal
+}
+
+/// Create a new figure, save the current one to the store. Returns the new ID.
+pub fn figure_new() -> u32 {
+    save_current();
+    let output = default_new_output();
+    FIGURE.with(|f| f.borrow_mut().reset());
+    crate::html::clear_html_figure_path();
+    let id = STORE.with(|s| {
+        let mut store = s.borrow_mut();
+        let id = store.next_id;
+        store.next_id += 1;
+        store.current_id = id;
+        store.current_output = output.clone();
+        id
+    });
+    // Apply viewer fig_id if needed
+    #[cfg(feature = "viewer")]
+    if let FigureOutput::Viewer(fig_id) = &STORE.with(|s| s.borrow().current_output.clone()) {
+        crate::viewer_live::set_viewer_fig_id(*fig_id);
+    }
+    id
+}
+
+/// Create a new figure in HTML mode. Returns the new ID.
+pub fn figure_new_html(path: &str) -> u32 {
+    save_current();
+    FIGURE.with(|f| f.borrow_mut().reset());
+    crate::html::set_html_figure_path(path);
+    let id = STORE.with(|s| {
+        let mut store = s.borrow_mut();
+        let id = store.next_id;
+        store.next_id += 1;
+        store.current_id = id;
+        store.current_output = FigureOutput::Html(path.to_string());
+        id
+    });
+    id
+}
+
+/// Switch to figure `id`. Creates a fresh figure if `id` doesn't exist.
+/// Returns the ID.
+pub fn figure_switch(id: u32) -> Result<u32, crate::PlotError> {
+    // If already the current figure, nothing to do.
+    let current = STORE.with(|s| s.borrow().current_id);
+    if current == id && current != 0 {
+        return Ok(id);
+    }
+
+    save_current();
+
+    let stored = STORE.with(|s| s.borrow_mut().figures.remove(&id));
+    if let Some(stored) = stored {
+        restore(stored);
+    } else {
+        // Create a fresh figure with this ID
+        FIGURE.with(|f| f.borrow_mut().reset());
+        crate::html::clear_html_figure_path();
+        let output = default_new_output();
+        #[cfg(feature = "viewer")]
+        if let FigureOutput::Viewer(fig_id) = &output {
+            crate::viewer_live::set_viewer_fig_id(*fig_id);
+        }
+        STORE.with(|s| {
+            let mut store = s.borrow_mut();
+            store.current_output = output;
+        });
+    }
+
+    STORE.with(|s| {
+        let mut store = s.borrow_mut();
+        store.current_id = id;
+        // Ensure next_id stays ahead
+        if id >= store.next_id {
+            store.next_id = id + 1;
+        }
+    });
+
+    Ok(id)
+}
+
+/// Get the current figure's numeric ID (0 if no figure() has been called).
+pub fn current_figure_id() -> u32 {
+    STORE.with(|s| s.borrow().current_id)
+}
+
+/// Get the current figure's output mode.
+pub fn current_figure_output() -> FigureOutput {
+    STORE.with(|s| s.borrow().current_output.clone())
+}
+
+/// Set the current figure's output mode (used by `viewer on`/`viewer off`).
+pub fn set_current_figure_output(output: FigureOutput) {
+    STORE.with(|s| s.borrow_mut().current_output = output);
 }
 
 // ─── Colormap ──────────────────────────────────────────────────────────────

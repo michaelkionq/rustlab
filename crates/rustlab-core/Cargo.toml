@@ -1,7 +1,11 @@
 [package]
-name    = "rustlab-core"
-version.workspace = true
-edition.workspace = true
+name        = "rustlab-core"
+version.workspace     = true
+edition.workspace     = true
+authors.workspace     = true
+license.workspace     = true
+repository.workspace  = true
+description = "Core matrix and complex-number types for rustlab"
 
 [dependencies]
 num-complex.workspace = true

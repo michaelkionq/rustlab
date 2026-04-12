@@ -27,6 +27,11 @@ pub fn html_figure_active() -> bool {
     HTML_FIGURE_PATH.with(|p| p.borrow().is_some())
 }
 
+/// Get the current HTML figure path, if any.
+pub fn get_html_figure_path() -> Option<String> {
+    HTML_FIGURE_PATH.with(|p| p.borrow().clone())
+}
+
 /// If an HTML figure path is active, re-render the current FIGURE to it.
 /// No-op when no path is set — safe to call unconditionally.
 pub fn sync_html_file() {

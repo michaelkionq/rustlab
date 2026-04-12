@@ -1,7 +1,11 @@
 [package]
-name    = "rustlab-plot"
-version.workspace = true
-edition.workspace = true
+name        = "rustlab-plot"
+version.workspace     = true
+edition.workspace     = true
+authors.workspace     = true
+license.workspace     = true
+repository.workspace  = true
+description = "Terminal and SVG plotting for rustlab"
 
 [features]
 default = []

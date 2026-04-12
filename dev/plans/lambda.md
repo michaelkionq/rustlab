@@ -1,13 +1,13 @@
 # Development Plan: Lambda / Anonymous Function Support
 
 **Status:** Complete (both phases implemented in commit 6608f52)
-**Syntax target:** MATLAB-style `@(params) expr` and `@name` function handles
+**Syntax target:** `@(params) expr` and `@name` function handles
 
 ---
 
 ## Overview
 
-Add first-class anonymous functions (lambdas) using MATLAB's `@` syntax.
+Add first-class anonymous functions (lambdas) using `@` syntax.
 This allows users to write inline math functions, pass functions as arguments,
 and compose higher-order operations.
 
@@ -32,7 +32,7 @@ passing.
 ## Architecture Decisions
 
 ### Syntax
-Use MATLAB's `@` prefix — familiar to the target audience:
+Use `@` prefix — familiar to the target audience:
 - `@(x) expr` — anonymous function (lambda)
 - `@name` — handle to a named function (user-defined or builtin)
 

@@ -98,7 +98,7 @@ impl IirFilter {
         }
         // fliplr again
         let si_full: Vec<f64> = rev_diff.into_iter().rev().collect();
-        // Drop first element (si(1) = [] in Octave/MATLAB)
+        // Drop first element (si(1) = [] in Octave)
         let si: Vec<f64> = si_full[1..].to_vec();
         let state_len = si.len(); // = n - 1
 

@@ -1,11 +1,15 @@
 [package]
-name    = "rustlab-proto"
-version.workspace = true
-edition.workspace = true
+name        = "rustlab-proto"
+version.workspace     = true
+edition.workspace     = true
+authors.workspace     = true
+license.workspace     = true
+repository.workspace  = true
+description = "Wire protocol for rustlab CLI-to-viewer IPC"
 
 [dependencies]
-serde     = { version = "1", features = ["derive"] }
-rmp-serde = "1"
+serde.workspace     = true
+rmp-serde.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

@@ -126,7 +126,7 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `std(v)` | Standard deviation (N-1 denominator) |
 | `sort(v)` | Sort ascending by real part |
 | `trapz(v)` / `trapz(x, v)` | Trapezoidal integration (unit or explicit spacing) |
-| `histogram(v)` / `histogram(v, n)` | Histogram; returns 2×n matrix (bin centers, counts) |
+| `hist(v)` / `hist(v, n)` | Histogram; returns 2×n matrix (bin centers, counts). Alias: `histogram()` |
 | `savehist(v, file)` | Save histogram to PNG or SVG |
 | `all(v)` | True if all elements nonzero |
 | `any(v)` | True if any element nonzero |
@@ -339,8 +339,9 @@ Mixed sparse+dense pairs auto-promote to dense.
 
 | Function | Description |
 |---|---|
-| `figure()` | Reset figure state and return to TUI plotting |
-| `figure("file.html")` | Reset figure and switch to HTML output mode |
+| `fig = figure()` | Create new figure, return numeric handle |
+| `fig = figure("file.html")` | Create new figure in HTML output mode |
+| `figure(N)` | Switch to figure N (creates if it doesn't exist) |
 | `hold on` / `hold off` | Overlay series on current subplot (also `hold("on")`) |
 | `grid on` / `grid off` | Show / hide grid lines (also `grid("on")`) |
 | `viewer on` / `viewer off` | Route plots to external rustlab-viewer (requires `viewer` feature) |

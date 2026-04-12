@@ -156,6 +156,7 @@ pub fn connect_viewer() -> Result<bool, PlotError> {
 }
 
 /// Disconnect from the viewer and return to TUI mode.
+/// Closes all viewer figures.
 pub fn disconnect_viewer() {
     VIEWER_CONN.with(|c| {
         if let Some(mut conn) = c.borrow_mut().take() {
@@ -164,9 +165,41 @@ pub fn disconnect_viewer() {
     });
 }
 
+/// Start a new figure in the viewer, keeping the previous one visible.
+/// No-op if the viewer is not connected.
+pub fn viewer_new_figure() {
+    VIEWER_CONN.with(|c| {
+        let mut guard = c.borrow_mut();
+        if let Some(ref mut conn) = *guard {
+            conn.fig_id = NEXT_FIG_ID.fetch_add(1, Ordering::Relaxed);
+            conn.layout = (0, 0); // forces FigureOpen on next sync
+        }
+    });
+}
+
 /// Returns true when a viewer connection is active for regular plotting.
 pub fn viewer_active() -> bool {
     VIEWER_CONN.with(|c| c.borrow().is_some())
+}
+
+/// Get the current viewer figure ID, if connected.
+pub fn get_viewer_fig_id() -> Option<u32> {
+    VIEWER_CONN.with(|c| c.borrow().as_ref().map(|conn| conn.fig_id))
+}
+
+/// Set the viewer figure ID (for figure switching). Resets layout to force FigureOpen.
+pub fn set_viewer_fig_id(id: u32) {
+    VIEWER_CONN.with(|c| {
+        if let Some(ref mut conn) = *c.borrow_mut() {
+            conn.fig_id = id;
+            conn.layout = (0, 0);
+        }
+    });
+}
+
+/// Allocate a new viewer figure ID without changing VIEWER_CONN state.
+pub fn allocate_viewer_fig_id() -> u32 {
+    NEXT_FIG_ID.fetch_add(1, Ordering::Relaxed)
 }
 
 /// Send the current FIGURE state to the viewer. No-op if not connected.

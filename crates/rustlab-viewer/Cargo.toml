@@ -1,7 +1,11 @@
 [package]
-name    = "rustlab-viewer"
-version.workspace = true
-edition.workspace = true
+name        = "rustlab-viewer"
+version.workspace     = true
+edition.workspace     = true
+authors.workspace     = true
+license.workspace     = true
+repository.workspace  = true
+description = "egui-based plot viewer for rustlab live figures"
 
 [[bin]]
 name = "rustlab-viewer"

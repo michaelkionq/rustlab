@@ -11,8 +11,12 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
+authors     = ["Michael Kreeger"]
+license     = "MIT"
+repository  = "https://github.com/mkreeger/rustlab"
+description = "A matrix algebra and DSP toolkit — scriptable from the command line or embedded in applications"
 
 [profile.release]
 opt-level     = 3
@@ -29,10 +33,10 @@ zip          = { version = "2", default-features = false, features = ["deflate"]
 toml         = "0.8"
 thiserror    = "2"
 anyhow       = "1"
-rustlab-core   = { path = "crates/rustlab-core" }
-rustlab-dsp    = { path = "crates/rustlab-dsp" }
-rustlab-plot   = { path = "crates/rustlab-plot" }
-rustlab-script = { path = "crates/rustlab-script" }
-rustlab-proto  = { path = "crates/rustlab-proto" }
+rustlab-core   = { path = "crates/rustlab-core",   version = "0.1.4" }
+rustlab-dsp    = { path = "crates/rustlab-dsp",    version = "0.1.4" }
+rustlab-plot   = { path = "crates/rustlab-plot",    version = "0.1.4" }
+rustlab-script = { path = "crates/rustlab-script",  version = "0.1.4" }
+rustlab-proto  = { path = "crates/rustlab-proto",   version = "0.1.4" }
 serde          = { version = "1", features = ["derive"] }
 rmp-serde      = "1"
