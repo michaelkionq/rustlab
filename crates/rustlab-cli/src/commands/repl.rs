@@ -302,8 +302,8 @@ const HELP: &[HelpEntry] = &[
     HelpEntry { name: "commas", brief: "Format number with thousands separators",
         detail: "commas(x)  — format number with comma separators, returns string\n  commas(1234567)       →  \"1,234,567\"\n  commas(1234567.89)    →  \"1,234,567.89\"\n  commas(1234567.89, 2) →  \"1,234,567.89\"  (with precision)\n  commas(1234567, 0)    →  \"1,234,567\"" },
     // Formatting
-    HelpEntry { name: "format", brief: "Set display format mode (commas, default)",
-        detail: "format commas   — enable thousands separators in all numeric output\n  format default  — restore normal display\n  format          — show current mode\n  Example:\n    format commas\n    x = 1234567\n    x = 1,234,567" },
+    HelpEntry { name: "format", brief: "Set display format (short, long, hex, commas)",
+        detail: "format short    — default display (4-6 digits)\n  format long     — full f64 precision (15 digits)\n  format hex      — IEEE-754 hex encoding of float bits\n  format commas   — thousands separators\n  format default  — alias for short\n  format          — show current mode\n  Example:\n    format long\n    x = pi\n    x = 3.141592653589793" },
     // Aggregates
     HelpEntry { name: "all", brief: "True if all elements are nonzero",
         detail: "all(v)  — true if every element of v is nonzero\n  Works on scalars, bools, and vectors." },

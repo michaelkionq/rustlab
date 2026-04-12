@@ -5759,36 +5759,72 @@ mod comma_tests {
         assert_eq!(get_str(&ev, "s"), "1234567");
     }
 
-    // ── format commas / format default ──────────────────────────────────────
+    // ── format modes ─────────────────────────────────────────────────────────
 
     #[test]
     fn format_commas_mode() {
         let ev = eval_str("format commas\nx = 1234567;");
-        assert!(ev.format_commas);
+        assert_eq!(ev.number_format, crate::eval::value::NumberFormat::Commas);
     }
 
     #[test]
     fn format_default_mode() {
         let ev = eval_str("format commas\nformat default");
-        assert!(!ev.format_commas);
+        assert_eq!(ev.number_format, crate::eval::value::NumberFormat::Short);
+    }
+
+    #[test]
+    fn format_short_mode() {
+        let ev = eval_str("format long\nformat short");
+        assert_eq!(ev.number_format, crate::eval::value::NumberFormat::Short);
+    }
+
+    #[test]
+    fn format_long_mode() {
+        let ev = eval_str("format long");
+        assert_eq!(ev.number_format, crate::eval::value::NumberFormat::Long);
+    }
+
+    #[test]
+    fn format_hex_mode() {
+        let ev = eval_str("format hex");
+        assert_eq!(ev.number_format, crate::eval::value::NumberFormat::Hex);
     }
 
     #[test]
     fn format_display_scalar_commas() {
+        use crate::eval::value::NumberFormat;
         let val = Value::Scalar(1234567.0);
-        assert_eq!(val.format_display(true), "1,234,567");
+        assert_eq!(val.format_display(NumberFormat::Commas), "1,234,567");
     }
 
     #[test]
-    fn format_display_scalar_no_commas() {
+    fn format_display_scalar_short() {
+        use crate::eval::value::NumberFormat;
         let val = Value::Scalar(1234567.0);
-        assert_eq!(val.format_display(false), "1234567");
+        assert_eq!(val.format_display(NumberFormat::Short), "1234567");
+    }
+
+    #[test]
+    fn format_display_scalar_long() {
+        use crate::eval::value::NumberFormat;
+        let val = Value::Scalar(3.14);
+        assert_eq!(val.format_display(NumberFormat::Long), "3.140000000000000");
+    }
+
+    #[test]
+    fn format_display_scalar_hex() {
+        use crate::eval::value::NumberFormat;
+        let val = Value::Scalar(1.0);
+        // 1.0f64 = 0x3ff0000000000000
+        assert_eq!(val.format_display(NumberFormat::Hex), "3ff0000000000000");
     }
 
     #[test]
     fn format_display_negative() {
+        use crate::eval::value::NumberFormat;
         let val = Value::Scalar(-1234567.5);
-        assert_eq!(val.format_display(true), "-1,234,567.5");
+        assert_eq!(val.format_display(NumberFormat::Commas), "-1,234,567.5");
     }
 }
 

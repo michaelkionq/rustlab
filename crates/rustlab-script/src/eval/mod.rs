@@ -10,6 +10,7 @@ use rustlab_core::C64;
 use crate::ast::{Expr, Stmt, StmtKind};
 use crate::error::ScriptError;
 pub use value::Value;
+pub use value::NumberFormat;
 pub use builtins::BuiltinRegistry;
 pub use profile::FnStats;
 
@@ -30,8 +31,8 @@ pub struct Evaluator {
     profiler:      profile::Profiler,
     /// When true, assignment output uses ANSI colour (green var name, dim `=`).
     pub color_output: bool,
-    /// When true, numeric display inserts thousands-separator commas.
-    pub format_commas: bool,
+    /// Active numeric display format (short, long, hex, commas).
+    pub number_format: value::NumberFormat,
     /// Source line of the statement currently being executed (for error messages).
     current_line:  usize,
 }
@@ -59,7 +60,7 @@ impl Evaluator {
             in_function: false,
             profiler:    profile::Profiler::default(),
             color_output: false,
-            format_commas: false,
+            number_format: value::NumberFormat::Short,
             current_line: 0,
         }
     }
@@ -136,7 +137,7 @@ impl Evaluator {
             StmtKind::Assign { name, expr, suppress } => {
                 let val = self.eval_expr(expr)?;
                 if !suppress && !self.in_function {
-                    let display = val.format_display(self.format_commas);
+                    let display = val.format_display(self.number_format);
                     if self.color_output {
                         println!("\x1b[32m{}\x1b[0m = {}", name, display);
                     } else {
@@ -156,7 +157,7 @@ impl Evaluator {
             StmtKind::FieldAssign { object, field, expr, suppress } => {
                 let val = self.eval_expr(expr)?;
                 if !suppress && !self.in_function {
-                    let display = val.format_display(self.format_commas);
+                    let display = val.format_display(self.number_format);
                     if self.color_output {
                         println!("\x1b[32m{}.{}\x1b[0m = {}", object, field, display);
                     } else {
@@ -219,23 +220,30 @@ impl Evaluator {
                 }
             }
             StmtKind::Format { mode } => {
+                use value::NumberFormat;
                 match mode.as_str() {
+                    "short" | "default" => {
+                        self.number_format = NumberFormat::Short;
+                        println!("format: short");
+                    }
+                    "long" => {
+                        self.number_format = NumberFormat::Long;
+                        println!("format: long");
+                    }
+                    "hex" => {
+                        self.number_format = NumberFormat::Hex;
+                        println!("format: hex");
+                    }
                     "commas" => {
-                        self.format_commas = true;
+                        self.number_format = NumberFormat::Commas;
                         println!("format: commas");
                     }
-                    "default" | "short" => {
-                        self.format_commas = false;
-                        println!("format: default");
-                    }
                     "" => {
-                        // bare `format` — show current mode
-                        let name = if self.format_commas { "commas" } else { "default" };
-                        println!("format: {}", name);
+                        println!("format: {}", self.number_format.name());
                     }
                     other => {
                         return Err(ScriptError::runtime(format!(
-                            "format: unknown mode '{}' (try 'commas' or 'default')", other
+                            "format: unknown mode '{}' (try short, long, hex, commas)", other
                         )));
                     }
                 }
@@ -263,7 +271,7 @@ impl Evaluator {
                         for (name, v) in names.iter().zip(values.into_iter()) {
                             if name == "~" { continue; } // discard
                             if !suppress && !self.in_function {
-                                let display = v.format_display(self.format_commas);
+                                let display = v.format_display(self.number_format);
                                 if self.color_output {
                                     println!("\x1b[32m{}\x1b[0m = {}", name, display);
                                 } else {
@@ -523,7 +531,7 @@ impl Evaluator {
 
                 let val = self.eval_expr(expr)?;
                 if !suppress && !self.in_function && !matches!(val, Value::None) {
-                    println!("{}", val.format_display(self.format_commas));
+                    println!("{}", val.format_display(self.number_format));
                 }
             }
         }

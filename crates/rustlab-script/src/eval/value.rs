@@ -7,6 +7,31 @@ use rustlab_core::{C64, CMatrix, CVector, SparseVec, SparseMat};
 use rustlab_dsp::fixed::QFmtSpec;
 use crate::ast::{BinOp, Expr};
 
+/// Numeric display format, set by the `format` command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NumberFormat {
+    /// Default: 4 decimal places for scalars, 6 for vectors/matrices.
+    #[default]
+    Short,
+    /// Full f64 precision (15 significant digits).
+    Long,
+    /// IEEE-754 hex encoding of the 64-bit float.
+    Hex,
+    /// Thousands-separator commas.
+    Commas,
+}
+
+impl NumberFormat {
+    pub fn name(&self) -> &'static str {
+        match self {
+            NumberFormat::Short  => "short",
+            NumberFormat::Long   => "long",
+            NumberFormat::Hex    => "hex",
+            NumberFormat::Commas => "commas",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Value {
     Scalar(f64),
@@ -1307,39 +1332,70 @@ pub fn insert_commas(s: &str) -> String {
 }
 
 impl Value {
-    /// Format this value for display, optionally with comma-separated thousands.
-    pub fn format_display(&self, commas: bool) -> String {
-        if !commas {
+    /// Format this value according to the active `NumberFormat`.
+    pub fn format_display(&self, nf: NumberFormat) -> String {
+        if nf == NumberFormat::Short {
             return format!("{}", self);
         }
         const MAX_ELEMS: usize = 8;
 
-        fn fmt_real(n: f64) -> String {
-            insert_commas(&format!("{}", n))
-        }
-        fn fmt_real_prec(n: f64) -> String {
-            insert_commas(&format!("{:.6}", n))
-        }
-        fn fmt_complex(c: &C64) -> String {
-            if c.im >= 0.0 {
-                format!("{}+{}j", fmt_real(c.re), fmt_real(c.im))
-            } else {
-                format!("{}{}j", fmt_real(c.re), fmt_real(c.im))
-            }
-        }
-        fn fmt_complex_prec(c: &C64) -> String {
-            if c.im.abs() < 1e-12 {
-                fmt_real_prec(c.re)
-            } else if c.im >= 0.0 {
-                format!("{}+{}j", fmt_real_prec(c.re), fmt_real_prec(c.im))
-            } else {
-                format!("{}{}j", fmt_real_prec(c.re), fmt_real_prec(c.im))
+        // ── per-format scalar helpers ──────────────────────────────────────
+
+        fn fmt_scalar(n: f64, nf: NumberFormat) -> String {
+            match nf {
+                NumberFormat::Short  => format!("{}", n),
+                NumberFormat::Long   => format!("{:.15}", n),
+                NumberFormat::Hex    => format!("{:016x}", n.to_bits()),
+                NumberFormat::Commas => insert_commas(&format!("{}", n)),
             }
         }
 
+        fn fmt_scalar_prec(n: f64, nf: NumberFormat) -> String {
+            match nf {
+                NumberFormat::Short  => format!("{:.6}", n),
+                NumberFormat::Long   => format!("{:.15}", n),
+                NumberFormat::Hex    => format!("{:016x}", n.to_bits()),
+                NumberFormat::Commas => insert_commas(&format!("{:.6}", n)),
+            }
+        }
+
+        fn fmt_complex(c: &C64, nf: NumberFormat) -> String {
+            if nf == NumberFormat::Hex {
+                if c.im == 0.0 {
+                    return fmt_scalar(c.re, nf);
+                }
+                return format!("{}+{}j",
+                    fmt_scalar(c.re, nf), fmt_scalar(c.im, nf));
+            }
+            if c.im >= 0.0 {
+                format!("{}+{}j", fmt_scalar(c.re, nf), fmt_scalar(c.im, nf))
+            } else {
+                format!("{}{}j", fmt_scalar(c.re, nf), fmt_scalar(c.im, nf))
+            }
+        }
+
+        fn fmt_complex_prec(c: &C64, nf: NumberFormat) -> String {
+            if nf == NumberFormat::Hex {
+                if c.im == 0.0 {
+                    return fmt_scalar(c.re, nf);
+                }
+                return format!("{}+{}j",
+                    fmt_scalar(c.re, nf), fmt_scalar(c.im, nf));
+            }
+            if c.im.abs() < 1e-12 {
+                fmt_scalar_prec(c.re, nf)
+            } else if c.im >= 0.0 {
+                format!("{}+{}j", fmt_scalar_prec(c.re, nf), fmt_scalar_prec(c.im, nf))
+            } else {
+                format!("{}{}j", fmt_scalar_prec(c.re, nf), fmt_scalar_prec(c.im, nf))
+            }
+        }
+
+        // ── dispatch on value type ─────────────────────────────────────────
+
         match self {
-            Value::Scalar(n) => fmt_real(*n),
-            Value::Complex(c) => fmt_complex(c),
+            Value::Scalar(n) => fmt_scalar(*n, nf),
+            Value::Complex(c) => fmt_complex(c, nf),
             Value::Vector(v) => {
                 let n = v.len();
                 let mut s = format!("[1×{}]", n);
@@ -1348,7 +1404,7 @@ impl Value {
                 let show = n.min(MAX_ELEMS);
                 for (i, c) in v.iter().take(show).enumerate() {
                     if i > 0 { s.push_str("  "); }
-                    s.push_str(&fmt_complex_prec(c));
+                    s.push_str(&fmt_complex_prec(c, nf));
                 }
                 if n > MAX_ELEMS {
                     s.push_str(&format!("  ... ({} total)", n));
@@ -1366,7 +1422,7 @@ impl Value {
                     for c_idx in 0..show_cols {
                         if c_idx > 0 { s.push_str(", "); }
                         let c = m[[r, c_idx]];
-                        s.push_str(&fmt_complex_prec(&c));
+                        s.push_str(&fmt_complex_prec(&c, nf));
                     }
                     if ncols > MAX_ELEMS { s.push_str(", ..."); }
                     s.push(']');
@@ -1376,7 +1432,6 @@ impl Value {
                 }
                 s
             }
-            // For other types, comma formatting doesn't apply — use default Display
             other => format!("{}", other),
         }
     }
