@@ -73,6 +73,15 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {{
+    delimiters: [
+      {{left: '$$', right: '$$', display: true}},
+      {{left: '$', right: '$', display: false}}
+    ]
+  }});"></script>
 <style>
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
   body {{
