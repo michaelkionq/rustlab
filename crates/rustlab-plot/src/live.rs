@@ -131,6 +131,21 @@ impl LiveFigure {
     }
 }
 
+impl crate::LivePlot for LiveFigure {
+    fn update_panel(&mut self, idx: usize, x: Vec<f64>, y: Vec<f64>) {
+        self.update_panel(idx, x, y);
+    }
+    fn set_panel_labels(&mut self, idx: usize, title: &str, xlabel: &str, ylabel: &str) {
+        self.set_panel_labels(idx, title, xlabel, ylabel);
+    }
+    fn set_panel_limits(&mut self, idx: usize, xlim: (Option<f64>, Option<f64>), ylim: (Option<f64>, Option<f64>)) {
+        self.set_panel_limits(idx, xlim, ylim);
+    }
+    fn redraw(&mut self) -> Result<(), crate::PlotError> {
+        self.redraw()
+    }
+}
+
 impl std::fmt::Debug for LiveFigure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "LiveFigure({}x{})", self.rows, self.cols)

@@ -1,0 +1,16 @@
+[package]
+name    = "rustlab-viewer"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "rustlab-viewer"
+path = "src/main.rs"
+
+[dependencies]
+rustlab-proto = { workspace = true }
+eframe        = "0.31"
+egui          = "0.31"
+egui_plot     = "0.31"
+rmp-serde     = { workspace = true }
+serde         = { workspace = true }

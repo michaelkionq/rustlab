@@ -320,10 +320,11 @@ Mixed sparse+dense pairs auto-promote to dense.
 
 ---
 
-## Plotting — File Output (PNG or SVG by extension)
+## Plotting — File Output (PNG, SVG, or HTML by extension)
 
 | Function | Description |
 |---|---|
+| `savefig("file.html")` | Export current figure to interactive HTML (Plotly) |
 | `savefig(v, file)` / `savefig(v, file, "title")` | Line plot → file |
 | `savestem(v, file)` / `savestem(v, file, "title")` | Stem plot → file |
 | `savebar(y, file)` / `savebar(x, y, file, "title")` | Bar chart → file |
@@ -338,9 +339,11 @@ Mixed sparse+dense pairs auto-promote to dense.
 
 | Function | Description |
 |---|---|
-| `figure()` | Reset figure state; clears all subplots and series |
-| `hold("on")` / `hold("off")` | Overlay series on current subplot |
-| `grid("on")` / `grid("off")` | Show / hide grid lines |
+| `figure()` | Reset figure state and return to TUI plotting |
+| `figure("file.html")` | Reset figure and switch to HTML output mode |
+| `hold on` / `hold off` | Overlay series on current subplot (also `hold("on")`) |
+| `grid on` / `grid off` | Show / hide grid lines (also `grid("on")`) |
+| `viewer on` / `viewer off` | Route plots to external rustlab-viewer (requires `viewer` feature) |
 | `title("text")` | Set subplot title |
 | `xlabel("text")` | Set x-axis label |
 | `ylabel("text")` | Set y-axis label |
@@ -380,6 +383,8 @@ Persistent terminal plots for real-time data (oscilloscopes, spectrum monitors, 
 | `figure_live(rows, cols)` | Open persistent live terminal figure; errors if not a tty |
 | `plot_update(fig, panel, y)` | Replace panel data (1-based); no immediate redraw |
 | `plot_update(fig, panel, x, y)` | Same with explicit x-axis |
+| `plot_labels(fig, panel, title, xlabel, ylabel)` | Set title and axis labels on a live panel |
+| `plot_limits(fig, panel, xlim, ylim)` | Set fixed axis limits on a live panel |
 | `figure_draw(fig)` | Flush all panels in one atomic refresh |
 | `figure_close(fig)` | Restore terminal; also fires automatically on exit |
 | `mag2db(X)` | 20·log10(|X|), floored at −200 dB; for spectrum dB display |

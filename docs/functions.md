@@ -1030,19 +1030,38 @@ All plot functions accumulate series into a shared **figure state** and render i
 
 ### Figure State
 
-#### `figure()`
+#### `figure()` / `figure("file.html")`
 Reset the figure to a blank state (clears all subplots and series).
+
+With no arguments, returns to normal TUI (terminal) plotting. With an HTML path argument, switches to HTML output mode — all subsequent plot commands (`plot`, `xlabel`, `ylabel`, `title`, `grid`, `clf`, etc.) write to the HTML file instead of the terminal. Refresh the browser to see updates.
 ```
-figure()
+figure()              % reset, TUI mode
+figure("temp.html")   % reset, HTML output mode
+plot(x, y)            % writes to temp.html, no TUI
+xlabel("Time")        % updates temp.html
+figure()              % back to TUI
 ```
 
-#### `hold("on")` / `hold("off")`
-When hold is on, new `plot()`/`stem()` calls add series to the current subplot instead of replacing them. Accepts `"on"`, `"off"`, `1`, or `0`.
+#### `hold on` / `hold off`
+When hold is on, new `plot()`/`stem()` calls add series to the current subplot instead of replacing them. Also accepts function-call form: `hold("on")`, `hold(1)`.
 ```
-hold("on")
+hold on
 plot(signal1, "label", "first")
 plot(signal2, "label", "second")
-hold("off")
+hold off
+```
+
+#### `grid on` / `grid off`
+Show or hide grid lines on the current subplot. Also accepts function-call form: `grid("on")`, `grid(1)`. Default is on.
+
+#### `viewer on` / `viewer off`
+Connect to a running `rustlab-viewer` process. When connected, all plot commands (`plot`, `stem`, `bar`, `bode`, etc.) render in the external egui viewer with zoom/pan/crosshairs instead of the terminal. `viewer off` disconnects and returns to terminal plotting.
+
+Requires the `viewer` feature (included in `make install`). Start `rustlab-viewer` before typing `viewer on`.
+```
+viewer on          % connect to viewer
+plot(x, sin(x))   % renders in viewer window
+viewer off         % back to terminal
 ```
 
 #### `subplot(rows, cols, idx)`
@@ -1190,10 +1209,14 @@ imagesc(M, "jet")
 
 File format is detected from the extension (`.svg` or `.png`).
 
-### `savefig(v, filename [, title])`
-Save a line chart to file. Renders the current figure state — call `plot()` first or use figure state functions to set up multi-series plots.
-`v` may be a vector or an n×1 column matrix.
+### `savefig(v, filename [, title])` / `savefig(filename)`
+Save a plot to file. Extension determines format: `.svg`, `.png`, or `.html`.
+
+The 1-argument form `savefig("file.html")` exports the current figure state (all subplots and series) as an interactive HTML file using Plotly.js. Supports zoom, pan, hover readout, and PNG export from the browser toolbar.
+
+The 2–3 argument form saves a line chart: `v` may be a vector or an n×1 column matrix.
 ```
+savefig("report.html")                               % interactive Plotly HTML
 savefig(real(signal), "signal.svg", "440 Hz Sinusoid")
 savefig(mag, "magnitude.png")
 ```
@@ -2018,7 +2041,7 @@ See `examples/audio/` for ready-to-run scripts for macOS, Linux, WSL2, and TCP s
 
 ## Live Plotting
 
-`figure_live`, `plot_update`, `figure_draw`, `figure_close`, and `mag2db` provide real-time terminal visualization that stays open across multiple draw calls — suitable for oscilloscopes, spectrum monitors, and animated simulations.
+`figure_live`, `plot_update`, `plot_labels`, `plot_limits`, `figure_draw`, `figure_close`, and `mag2db` provide real-time visualization that stays open across multiple draw calls — suitable for oscilloscopes, spectrum monitors, and animated simulations. When the `viewer` feature is enabled and `rustlab-viewer` is running, `figure_live()` automatically connects to the viewer for egui rendering with zoom/pan.
 
 ### `figure_live(rows, cols)`
 
@@ -2036,6 +2059,22 @@ plot_update(fig, panel, x, y)    # explicit x-axis
 ```
 
 Replaces the data in the given 1-based panel without redrawing. Call `figure_draw` after updating all panels for a single atomic screen refresh per loop iteration — this avoids partial-state flicker.
+
+### `plot_labels(fig, panel, title, xlabel, ylabel)`
+
+```
+plot_labels(fig, panel, title, xlabel, ylabel)
+```
+
+Set the title and axis labels for a live figure panel (1-based). Labels persist across redraws — typically set once after `figure_live()`.
+
+### `plot_limits(fig, panel, xlim, ylim)`
+
+```
+plot_limits(fig, panel, [x0, x1], [y0, y1])
+```
+
+Set fixed axis limits for a live figure panel (1-based). Pass `[lo, hi]` vectors.
 
 ### `figure_draw(fig)`
 

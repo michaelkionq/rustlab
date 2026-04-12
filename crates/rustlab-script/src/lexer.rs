@@ -57,6 +57,9 @@ pub enum Token {
     Otherwise,  // otherwise
     Run,        // run
     Format,     // format
+    Hold,       // hold
+    Grid,       // grid
+    Viewer,     // viewer
     Dot,        // . (field access)
     // Structure
     Newline,
@@ -277,6 +280,9 @@ pub fn tokenize(source: &str) -> Result<Vec<Spanned>, ScriptError> {
                     "otherwise"=> Token::Otherwise,
                     "run"      => Token::Run,
                     "format"   => Token::Format,
+                    "hold"     => Token::Hold,
+                    "grid"     => Token::Grid,
+                    "viewer"   => Token::Viewer,
                     _          => Token::Ident(ident),
                 };
                 tokens.push(Spanned { token: tok, line });

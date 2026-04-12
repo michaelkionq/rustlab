@@ -248,6 +248,34 @@ impl Evaluator {
                     }
                 }
             }
+            StmtKind::Hold { on } => {
+                rustlab_plot::FIGURE.with(|fig| fig.borrow_mut().hold = *on);
+                rustlab_plot::sync_figure_outputs();
+            }
+            StmtKind::Grid { on } => {
+                rustlab_plot::FIGURE.with(|fig| fig.borrow_mut().current_mut().grid = *on);
+                rustlab_plot::sync_figure_outputs();
+            }
+            StmtKind::Viewer { on } => {
+                #[cfg(feature = "viewer")]
+                {
+                    if *on {
+                        match rustlab_plot::connect_viewer() {
+                            Ok(true)  => eprintln!("viewer connected"),
+                            Ok(false) => eprintln!("viewer: rustlab-viewer is not running"),
+                            Err(e)    => eprintln!("viewer: {}", e),
+                        }
+                    } else {
+                        rustlab_plot::disconnect_viewer();
+                        eprintln!("viewer disconnected");
+                    }
+                }
+                #[cfg(not(feature = "viewer"))]
+                {
+                    let _ = on;
+                    eprintln!("viewer: not available (build with --features viewer)");
+                }
+            }
             StmtKind::Run { path } => {
                 let source = std::fs::read_to_string(path).map_err(|e| {
                     ScriptError::runtime(format!("run: {}: {}", path, e))
@@ -504,6 +532,7 @@ impl Evaluator {
                     }
                     if name == "clf" {
                         rustlab_plot::FIGURE.with(|fig| fig.borrow_mut().reset());
+                        rustlab_plot::sync_figure_outputs();
                         return Ok(());
                     }
                 }

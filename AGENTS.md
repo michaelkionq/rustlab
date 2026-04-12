@@ -30,7 +30,9 @@ rustlab/
 ├── crates/
 │   ├── rustlab-core/       # primitive types and traits — no DSP, no plotting
 │   ├── rustlab-dsp/        # DSP algorithms — depends on core only
-│   ├── rustlab-plot/       # ratatui charts — depends on core only
+│   ├── rustlab-plot/       # ratatui charts + HTML export — depends on core only
+│   ├── rustlab-proto/      # IPC wire protocol for rustlab↔viewer communication
+│   ├── rustlab-viewer/     # standalone egui plot viewer (separate binary)
 │   ├── rustlab-script/     # .r language interpreter — depends on core, dsp, plot
 │   └── rustlab-cli/        # binary `rustlab` — depends on all crates
 ├── dev/
@@ -61,10 +63,10 @@ rustlab/
 ```
 rustlab-core
     ↑           ↑
-rustlab-dsp   rustlab-plot
-    ↑           ↑
-    └─────┬─────┘
-    rustlab-script
+rustlab-dsp   rustlab-plot ←(optional viewer feature)── rustlab-proto
+    ↑           ↑                                            ↑
+    └─────┬─────┘                                    rustlab-viewer
+    rustlab-script                                   (separate binary)
           ↑
     rustlab-cli
 ```
@@ -313,13 +315,18 @@ cargo install --path crates/rustlab-cli   # → ~/.cargo/bin/rustlab
 
 ### `rustlab-plot`
 
-**Purpose:** Terminal charts. Depends on `rustlab-core` only.
+**Purpose:** Terminal charts, HTML export, and optional viewer client. Depends on `rustlab-core` only (viewer feature adds `rustlab-proto`).
 
 **Key files:**
 - `src/ascii.rs` — `plot_real`, `plot_complex`, `stem_real`, and the shared `draw_subplots(f, subplots, rows, cols)` helper used by both `render_figure_terminal` and `LiveFigure::redraw`.
-- `src/live.rs` — `LiveFigure` struct: `new(rows, cols)`, `update_panel(idx, x, y)`, `set_panel_labels(idx, title, xlabel, ylabel)`, `redraw()`. `Drop` impl restores the terminal.
+- `src/live.rs` — `LiveFigure` struct implementing the `LivePlot` trait: `new(rows, cols)`, `update_panel(idx, x, y)`, `set_panel_labels(idx, title, xlabel, ylabel)`, `redraw()`. `Drop` impl restores the terminal.
+- `src/html.rs` — `render_figure_html(path)`: exports current FIGURE state to a self-contained HTML file with Plotly.js (CDN). Also provides HTML figure mode (`set_html_figure_path`, `sync_html_file`, `html_figure_active`) where `figure("file.html")` causes all subsequent plot commands to auto-update the HTML file instead of rendering to the terminal; `figure()` returns to TUI mode.
+- `src/viewer_client.rs` — (feature `viewer`) thin Unix socket client for communicating with `rustlab-viewer`.
+- `src/viewer_live.rs` — (feature `viewer`) `ViewerFigure` implementing `LivePlot`, routes live plot data to the viewer over IPC. Also provides `connect_viewer()`, `disconnect_viewer()`, `viewer_active()`, `sync_viewer()` for routing regular (non-live) plot commands to the viewer when `viewer on` is active.
 
-**Behavior:** Static plot functions enter the ratatui alternate screen, draw a braille-pixel chart, wait for a keypress, then restore the terminal. `LiveFigure` keeps the alternate screen open across multiple `redraw()` calls and only restores on `Drop`. Neither should be called in non-TTY contexts (`render_figure_terminal` silently skips; `LiveFigure::new` returns `Err(PlotError::NotATty)`).
+**Trait:** `LivePlot` (in `lib.rs`) — backend-agnostic interface for live plots. Implemented by `LiveFigure` (ratatui) and `ViewerFigure` (egui viewer). The script engine stores `Box<dyn LivePlot>` in `Value::LiveFigure`.
+
+**Behavior:** Static plot functions enter the ratatui alternate screen, draw a braille-pixel chart, wait for a keypress, then restore the terminal. `LiveFigure` keeps the alternate screen open across multiple `redraw()` calls and only restores on `Drop`. When the `viewer` feature is enabled and `rustlab-viewer` is running, `figure_live()` automatically connects to the viewer instead of using ratatui. Neither should be called in non-TTY contexts (`render_figure_terminal` silently skips; `LiveFigure::new` returns `Err(PlotError::NotATty)`).
 
 ---
 
@@ -330,9 +337,9 @@ cargo install --path crates/rustlab-cli   # → ~/.cargo/bin/rustlab
 **Key files:**
 - `src/lexer.rs` — hand-written lexer → `Vec<Spanned<Token>>`
 - `src/parser.rs` — recursive-descent parser → `Vec<Stmt>`
-- `src/ast.rs` — `Stmt` (Assign, Expr, FunctionDef, FieldAssign, Return), `Expr` (Number, Str, Var, BinOp, UnaryMinus, Call, Matrix, Range, Transpose, Field, Lambda, FuncHandle), `BinOp`
+- `src/ast.rs` — `Stmt` (Assign, Expr, FunctionDef, FieldAssign, Return, Hold, Grid, Viewer, For, While, IndexAssign, ...), `Expr` (Number, Str, Var, BinOp, UnaryMinus, Call, Matrix, Range, Transpose, Field, Lambda, FuncHandle), `BinOp`
 - `src/eval/mod.rs` — `Evaluator` struct: holds `env`, `builtins`, `user_fns`, `in_function`, `profiler: profile::Profiler`; public API: `run()`, `run_script()`, `enable_profiling()`, `has_profile_data()`, `take_profile()`
-- `src/eval/value.rs` — `Value` enum: `Scalar(f64)`, `Complex(C64)`, `Vector(CVector)`, `Matrix(CMatrix)`, `Str(String)`, `Struct(HashMap<String,Value>)`, `Bool(bool)`, `Lambda { params, body, captured_env }`, `FuncHandle(String)`, `QFmt`, `FirState(Arc<Mutex<Vec<C64>>>)`, `AudioIn { sample_rate, frame_size }`, `AudioOut { sample_rate, frame_size }`, `LiveFigure(Arc<Mutex<Option<rustlab_plot::LiveFigure>>>)`, `All`, `None`
+- `src/eval/value.rs` — `Value` enum: `Scalar(f64)`, `Complex(C64)`, `Vector(CVector)`, `Matrix(CMatrix)`, `Str(String)`, `Struct(HashMap<String,Value>)`, `Bool(bool)`, `Lambda { params, body, captured_env }`, `FuncHandle(String)`, `QFmt`, `FirState(Arc<Mutex<Vec<C64>>>)`, `AudioIn { sample_rate, frame_size }`, `AudioOut { sample_rate, frame_size }`, `LiveFigure(Arc<Mutex<Option<Box<dyn rustlab_plot::LivePlot>>>>)`, `All`, `None`
 - `src/eval/builtins.rs` — `BuiltinRegistry`: `HashMap<String, BuiltinFn>` where `BuiltinFn = fn(Vec<Value>) -> Result<Value, ScriptError>`
 - `src/eval/toml_io.rs` — TOML import/export: `save_toml()`, `load_toml()`, and `Value ↔ toml::Value` converters
 - `src/eval/profile.rs` — `Profiler` struct (opt-in, zero overhead when disabled); `print_report()` prints table to stderr
@@ -444,6 +451,7 @@ primary     = NUMBER | STRING | IDENT
 | String indexing | `s(3)`, `s(1:5)`, `s(:)` | 1-based; returns string; `end` supported |
 | Clear workspace | `clear` | Bare command (no parens); removes all user vars/fns, keeps built-in constants |
 | Clear figure | `clf` | Bare command (no parens); resets figure state (equivalent to `figure()`) |
+| Hold/Grid/Viewer | `hold on`, `grid off`, `viewer on` | Bare keyword commands; also accept function-call form `hold("on")` |
 | Lambda | `f = @(x) x^2` | Creates anonymous function; captures env by snapshot at creation |
 | Function handle | `@sin`, `@myFn` | Reference to builtin or user-defined function |
 | Higher-order | `arrayfun(@sin, v)` | Maps callable over vector; scalar outputs → Vector, vector outputs → Matrix |
@@ -512,6 +520,8 @@ primary     = NUMBER | STRING | IDENT
 | `audio_write` | `audio_write(dst, y)` | Write real parts of frame as f32 LE to stdout; flushes after each call |
 | `figure_live` | `figure_live(rows, cols)` | Open persistent live terminal plot; returns `Value::LiveFigure`; errors if not a tty |
 | `plot_update` | `plot_update(fig, panel, y)` / `plot_update(fig, panel, x, y)` | Replace panel data (1-based panel); no immediate redraw |
+| `plot_labels` | `plot_labels(fig, panel, title, xlabel, ylabel)` | Set title and axis labels on a live panel |
+| `plot_limits` | `plot_limits(fig, panel, xlim, ylim)` | Set fixed axis limits on a live panel (`[lo, hi]` vectors) |
 | `figure_draw` | `figure_draw(fig)` | Flush all panels to terminal in one atomic refresh |
 | `figure_close` | `figure_close(fig)` | Drop `LiveFigure`, restoring terminal; also fires via `Drop` on script exit |
 | `mag2db` | `mag2db(X)` | 20·log10(|X|) element-wise, floored at −200 dB (1e-10 floor) |

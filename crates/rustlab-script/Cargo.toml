@@ -3,6 +3,10 @@ name    = "rustlab-script"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = []
+viewer  = ["rustlab-plot/viewer"]
+
 [dependencies]
 rustlab-core.workspace  = true
 rustlab-dsp             = { path = "../rustlab-dsp" }

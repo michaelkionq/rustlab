@@ -3,6 +3,10 @@ name    = "rustlab-cli"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = []
+viewer  = ["rustlab-script/viewer"]
+
 [[bin]]
 name = "rustlab"
 path = "src/main.rs"

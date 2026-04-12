@@ -1,0 +1,11 @@
+[package]
+name    = "rustlab-proto"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde     = { version = "1", features = ["derive"] }
+rmp-serde = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

@@ -1,5 +1,5 @@
 CARGO       := cargo
-RUSTLAB     := cargo run -q --
+RUSTLAB     := cargo run -q --bin rustlab --
 INSTALL_DIR := $(HOME)/.local/bin
 UNAME       := $(shell uname)
 
@@ -19,18 +19,30 @@ EXAMPLES_ALL := \
 # Non-interactive subset — safe for headless / CI runs.
 EXAMPLES_CI := complex_basics save_load firpm fixed_point
 
-.PHONY: install examples examples-ci perf clean-examples clean help $(EXAMPLES_ALL)
+.PHONY: install install-viewer examples examples-ci perf clean-examples clean help $(EXAMPLES_ALL)
 
-## Build release binary and install to $(INSTALL_DIR) (macOS and Linux)
+## Build release binaries (rustlab + rustlab-viewer) and install to $(INSTALL_DIR)
 install:
-	$(CARGO) build --release
+	$(CARGO) build --release --features viewer
 	mkdir -p $(INSTALL_DIR)
 	cp target/release/rustlab $(INSTALL_DIR)/rustlab
+	cp target/release/rustlab-viewer $(INSTALL_DIR)/rustlab-viewer
 ifeq ($(UNAME), Darwin)
 	codesign --sign - --force $(INSTALL_DIR)/rustlab
+	codesign --sign - --force $(INSTALL_DIR)/rustlab-viewer
 endif
-	@echo "Installed to $(INSTALL_DIR)/rustlab"
+	@echo "Installed to $(INSTALL_DIR)/rustlab and $(INSTALL_DIR)/rustlab-viewer"
 	@echo "Make sure $(INSTALL_DIR) is on your PATH"
+
+## Build and install rustlab-viewer (interactive egui plot viewer)
+install-viewer:
+	$(CARGO) build --release -p rustlab-viewer
+	mkdir -p $(INSTALL_DIR)
+	cp target/release/rustlab-viewer $(INSTALL_DIR)/rustlab-viewer
+ifeq ($(UNAME), Darwin)
+	codesign --sign - --force $(INSTALL_DIR)/rustlab-viewer
+endif
+	@echo "Installed to $(INSTALL_DIR)/rustlab-viewer"
 
 ## Run all examples (interactive ones require a real terminal)
 examples:

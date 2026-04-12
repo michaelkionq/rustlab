@@ -1,0 +1,52 @@
+//! Thin socket client for communicating with `rustlab-viewer`.
+
+use rustlab_proto::{ViewerMsg, ViewerReply, default_socket_path, read_msg, write_msg};
+use std::io::BufWriter;
+
+/// Connection to a running `rustlab-viewer` process.
+pub struct ViewerClient {
+    #[cfg(unix)]
+    stream: std::os::unix::net::UnixStream,
+    #[cfg(not(unix))]
+    stream: std::net::TcpStream,
+}
+
+impl std::fmt::Debug for ViewerClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ViewerClient")
+    }
+}
+
+impl ViewerClient {
+    /// Try to connect to a running viewer.  Returns `None` if the viewer
+    /// socket does not exist or the connection is refused.
+    pub fn connect() -> Option<Self> {
+        let path = default_socket_path();
+        #[cfg(unix)]
+        {
+            let stream = std::os::unix::net::UnixStream::connect(&path).ok()?;
+            stream.set_nonblocking(false).ok()?;
+            Some(Self { stream })
+        }
+        #[cfg(not(unix))]
+        {
+            let stream = std::net::TcpStream::connect("127.0.0.1:19847").ok()?;
+            Some(Self { stream })
+        }
+    }
+
+    /// Send a message and wait for the reply.
+    pub fn send(&mut self, msg: &ViewerMsg) -> Result<ViewerReply, crate::PlotError> {
+        write_msg(&mut BufWriter::new(&mut self.stream), msg)
+            .map_err(|e| crate::PlotError::ViewerConnection(e.to_string()))?;
+        let reply: Option<ViewerReply> = read_msg(&mut self.stream)
+            .map_err(|e| crate::PlotError::ViewerConnection(e.to_string()))?;
+        reply.ok_or_else(|| crate::PlotError::ViewerConnection("viewer closed connection".into()))
+    }
+
+    /// Send a message without waiting for a reply (fire-and-forget).
+    pub fn send_nowait(&mut self, msg: &ViewerMsg) -> Result<(), crate::PlotError> {
+        write_msg(&mut BufWriter::new(&mut self.stream), msg)
+            .map_err(|e| crate::PlotError::ViewerConnection(e.to_string()))
+    }
+}

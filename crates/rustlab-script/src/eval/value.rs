@@ -71,11 +71,11 @@ pub enum Value {
     AudioIn  { sample_rate: f64, frame_size: usize },
     /// Metadata handle for stdout audio output. Opens no file descriptors.
     AudioOut { sample_rate: f64, frame_size: usize },
-    /// Handle to a persistent live-updating terminal plot.
+    /// Handle to a persistent live-updating plot (terminal or viewer).
     /// Arc<Mutex<Option<...>>> allows cheap Clone while the Option lets
-    /// figure_close drop the inner LiveFigure (firing Drop → terminal restore)
+    /// figure_close drop the inner backend (firing Drop → cleanup)
     /// without invalidating other clones of the Arc.
-    LiveFigure(Arc<Mutex<Option<rustlab_plot::LiveFigure>>>),
+    LiveFigure(Arc<Mutex<Option<Box<dyn rustlab_plot::LivePlot>>>>),
     /// Sparse vector (COO format).
     SparseVector(SparseVec),
     /// Sparse matrix (COO format).

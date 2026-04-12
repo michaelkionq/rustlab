@@ -3,6 +3,11 @@ pub mod error;
 pub mod figure;
 pub mod file;
 pub mod live;
+#[cfg(feature = "viewer")]
+pub mod viewer_client;
+#[cfg(feature = "viewer")]
+pub mod viewer_live;
+pub mod html;
 
 pub use ascii::{
     imagesc_terminal,
@@ -12,6 +17,10 @@ pub use ascii::{
 };
 pub use error::PlotError;
 pub use live::LiveFigure;
+#[cfg(feature = "viewer")]
+pub use viewer_live::ViewerFigure;
+#[cfg(feature = "viewer")]
+pub use viewer_live::{connect_viewer, disconnect_viewer, viewer_active, sync_viewer};
 pub use file::{
     render_figure_file,
     save_db, save_histogram, save_imagesc_cmap, save_plot, save_stem,
@@ -21,8 +30,30 @@ pub use figure::{
     colormap_rgb, FigureState, LineStyle, PlotKind, Series, SeriesColor, SubplotState,
     FIGURE,
 };
+pub use html::{render_figure_html, set_html_figure_path, clear_html_figure_path, sync_html_file};
 
 use rustlab_core::RVector;
+
+/// Sync all active non-terminal outputs (HTML file, viewer).
+/// Called after FIGURE state mutations that don't go through render_figure_terminal().
+pub fn sync_figure_outputs() {
+    sync_html_file();
+    #[cfg(feature = "viewer")]
+    if viewer_active() {
+        sync_viewer();
+    }
+}
+
+/// Backend-agnostic interface for live-updating plots.
+///
+/// Implemented by `LiveFigure` (ratatui terminal) and, when the `viewer`
+/// feature is enabled, by `ViewerFigure` (egui via IPC).
+pub trait LivePlot: Send + std::fmt::Debug {
+    fn update_panel(&mut self, idx: usize, x: Vec<f64>, y: Vec<f64>);
+    fn set_panel_labels(&mut self, idx: usize, title: &str, xlabel: &str, ylabel: &str);
+    fn set_panel_limits(&mut self, idx: usize, xlim: (Option<f64>, Option<f64>), ylim: (Option<f64>, Option<f64>));
+    fn redraw(&mut self) -> Result<(), PlotError>;
+}
 
 /// Compute histogram bin centers and counts.
 /// Returns `(centers, counts, bin_width)`.

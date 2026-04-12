@@ -43,6 +43,14 @@ end
 
 adc = audio_in(sr, frame);
 
+# Set panel labels
+if show_time
+    plot_labels(fig, 1, "Waveform", "Time (ms)", "Amplitude")
+    plot_labels(fig, 2, "Spectrum", "Frequency (Hz)", "Magnitude (dB)")
+else
+    plot_labels(fig, 1, "Spectrum", "Frequency (Hz)", "Magnitude (dB)")
+end
+
 buf   = zeros(fft_size);
 count = 0;
 

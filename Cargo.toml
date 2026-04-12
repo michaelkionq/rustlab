@@ -5,6 +5,8 @@ members = [
     "crates/rustlab-plot",
     "crates/rustlab-script",
     "crates/rustlab-cli",
+    "crates/rustlab-proto",
+    "crates/rustlab-viewer",
 ]
 resolver = "2"
 
@@ -31,3 +33,6 @@ rustlab-core   = { path = "crates/rustlab-core" }
 rustlab-dsp    = { path = "crates/rustlab-dsp" }
 rustlab-plot   = { path = "crates/rustlab-plot" }
 rustlab-script = { path = "crates/rustlab-script" }
+rustlab-proto  = { path = "crates/rustlab-proto" }
+serde          = { version = "1", features = ["derive"] }
+rmp-serde      = "1"

@@ -27,6 +27,9 @@ fn fmt_g(v: f64) -> String {
 
 /// Render the current FIGURE state to a file (PNG or SVG by extension).
 pub fn render_figure_file(path: &str) -> Result<(), PlotError> {
+    if path.ends_with(".html") || path.ends_with(".htm") {
+        return crate::html::render_figure_html(path);
+    }
     FIGURE.with(|fig| {
         let fig = fig.borrow();
         let rows = fig.subplot_rows;

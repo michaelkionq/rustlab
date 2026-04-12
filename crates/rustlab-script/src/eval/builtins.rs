@@ -24,7 +24,8 @@ use rustlab_plot::{
     render_figure_terminal, render_figure_file,
     imagesc_terminal, save_imagesc_cmap,
     push_xy_line, push_xy_stem, push_xy_bar, push_xy_scatter,
-    LineStyle, SeriesColor, FIGURE, LiveFigure,
+    LineStyle, SeriesColor, FIGURE, LiveFigure, LivePlot,
+    sync_html_file, sync_figure_outputs, set_html_figure_path, clear_html_figure_path,
 };
 use ndarray::{Array1, Array2};
 use num_complex::Complex;
@@ -260,6 +261,7 @@ impl BuiltinRegistry {
         r.register("figure_live",   builtin_figure_live);
         r.register("plot_update",   builtin_plot_update);
         r.register("plot_limits",   builtin_plot_limits);
+        r.register("plot_labels",   builtin_plot_labels);
         r.register("figure_draw",   builtin_figure_draw);
         r.register("figure_close",  builtin_figure_close);
         r.register("mag2db",        builtin_mag2db);
@@ -1639,6 +1641,7 @@ fn builtin_plot(args: Vec<Value>) -> Result<Value, ScriptError> {
         }
         other => Err(ScriptError::type_err(format!("plot: cannot plot {}", other))),
     }?;
+    sync_figure_outputs();
     Ok(Value::None)
 }
 
@@ -1679,6 +1682,7 @@ fn builtin_stem(args: Vec<Value>) -> Result<Value, ScriptError> {
         other => return Err(ScriptError::type_err(format!("stem: cannot plot {}", other))),
     }
     render_figure_terminal().map_err(|e| ScriptError::runtime(e.to_string()))?;
+    sync_figure_outputs();
     Ok(Value::None)
 }
 
@@ -1742,10 +1746,18 @@ fn builtin_savedb(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 // ─── Figure state builtins ─────────────────────────────────────────────────
 
-/// figure() — reset figure state to blank.
+/// figure() — reset figure state to blank, return to TUI mode.
+/// figure("file.html") — reset and switch to HTML output mode.
 fn builtin_figure(args: Vec<Value>) -> Result<Value, ScriptError> {
-    check_args("figure", &args, 0)?;
+    check_args_range("figure", &args, 0, 1)?;
+    clear_html_figure_path();
     FIGURE.with(|fig| fig.borrow_mut().reset());
+    if args.len() == 1 {
+        let path = args[0].to_str().map_err(|e| ScriptError::type_err(e))?;
+        set_html_figure_path(&path);
+        sync_html_file();
+        eprintln!("HTML figure active: {}", path);
+    }
     Ok(Value::None)
 }
 
@@ -1760,6 +1772,7 @@ fn builtin_hold(args: Vec<Value>) -> Result<Value, ScriptError> {
         }
     };
     FIGURE.with(|fig| fig.borrow_mut().hold = on);
+    sync_figure_outputs();
     Ok(Value::None)
 }
 
@@ -1774,6 +1787,7 @@ fn builtin_grid(args: Vec<Value>) -> Result<Value, ScriptError> {
         }
     };
     FIGURE.with(|fig| fig.borrow_mut().current_mut().grid = on);
+    sync_figure_outputs();
     Ok(Value::None)
 }
 
@@ -1782,6 +1796,7 @@ fn builtin_xlabel(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("xlabel", &args, 1)?;
     let label = args[0].to_str().map_err(|e| ScriptError::type_err(e))?;
     FIGURE.with(|fig| fig.borrow_mut().current_mut().xlabel = label);
+    sync_figure_outputs();
     Ok(Value::None)
 }
 
@@ -1790,6 +1805,7 @@ fn builtin_ylabel(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("ylabel", &args, 1)?;
     let label = args[0].to_str().map_err(|e| ScriptError::type_err(e))?;
     FIGURE.with(|fig| fig.borrow_mut().current_mut().ylabel = label);
+    sync_figure_outputs();
     Ok(Value::None)
 }
 
@@ -1798,6 +1814,7 @@ fn builtin_title(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("title", &args, 1)?;
     let t = args[0].to_str().map_err(|e| ScriptError::type_err(e))?;
     FIGURE.with(|fig| fig.borrow_mut().current_mut().title = t);
+    sync_figure_outputs();
     Ok(Value::None)
 }
 
@@ -1809,6 +1826,7 @@ fn builtin_xlim(args: Vec<Value>) -> Result<Value, ScriptError> {
         _ => return Err(ScriptError::type_err("xlim: expected [lo, hi] vector".to_string())),
     };
     FIGURE.with(|fig| fig.borrow_mut().current_mut().xlim = (Some(v[0].re), Some(v[1].re)));
+    sync_figure_outputs();
     Ok(Value::None)
 }
 
@@ -1820,6 +1838,7 @@ fn builtin_ylim(args: Vec<Value>) -> Result<Value, ScriptError> {
         _ => return Err(ScriptError::type_err("ylim: expected [lo, hi] vector".to_string())),
     };
     FIGURE.with(|fig| fig.borrow_mut().current_mut().ylim = (Some(v[0].re), Some(v[1].re)));
+    sync_figure_outputs();
     Ok(Value::None)
 }
 
@@ -1830,6 +1849,7 @@ fn builtin_subplot(args: Vec<Value>) -> Result<Value, ScriptError> {
     let cols = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
     let idx  = args[2].to_usize().map_err(|e| ScriptError::type_err(e))?;
     FIGURE.with(|fig| fig.borrow_mut().set_subplot(rows, cols, idx));
+    sync_figure_outputs();
     Ok(Value::None)
 }
 
@@ -1851,6 +1871,7 @@ fn builtin_legend(args: Vec<Value>) -> Result<Value, ScriptError> {
             }
         });
     }
+    sync_figure_outputs();
     Ok(Value::None)
 }
 
@@ -4002,6 +4023,7 @@ fn builtin_bode(args: Vec<Value>) -> Result<Value, ScriptError> {
     });
 
     render_figure_terminal().map_err(|e| ScriptError::runtime(e.to_string()))?;
+    sync_figure_outputs();
 
     let w_val   = Value::Vector(Array1::from_iter(w_vec.iter()   .map(|&x| Complex::new(x, 0.0))));
     let mag_val = Value::Vector(Array1::from_iter(mag_db.iter()  .map(|&x| Complex::new(x, 0.0))));
@@ -4066,6 +4088,7 @@ fn builtin_step(args: Vec<Value>) -> Result<Value, ScriptError> {
         sp.ylabel = "Amplitude".to_string();
     });
     render_figure_terminal().map_err(|e| ScriptError::runtime(e.to_string()))?;
+    sync_figure_outputs();
 
     let y_val = Value::Vector(Array1::from_iter(y_out.iter().map(|&v| Complex::new(v, 0.0))));
     let t_val = Value::Vector(Array1::from_iter(t_out.iter().map(|&v| Complex::new(v, 0.0))));
@@ -4421,6 +4444,7 @@ fn builtin_rlocus(args: Vec<Value>) -> Result<Value, ScriptError> {
     }
 
     render_figure_terminal().map_err(|e| ScriptError::runtime(e.to_string()))?;
+    sync_figure_outputs();
     Ok(Value::None)
 }
 
@@ -4551,6 +4575,7 @@ fn builtin_bar(args: Vec<Value>) -> Result<Value, ScriptError> {
     let (x_data, y_data, title) = extract_xy_with_title(&args, "bar")?;
     push_xy_bar(x_data, y_data, "bar", &title, None);
     render_figure_terminal().map_err(|e| ScriptError::runtime(e.to_string()))?;
+    sync_figure_outputs();
     Ok(Value::None)
 }
 
@@ -4582,6 +4607,7 @@ fn builtin_scatter(args: Vec<Value>) -> Result<Value, ScriptError> {
     let y_data: Vec<f64> = yv.to_vec();
     push_xy_scatter(x_data, y_data, "scatter", &title, None);
     render_figure_terminal().map_err(|e| ScriptError::runtime(e.to_string()))?;
+    sync_figure_outputs();
     Ok(Value::None)
 }
 
@@ -5241,9 +5267,21 @@ fn builtin_figure_live(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("figure_live", &args, 2)?;
     let rows = args[0].to_usize().map_err(|e| ScriptError::runtime(e))?;
     let cols = args[1].to_usize().map_err(|e| ScriptError::runtime(e))?;
+
+    // When the viewer feature is enabled, try to connect to a running
+    // rustlab-viewer first.  Fall back to ratatui if the viewer is not up.
+    #[cfg(feature = "viewer")]
+    {
+        if let Some(vf) = rustlab_plot::ViewerFigure::connect(rows, cols) {
+            let boxed: Box<dyn LivePlot> = Box::new(vf);
+            return Ok(Value::LiveFigure(Arc::new(Mutex::new(Some(boxed)))));
+        }
+    }
+
     let fig = LiveFigure::new(rows, cols)
         .map_err(|e| ScriptError::runtime(e.to_string()))?;
-    Ok(Value::LiveFigure(Arc::new(Mutex::new(Some(fig)))))
+    let boxed: Box<dyn LivePlot> = Box::new(fig);
+    Ok(Value::LiveFigure(Arc::new(Mutex::new(Some(boxed)))))
 }
 
 /// `plot_update(fig, panel, y)` or `plot_update(fig, panel, x, y)` —
@@ -5290,6 +5328,26 @@ fn builtin_plot_limits(args: Vec<Value>) -> Result<Value, ScriptError> {
         .as_mut()
         .ok_or_else(|| ScriptError::runtime("plot_limits: figure is closed".to_string()))?
         .set_panel_limits(panel, xlim, ylim);
+    Ok(Value::None)
+}
+
+/// `plot_labels(fig, panel, title, xlabel, ylabel)` — set title and axis labels
+/// on a live figure panel.
+fn builtin_plot_labels(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("plot_labels", &args, 5)?;
+    let Value::LiveFigure(fig) = &args[0] else {
+        return Err(ScriptError::runtime(format!(
+            "plot_labels: expected live_figure, got {}", args[0].type_name()
+        )));
+    };
+    let panel = args[1].to_usize().map_err(|e| ScriptError::runtime(e))?.saturating_sub(1);
+    let title  = args[2].to_str().map_err(|e| ScriptError::type_err(e))?;
+    let xlabel = args[3].to_str().map_err(|e| ScriptError::type_err(e))?;
+    let ylabel = args[4].to_str().map_err(|e| ScriptError::type_err(e))?;
+    fig.lock().unwrap()
+        .as_mut()
+        .ok_or_else(|| ScriptError::runtime("plot_labels: figure is closed".to_string()))?
+        .set_panel_labels(panel, &title, &xlabel, &ylabel);
     Ok(Value::None)
 }
 

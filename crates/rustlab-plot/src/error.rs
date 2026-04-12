@@ -16,4 +16,6 @@ pub enum PlotError {
     NotATty,
     #[error("interrupted")]
     Interrupted,
+    #[error("viewer connection error: {0}")]
+    ViewerConnection(String),
 }

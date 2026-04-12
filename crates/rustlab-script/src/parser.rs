@@ -121,6 +121,15 @@ impl Parser {
                 Token::Format => {
                     stmts.push(self.parse_format_stmt()?);
                 }
+                Token::Hold => {
+                    stmts.push(self.parse_on_off_stmt("hold")?);
+                }
+                Token::Grid => {
+                    stmts.push(self.parse_on_off_stmt("grid")?);
+                }
+                Token::Viewer => {
+                    stmts.push(self.parse_on_off_stmt("viewer")?);
+                }
                 Token::Else | Token::ElseIf => {
                     return Err(ScriptError::Parse {
                         line: self.current_line(),
@@ -390,6 +399,9 @@ impl Parser {
             Token::Switch    => self.parse_switch_stmt(),
             Token::Run       => self.parse_run_stmt(),
             Token::Format    => self.parse_format_stmt(),
+            Token::Hold      => self.parse_on_off_stmt("hold"),
+            Token::Grid      => self.parse_on_off_stmt("grid"),
+            Token::Viewer    => self.parse_on_off_stmt("viewer"),
             Token::LBracket if self.is_multi_assign() => self.parse_multi_assign(),
             Token::Ident(_)  => {
                 if self.is_field_assignment()       { self.parse_field_assignment() }
@@ -497,6 +509,52 @@ impl Parser {
             });
         }
         Ok(Stmt::new(StmtKind::Run { path }, line))
+    }
+
+    /// Parse `hold on` / `hold off` / `grid on` / `grid off` (bare command)
+    /// or function-call form: `hold("on")`, `grid(1)`.
+    fn parse_on_off_stmt(&mut self, cmd: &str) -> Result<Stmt, ScriptError> {
+        let line = self.current_line();
+        self.advance(); // consume keyword
+
+        // Bare form: `hold on` / `grid off`
+        if let Token::Ident(s) = self.peek_token() {
+            let val = match s.as_str() {
+                "on"  => true,
+                "off" => false,
+                other => return Err(ScriptError::Parse {
+                    line: self.current_line(),
+                    msg: format!("{}: expected 'on' or 'off', got '{}'", cmd, other),
+                }),
+            };
+            self.advance();
+            let _ = self.consume_stmt_end()?;
+            return match cmd {
+                "hold"   => Ok(Stmt::new(StmtKind::Hold { on: val }, line)),
+                "grid"   => Ok(Stmt::new(StmtKind::Grid { on: val }, line)),
+                "viewer" => Ok(Stmt::new(StmtKind::Viewer { on: val }, line)),
+                _ => unreachable!(),
+            };
+        }
+
+        // Function-call form: `hold("on")` / `grid(0)`
+        // Desugar to Expr::Call so the existing builtins handle it.
+        if matches!(self.peek_token(), Token::LParen) {
+            self.advance(); // consume '('
+            let arg = self.parse_range_expr()?;
+            self.expect(&Token::RParen)?;
+            let suppress = self.consume_stmt_end()?;
+            let call = Expr::Call {
+                name: cmd.to_string(),
+                args: vec![arg],
+            };
+            return Ok(Stmt::new(StmtKind::Expr(call, suppress), line));
+        }
+
+        Err(ScriptError::Parse {
+            line: self.current_line(),
+            msg: format!("{}: expected 'on', 'off', or '(' — got {:?}", cmd, self.peek_token()),
+        })
     }
 
     fn parse_format_stmt(&mut self) -> Result<Stmt, ScriptError> {
