@@ -1,0 +1,77 @@
+use rustlab_script::Evaluator;
+use rustlab_plot::{FIGURE, FigureState};
+use crate::parse::Block;
+
+/// A rendered block ready for HTML output.
+#[derive(Debug)]
+pub enum Rendered {
+    /// Markdown prose (raw markdown text, not yet converted to HTML).
+    Markdown(String),
+    /// An executed code block with its results.
+    Code {
+        source: String,
+        error: Option<String>,
+        figure: Option<FigureState>,
+    },
+}
+
+/// Execute a parsed notebook, returning rendered blocks.
+///
+/// Code blocks run in sequence through a shared evaluator (variables
+/// persist across blocks). After each code block, the current figure
+/// is captured if it has any series data.
+pub fn execute_notebook(blocks: &[Block]) -> Vec<Rendered> {
+    let mut ev = Evaluator::new();
+    let mut rendered = Vec::with_capacity(blocks.len());
+
+    for block in blocks {
+        match block {
+            Block::Markdown(text) => {
+                rendered.push(Rendered::Markdown(text.clone()));
+            }
+            Block::Code(source) => {
+                // Reset figure before each code block so we only capture
+                // what this block produces.
+                FIGURE.with(|fig| fig.borrow_mut().reset());
+
+                let error = run_code_block(&mut ev, source);
+
+                // Capture figure if it has data
+                let figure = FIGURE.with(|fig| {
+                    let f = fig.borrow().clone();
+                    if f.subplots.iter().any(|s| !s.series.is_empty()) {
+                        Some(f)
+                    } else {
+                        None
+                    }
+                });
+
+                rendered.push(Rendered::Code {
+                    source: source.clone(),
+                    error,
+                    figure,
+                });
+            }
+        }
+    }
+
+    rendered
+}
+
+/// Run a code block through the evaluator. Returns `Some(error_message)` on failure.
+fn run_code_block(ev: &mut Evaluator, source: &str) -> Option<String> {
+    let tokens = match rustlab_script::lexer::tokenize(source) {
+        Ok(t) => t,
+        Err(e) => return Some(format!("{e}")),
+    };
+    let stmts = match rustlab_script::parser::parse(tokens) {
+        Ok(s) => s,
+        Err(e) => return Some(format!("{e}")),
+    };
+    for stmt in &stmts {
+        if let Err(e) = ev.exec_stmt(stmt) {
+            return Some(format!("{e}"));
+        }
+    }
+    None
+}

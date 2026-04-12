@@ -21,17 +21,20 @@ EXAMPLES_CI := complex_basics save_load firpm fixed_point
 
 .PHONY: install install-viewer examples examples-ci perf clean-examples clean help $(EXAMPLES_ALL)
 
-## Build release binaries (rustlab + rustlab-viewer) and install to $(INSTALL_DIR)
+## Build release binaries (rustlab + rustlab-viewer + rustlab-notebook) and install to $(INSTALL_DIR)
 install:
 	$(CARGO) build --release --features viewer
+	$(CARGO) build --release -p rustlab-notebook
 	mkdir -p $(INSTALL_DIR)
 	cp target/release/rustlab $(INSTALL_DIR)/rustlab
 	cp target/release/rustlab-viewer $(INSTALL_DIR)/rustlab-viewer
+	cp target/release/rustlab-notebook $(INSTALL_DIR)/rustlab-notebook
 ifeq ($(UNAME), Darwin)
 	codesign --sign - --force $(INSTALL_DIR)/rustlab
 	codesign --sign - --force $(INSTALL_DIR)/rustlab-viewer
+	codesign --sign - --force $(INSTALL_DIR)/rustlab-notebook
 endif
-	@echo "Installed to $(INSTALL_DIR)/rustlab and $(INSTALL_DIR)/rustlab-viewer"
+	@echo "Installed to $(INSTALL_DIR)/rustlab, $(INSTALL_DIR)/rustlab-viewer, and $(INSTALL_DIR)/rustlab-notebook"
 	@echo "Make sure $(INSTALL_DIR) is on your PATH"
 
 ## Build and install rustlab-viewer (interactive egui plot viewer)

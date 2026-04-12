@@ -1,0 +1,18 @@
+[package]
+name        = "rustlab-notebook"
+version.workspace     = true
+edition.workspace     = true
+authors.workspace     = true
+license.workspace     = true
+repository.workspace  = true
+description = "Render Markdown notebooks with rustlab code blocks into HTML reports"
+
+[[bin]]
+name = "rustlab-notebook"
+path = "src/main.rs"
+
+[dependencies]
+rustlab-script.workspace = true
+rustlab-plot.workspace   = true
+clap                     = { version = "4", features = ["derive"] }
+pulldown-cmark           = "0.13"
