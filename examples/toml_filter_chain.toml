@@ -1,0 +1,23 @@
+# Example: multi-filter chain configuration
+# Demonstrates TOML arrays of tables ([[filters]])
+
+title = "Audio Filter Chain"
+sample_rate = 48000
+
+[[filters]]
+name = "dc_block"
+type = "highpass"
+cutoff_hz = 20
+taps = 31
+
+[[filters]]
+name = "anti_alias"
+type = "lowpass"
+cutoff_hz = 20000
+taps = 63
+
+[[filters]]
+name = "hum_reject"
+type = "notch"
+cutoff_hz = 60
+taps = 127

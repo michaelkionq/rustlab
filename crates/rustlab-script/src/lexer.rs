@@ -56,6 +56,7 @@ pub enum Token {
     Case,       // case
     Otherwise,  // otherwise
     Run,        // run
+    Format,     // format
     Dot,        // . (field access)
     // Structure
     Newline,
@@ -232,9 +233,9 @@ pub fn tokenize(source: &str) -> Result<Vec<Spanned>, ScriptError> {
                 pos += 1; // consume closing "
             }
             c if c.is_ascii_digit() || c == '.' => {
-                // Number
+                // Number — underscores allowed as digit separators (e.g. 1_000_000)
                 let start = pos;
-                while pos < chars.len() && (chars[pos].is_ascii_digit() || chars[pos] == '.') {
+                while pos < chars.len() && (chars[pos].is_ascii_digit() || chars[pos] == '.' || chars[pos] == '_') {
                     pos += 1;
                 }
                 // Optional exponent: e or E, optional sign
@@ -243,11 +244,12 @@ pub fn tokenize(source: &str) -> Result<Vec<Spanned>, ScriptError> {
                     if pos < chars.len() && (chars[pos] == '+' || chars[pos] == '-') {
                         pos += 1;
                     }
-                    while pos < chars.len() && chars[pos].is_ascii_digit() {
+                    while pos < chars.len() && (chars[pos].is_ascii_digit() || chars[pos] == '_') {
                         pos += 1;
                     }
                 }
-                let num_str: String = chars[start..pos].iter().collect();
+                // Strip underscores before parsing
+                let num_str: String = chars[start..pos].iter().filter(|c| **c != '_').collect();
                 let val: f64 = num_str.parse().map_err(|_| ScriptError::Lex {
                     line,
                     msg: format!("invalid number: {}", num_str),
@@ -274,6 +276,7 @@ pub fn tokenize(source: &str) -> Result<Vec<Spanned>, ScriptError> {
                     "case"     => Token::Case,
                     "otherwise"=> Token::Otherwise,
                     "run"      => Token::Run,
+                    "format"   => Token::Format,
                     _          => Token::Ident(ident),
                 };
                 tokens.push(Spanned { token: tok, line });

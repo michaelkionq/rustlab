@@ -17,6 +17,7 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `Inf`, `NaN` | IEEE infinity and Not-a-Number |
 | `true`, `false` | Boolean constants — usable in `if` and `while` conditions |
 | `v(1)`, `v(end)`, `v(2:4)` | 1-based indexing; `end` = last element; slice returns Vector |
+| `s(3)`, `s(1:5)`, `s(:)` | String indexing — 1-based; returns string |
 | `v(i) = val`, `M(r,c) = val` | Indexed assignment; vectors auto-grow as needed |
 | `f(args)(i)` | Chain call and index without a temporary variable |
 | `[a; b; c]` | Column vector literal |
@@ -29,6 +30,9 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `'` | Conjugate transpose |
 | `.'` | Non-conjugate transpose |
 | `+=`, `-=`, `*=`, `/=` | Compound assignment: `x += 1` is equivalent to `x = x + 1` |
+| `1_000_000` | Underscore digit separators in numeric literals (ignored by parser) |
+| `format commas` | Enable thousands-separator commas in all numeric output |
+| `format default` | Restore normal numeric display |
 | `;` | Suppress output on a statement |
 | `#` / `%` | Comment |
 | `...` | Line continuation — rest of line ignored, statement continues on next line |
@@ -285,7 +289,9 @@ Mixed sparse+dense pairs auto-promote to dense.
 |---|---|
 | `print(x, ...)` | Print to stdout, space-separated |
 | `disp(x)` | Display a value (always appends newline) |
-| `fprintf(fmt, args...)` | Formatted print; specifiers: `%d %f %g %e %s %%`; escapes: `\n \t` |
+| `fprintf(fmt, args...)` | Formatted print; specifiers: `%d %f %g %e %s %%`; flags: `- + 0 # ,`; escapes: `\n \t` |
+| `sprintf(fmt, args...)` | Same as `fprintf` but returns a string instead of printing |
+| `commas(x)` / `commas(x, prec)` | Format number with thousands separators; returns string |
 | `save("file.npy", x)` | Save array to NumPy .npy format |
 | `save("file.npz", "a", a, "b", b, ...)` | Save multiple named arrays to .npz |
 | `save("file.csv", x)` | Save array to CSV |
@@ -293,6 +299,8 @@ Mixed sparse+dense pairs auto-promote to dense.
 | `load("file.npz")` | Load all arrays from .npz into workspace |
 | `load("file.npz", "name")` | Load one named array from .npz |
 | `load("file.csv")` | Load CSV → scalar / vector / matrix |
+| `save("file.toml", s)` | Save struct to TOML |
+| `load("file.toml")` | Load TOML → struct |
 | `whos` | List workspace variables with type and size |
 | `whos("file.npz")` | Inspect arrays stored in an NPZ file |
 

@@ -189,12 +189,21 @@ impl Value {
         }
     }
 
+    /// Convert a 1-based index to 0-based, returning an error if the index is < 1.
+    fn one_based_to_zero(n: f64) -> Result<usize, String> {
+        let i = n as usize;
+        if i < 1 {
+            return Err(format!("index {} is invalid (1-based indexing)", n));
+        }
+        Ok(i - 1)
+    }
+
     /// Resolve an index value to a list of 0-based indices for a dimension of `dim_len`.
     fn resolve_index_dim(idx: &Value, dim_len: usize) -> Result<Vec<usize>, String> {
         match idx {
             Value::All => Ok((0..dim_len).collect()),
             Value::Scalar(n) => {
-                let i = (*n as usize).saturating_sub(1);
+                let i = Self::one_based_to_zero(*n)?;
                 if i >= dim_len {
                     return Err(format!("index {} out of bounds (size {})", n, dim_len));
                 }
@@ -202,7 +211,7 @@ impl Value {
             }
             Value::Vector(v) => {
                 v.iter().map(|c| {
-                    let i = (c.re as usize).saturating_sub(1);
+                    let i = Self::one_based_to_zero(c.re)?;
                     if i >= dim_len {
                         Err(format!("index {} out of bounds (size {})", c.re as usize, dim_len))
                     } else {
@@ -235,7 +244,7 @@ impl Value {
                 match &idx {
                     Value::All => Ok(Value::Vector(v)),
                     Value::Scalar(n) => {
-                        let i = (*n as usize).saturating_sub(1);
+                        let i = Self::one_based_to_zero(*n)?;
                         if i >= v.len() {
                             return Err(format!("index {} out of bounds (length {})", n, v.len()));
                         }
@@ -244,7 +253,7 @@ impl Value {
                     }
                     Value::Vector(idx_v) => {
                         let result: Result<Vec<_>, _> = idx_v.iter().map(|c| {
-                            let i = (c.re as usize).saturating_sub(1);
+                            let i = Self::one_based_to_zero(c.re)?;
                             if i >= v.len() {
                                 Err(format!("index {} out of bounds (length {})", c.re as usize, v.len()))
                             } else {
@@ -260,7 +269,7 @@ impl Value {
                 // Single index selects a row (1-based)
                 match &idx {
                     Value::Scalar(n) => {
-                        let i = (*n as usize).saturating_sub(1);
+                        let i = Self::one_based_to_zero(*n)?;
                         if i >= m.nrows() {
                             return Err(format!("row index {} out of bounds ({} rows)", n, m.nrows()));
                         }
@@ -282,7 +291,7 @@ impl Value {
             Value::SparseVector(sv) => {
                 match &idx {
                     Value::Scalar(n) => {
-                        let i = (*n as usize).saturating_sub(1);
+                        let i = Self::one_based_to_zero(*n)?;
                         if i >= sv.len {
                             return Err(format!("index {} out of bounds (length {})", n, sv.len));
                         }
@@ -295,7 +304,7 @@ impl Value {
             Value::SparseMatrix(sm) => {
                 match &idx {
                     Value::Scalar(n) => {
-                        let i = (*n as usize).saturating_sub(1);
+                        let i = Self::one_based_to_zero(*n)?;
                         if i >= sm.rows {
                             return Err(format!("row index {} out of bounds ({} rows)", n, sm.rows));
                         }
@@ -307,6 +316,44 @@ impl Value {
                         Ok(Value::Vector(row))
                     }
                     _ => Err(format!("sparse matrix single-index: unsupported index type {}", idx.type_name())),
+                }
+            }
+            Value::Tuple(items) => {
+                match &idx {
+                    Value::Scalar(n) => {
+                        let i = Self::one_based_to_zero(*n)?;
+                        if i >= items.len() {
+                            return Err(format!("index {} out of bounds (length {})", n, items.len()));
+                        }
+                        Ok(items.into_iter().nth(i).unwrap())
+                    }
+                    other => Err(format!("tuple indexing requires a scalar index, got {}", other.type_name())),
+                }
+            }
+            Value::Str(s) => {
+                let chars: Vec<char> = s.chars().collect();
+                let len = chars.len();
+                match &idx {
+                    Value::All => Ok(Value::Str(s)),
+                    Value::Scalar(n) => {
+                        let i = Self::one_based_to_zero(*n)?;
+                        if i >= len {
+                            return Err(format!("string index {} out of bounds (length {})", *n as usize, len));
+                        }
+                        Ok(Value::Str(chars[i].to_string()))
+                    }
+                    Value::Vector(idx_v) => {
+                        let mut result = String::with_capacity(idx_v.len());
+                        for c in idx_v.iter() {
+                            let i = Self::one_based_to_zero(c.re)?;
+                            if i >= len {
+                                return Err(format!("string index {} out of bounds (length {})", c.re as usize, len));
+                            }
+                            result.push(chars[i]);
+                        }
+                        Ok(Value::Str(result))
+                    }
+                    other => Err(format!("invalid string index type: {}", other.type_name())),
                 }
             }
             other => Err(format!("cannot index into {}", other.type_name())),
@@ -359,8 +406,8 @@ impl Value {
             Value::SparseMatrix(sm) => {
                 match (&row_idx, &col_idx) {
                     (Value::Scalar(r), Value::Scalar(c)) => {
-                        let ri = (*r as usize).saturating_sub(1);
-                        let ci = (*c as usize).saturating_sub(1);
+                        let ri = Self::one_based_to_zero(*r)?;
+                        let ci = Self::one_based_to_zero(*c)?;
                         if ri >= sm.rows || ci >= sm.cols {
                             return Err(format!("index ({},{}) out of bounds for {}×{} sparse matrix", r, c, sm.rows, sm.cols));
                         }
@@ -1221,6 +1268,116 @@ impl fmt::Display for Value {
                     write!(f, "{} / ({})", ns_display, ds)
                 }
             }
+        }
+    }
+}
+
+// ── Comma-formatting helpers ─────────────────────────────────────────────────
+
+/// Insert thousands-separator commas into the integer portion of a numeric string.
+/// e.g. "1234567.89" → "1,234,567.89",  "-1234" → "-1,234"
+pub fn insert_commas(s: &str) -> String {
+    // Split off sign
+    let (sign, rest) = if s.starts_with('-') {
+        ("-", &s[1..])
+    } else {
+        ("", s.as_ref())
+    };
+    // Split at decimal point (or 'e'/'E' for scientific notation)
+    let (int_part, suffix) = if let Some(dot) = rest.find('.') {
+        (&rest[..dot], &rest[dot..])
+    } else if let Some(ep) = rest.find('e').or_else(|| rest.find('E')) {
+        (&rest[..ep], &rest[ep..])
+    } else {
+        (rest, "")
+    };
+    if int_part.len() <= 3 {
+        return format!("{}{}{}", sign, int_part, suffix);
+    }
+    let mut result = String::new();
+    let digits: Vec<char> = int_part.chars().collect();
+    let n = digits.len();
+    for (i, ch) in digits.iter().enumerate() {
+        if i > 0 && (n - i) % 3 == 0 {
+            result.push(',');
+        }
+        result.push(*ch);
+    }
+    format!("{}{}{}", sign, result, suffix)
+}
+
+impl Value {
+    /// Format this value for display, optionally with comma-separated thousands.
+    pub fn format_display(&self, commas: bool) -> String {
+        if !commas {
+            return format!("{}", self);
+        }
+        const MAX_ELEMS: usize = 8;
+
+        fn fmt_real(n: f64) -> String {
+            insert_commas(&format!("{}", n))
+        }
+        fn fmt_real_prec(n: f64) -> String {
+            insert_commas(&format!("{:.6}", n))
+        }
+        fn fmt_complex(c: &C64) -> String {
+            if c.im >= 0.0 {
+                format!("{}+{}j", fmt_real(c.re), fmt_real(c.im))
+            } else {
+                format!("{}{}j", fmt_real(c.re), fmt_real(c.im))
+            }
+        }
+        fn fmt_complex_prec(c: &C64) -> String {
+            if c.im.abs() < 1e-12 {
+                fmt_real_prec(c.re)
+            } else if c.im >= 0.0 {
+                format!("{}+{}j", fmt_real_prec(c.re), fmt_real_prec(c.im))
+            } else {
+                format!("{}{}j", fmt_real_prec(c.re), fmt_real_prec(c.im))
+            }
+        }
+
+        match self {
+            Value::Scalar(n) => fmt_real(*n),
+            Value::Complex(c) => fmt_complex(c),
+            Value::Vector(v) => {
+                let n = v.len();
+                let mut s = format!("[1×{}]", n);
+                if n == 0 { return s; }
+                s.push_str("  ");
+                let show = n.min(MAX_ELEMS);
+                for (i, c) in v.iter().take(show).enumerate() {
+                    if i > 0 { s.push_str("  "); }
+                    s.push_str(&fmt_complex_prec(c));
+                }
+                if n > MAX_ELEMS {
+                    s.push_str(&format!("  ... ({} total)", n));
+                }
+                s
+            }
+            Value::Matrix(m) => {
+                let nrows = m.nrows();
+                let ncols = m.ncols();
+                let mut s = format!("Matrix({}x{})", nrows, ncols);
+                let show_rows = nrows.min(MAX_ELEMS);
+                for r in 0..show_rows {
+                    s.push_str("\n  [");
+                    let show_cols = ncols.min(MAX_ELEMS);
+                    for c_idx in 0..show_cols {
+                        if c_idx > 0 { s.push_str(", "); }
+                        let c = m[[r, c_idx]];
+                        s.push_str(&fmt_complex_prec(&c));
+                    }
+                    if ncols > MAX_ELEMS { s.push_str(", ..."); }
+                    s.push(']');
+                }
+                if nrows > MAX_ELEMS {
+                    s.push_str(&format!("\n  ... ({} rows total)", nrows));
+                }
+                s
+            }
+            // For other types, comma formatting doesn't apply — use default Display
+            other => format!("{}", other),
         }
     }
 }

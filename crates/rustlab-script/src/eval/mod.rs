@@ -1,12 +1,13 @@
 pub mod builtins;
 pub mod profile;
+pub mod toml_io;
 pub mod value;
 
 use std::collections::HashMap;
 use ndarray::Array1;
 use num_complex::Complex;
 use rustlab_core::C64;
-use crate::ast::{Expr, Stmt};
+use crate::ast::{Expr, Stmt, StmtKind};
 use crate::error::ScriptError;
 pub use value::Value;
 pub use builtins::BuiltinRegistry;
@@ -29,6 +30,10 @@ pub struct Evaluator {
     profiler:      profile::Profiler,
     /// When true, assignment output uses ANSI colour (green var name, dim `=`).
     pub color_output: bool,
+    /// When true, numeric display inserts thousands-separator commas.
+    pub format_commas: bool,
+    /// Source line of the statement currently being executed (for error messages).
+    current_line:  usize,
 }
 
 impl Evaluator {
@@ -54,6 +59,8 @@ impl Evaluator {
             in_function: false,
             profiler:    profile::Profiler::default(),
             color_output: false,
+            format_commas: false,
+            current_line: 0,
         }
     }
 
@@ -120,19 +127,25 @@ impl Evaluator {
     }
 
     pub fn exec_stmt(&mut self, stmt: &Stmt) -> Result<(), ScriptError> {
+        self.current_line = stmt.line;
+        self.exec_stmt_kind(&stmt.kind).map_err(|e| e.with_line(stmt.line))
+    }
+
+    fn exec_stmt_kind(&mut self, stmt: &StmtKind) -> Result<(), ScriptError> {
         match stmt {
-            Stmt::Assign { name, expr, suppress } => {
+            StmtKind::Assign { name, expr, suppress } => {
                 let val = self.eval_expr(expr)?;
                 if !suppress && !self.in_function {
+                    let display = val.format_display(self.format_commas);
                     if self.color_output {
-                        println!("\x1b[32m{}\x1b[0m = {}", name, val);
+                        println!("\x1b[32m{}\x1b[0m = {}", name, display);
                     } else {
-                        println!("{} = {}", name, val);
+                        println!("{} = {}", name, display);
                     }
                 }
                 self.env.insert(name.clone(), val);
             }
-            Stmt::FunctionDef { name, params, return_var, body } => {
+            StmtKind::FunctionDef { name, params, return_var, body } => {
                 self.user_fns.insert(name.clone(), UserFn {
                     name:       name.clone(),
                     params:     params.clone(),
@@ -140,13 +153,14 @@ impl Evaluator {
                     body:       body.clone(),
                 });
             }
-            Stmt::FieldAssign { object, field, expr, suppress } => {
+            StmtKind::FieldAssign { object, field, expr, suppress } => {
                 let val = self.eval_expr(expr)?;
                 if !suppress && !self.in_function {
+                    let display = val.format_display(self.format_commas);
                     if self.color_output {
-                        println!("\x1b[32m{}.{}\x1b[0m = {}", object, field, val);
+                        println!("\x1b[32m{}.{}\x1b[0m = {}", object, field, display);
                     } else {
-                        println!("{}.{} = {}", object, field, val);
+                        println!("{}.{} = {}", object, field, display);
                     }
                 }
                 match self.env.get_mut(object) {
@@ -154,7 +168,7 @@ impl Evaluator {
                         fields.insert(field.clone(), val);
                     }
                     Some(other) => {
-                        return Err(ScriptError::Runtime(format!(
+                        return Err(ScriptError::runtime(format!(
                             "'{}' is a {}, not a struct", object, other.type_name()
                         )));
                     }
@@ -166,10 +180,10 @@ impl Evaluator {
                     }
                 }
             }
-            Stmt::Return => {
+            StmtKind::Return => {
                 return Err(ScriptError::EarlyReturn);
             }
-            Stmt::If { cond, then_body, elseif_arms, else_body } => {
+            StmtKind::If { cond, then_body, elseif_arms, else_body } => {
                 let cv = self.eval_expr(cond)?;
                 let branch = Self::is_truthy(&cv, "if")?;
                 if branch {
@@ -189,7 +203,7 @@ impl Evaluator {
                     }
                 }
             }
-            Stmt::Switch { expr, cases, otherwise } => {
+            StmtKind::Switch { expr, cases, otherwise } => {
                 let switch_val = self.eval_expr(expr)?;
                 let mut matched = false;
                 for (case_expr, case_body) in cases {
@@ -204,9 +218,31 @@ impl Evaluator {
                     for s in otherwise { self.exec_stmt(s)?; }
                 }
             }
-            Stmt::Run { path } => {
+            StmtKind::Format { mode } => {
+                match mode.as_str() {
+                    "commas" => {
+                        self.format_commas = true;
+                        println!("format: commas");
+                    }
+                    "default" | "short" => {
+                        self.format_commas = false;
+                        println!("format: default");
+                    }
+                    "" => {
+                        // bare `format` — show current mode
+                        let name = if self.format_commas { "commas" } else { "default" };
+                        println!("format: {}", name);
+                    }
+                    other => {
+                        return Err(ScriptError::runtime(format!(
+                            "format: unknown mode '{}' (try 'commas' or 'default')", other
+                        )));
+                    }
+                }
+            }
+            StmtKind::Run { path } => {
                 let source = std::fs::read_to_string(path).map_err(|e| {
-                    ScriptError::Runtime(format!("run: {}: {}", path, e))
+                    ScriptError::runtime(format!("run: {}: {}", path, e))
                 })?;
                 let tokens = crate::lexer::tokenize(&source)?;
                 let stmts = crate::parser::parse(tokens)?;
@@ -214,12 +250,12 @@ impl Evaluator {
                     self.exec_stmt(s)?;
                 }
             }
-            Stmt::MultiAssign { names, expr, suppress } => {
+            StmtKind::MultiAssign { names, expr, suppress } => {
                 let val = self.eval_expr(expr)?;
                 match val {
                     Value::Tuple(values) => {
                         if values.len() < names.len() {
-                            return Err(ScriptError::Runtime(format!(
+                            return Err(ScriptError::runtime(format!(
                                 "multi-assign: expected {} values, function returned {}",
                                 names.len(), values.len()
                             )));
@@ -227,10 +263,11 @@ impl Evaluator {
                         for (name, v) in names.iter().zip(values.into_iter()) {
                             if name == "~" { continue; } // discard
                             if !suppress && !self.in_function {
+                                let display = v.format_display(self.format_commas);
                                 if self.color_output {
-                                    println!("\x1b[32m{}\x1b[0m = {}", name, v);
+                                    println!("\x1b[32m{}\x1b[0m = {}", name, display);
                                 } else {
-                                    println!("{} = {}", name, v);
+                                    println!("{} = {}", name, display);
                                 }
                             }
                             self.env.insert(name.clone(), v);
@@ -238,7 +275,7 @@ impl Evaluator {
                     }
                     single => {
                         if names.len() != 1 {
-                            return Err(ScriptError::Runtime(format!(
+                            return Err(ScriptError::runtime(format!(
                                 "multi-assign: expected {} values, function returned 1",
                                 names.len()
                             )));
@@ -256,7 +293,7 @@ impl Evaluator {
                     }
                 }
             }
-            Stmt::While { cond, body } => {
+            StmtKind::While { cond, body } => {
                 loop {
                     let cv = self.eval_expr(cond)?;
                     if !Self::is_truthy(&cv, "while")? { break; }
@@ -265,12 +302,12 @@ impl Evaluator {
                     }
                 }
             }
-            Stmt::For { var, iter, body } => {
+            StmtKind::For { var, iter, body } => {
                 let iter_val = self.eval_expr(iter)?;
                 let elements = match iter_val {
                     Value::Vector(v) => v.to_vec(),
                     Value::Scalar(n) => vec![Complex::new(n, 0.0)],
-                    other => return Err(ScriptError::Runtime(format!(
+                    other => return Err(ScriptError::runtime(format!(
                         "for: cannot iterate over {}", other.type_name()
                     ))),
                 };
@@ -286,7 +323,7 @@ impl Evaluator {
                     }
                 }
             }
-            Stmt::IndexAssign { name, indices, expr, suppress } => {
+            StmtKind::IndexAssign { name, indices, expr, suppress } => {
                 let val = self.eval_expr(expr)?;
 
                 // Evaluate indices with `end` bound to current container length (if any)
@@ -304,9 +341,9 @@ impl Evaluator {
                 self.env.remove("end");
 
                 if idx_vals.len() == 1 {
-                    let idx = idx_vals[0].to_scalar().map_err(ScriptError::Type)? as usize;
+                    let idx = idx_vals[0].to_scalar().map_err(|e| ScriptError::type_err(e))? as usize;
                     if idx < 1 {
-                        return Err(ScriptError::Runtime(
+                        return Err(ScriptError::runtime(
                             "index assignment: index must be >= 1".to_string()
                         ));
                     }
@@ -316,7 +353,7 @@ impl Evaluator {
                         let assign_val = match &val {
                             Value::Scalar(n)  => Complex::new(*n, 0.0),
                             Value::Complex(c) => *c,
-                            other => return Err(ScriptError::Runtime(format!(
+                            other => return Err(ScriptError::runtime(format!(
                                 "index assignment: right-hand side must be scalar or complex, got {}",
                                 other.type_name()
                             ))),
@@ -324,7 +361,7 @@ impl Evaluator {
                         match self.env.get_mut(name.as_str()) {
                             Some(Value::SparseVector(sv)) => {
                                 if idx > sv.len {
-                                    return Err(ScriptError::Runtime(format!(
+                                    return Err(ScriptError::runtime(format!(
                                         "index assignment: index {} out of bounds (length {})", idx, sv.len
                                     )));
                                 }
@@ -343,13 +380,13 @@ impl Evaluator {
                         match self.env.get_mut(name.as_str()) {
                             Some(Value::Matrix(m)) => {
                                 if idx > m.nrows() {
-                                    return Err(ScriptError::Runtime(format!(
+                                    return Err(ScriptError::runtime(format!(
                                         "index assignment: row {} out of bounds for {}×{} matrix",
                                         idx, m.nrows(), m.ncols()
                                     )));
                                 }
                                 if row_data.len() != m.ncols() {
-                                    return Err(ScriptError::Runtime(format!(
+                                    return Err(ScriptError::runtime(format!(
                                         "index assignment: row vector length {} does not match matrix columns {}",
                                         row_data.len(), m.ncols()
                                     )));
@@ -369,7 +406,7 @@ impl Evaluator {
                     let assign_val = match &val {
                         Value::Scalar(n)  => Complex::new(*n, 0.0),
                         Value::Complex(c) => *c,
-                        other => return Err(ScriptError::Runtime(format!(
+                        other => return Err(ScriptError::runtime(format!(
                             "index assignment: right-hand side must be scalar or complex, got {}",
                             other.type_name()
                         ))),
@@ -400,17 +437,17 @@ impl Evaluator {
                     } // end else scalar assignment
                 } else if idx_vals.len() == 2 {
                     // Two-index: matrix assignment
-                    let row = idx_vals[0].to_scalar().map_err(ScriptError::Type)? as usize;
-                    let col = idx_vals[1].to_scalar().map_err(ScriptError::Type)? as usize;
+                    let row = idx_vals[0].to_scalar().map_err(|e| ScriptError::type_err(e))? as usize;
+                    let col = idx_vals[1].to_scalar().map_err(|e| ScriptError::type_err(e))? as usize;
                     if row < 1 || col < 1 {
-                        return Err(ScriptError::Runtime(
+                        return Err(ScriptError::runtime(
                             "index assignment: indices must be >= 1".to_string()
                         ));
                     }
                     let assign_val = match &val {
                         Value::Scalar(n)  => Complex::new(*n, 0.0),
                         Value::Complex(c) => *c,
-                        other => return Err(ScriptError::Runtime(format!(
+                        other => return Err(ScriptError::runtime(format!(
                             "index assignment: right-hand side must be scalar or complex, got {}",
                             other.type_name()
                         ))),
@@ -418,7 +455,7 @@ impl Evaluator {
                     match self.env.get_mut(name.as_str()) {
                         Some(Value::Matrix(m)) => {
                             if row > m.nrows() || col > m.ncols() {
-                                return Err(ScriptError::Runtime(format!(
+                                return Err(ScriptError::runtime(format!(
                                     "index assignment: ({},{}) out of bounds for {}×{} matrix",
                                     row, col, m.nrows(), m.ncols()
                                 )));
@@ -430,7 +467,7 @@ impl Evaluator {
                         }
                         Some(Value::SparseMatrix(sm)) => {
                             if row > sm.rows || col > sm.cols {
-                                return Err(ScriptError::Runtime(format!(
+                                return Err(ScriptError::runtime(format!(
                                     "index assignment: ({},{}) out of bounds for {}×{} sparse matrix",
                                     row, col, sm.rows, sm.cols
                                 )));
@@ -440,17 +477,17 @@ impl Evaluator {
                                 println!("{}({},{}) = {}", name, row, col, Value::Complex(assign_val));
                             }
                         }
-                        _ => return Err(ScriptError::Runtime(format!(
+                        _ => return Err(ScriptError::runtime(format!(
                             "index assignment: '{}' is not a matrix", name
                         ))),
                     }
                 } else {
-                    return Err(ScriptError::Runtime(
+                    return Err(ScriptError::runtime(
                         "index assignment: only 1 or 2 indices are supported".to_string()
                     ));
                 }
             }
-            Stmt::Expr(expr, suppress) => {
+            StmtKind::Expr(expr, suppress) => {
                 // Special case: bare `clear` and `clf` commands (no parens)
                 if let Expr::Var(name) = expr {
                     if name == "clear" {
@@ -470,7 +507,7 @@ impl Evaluator {
                         if let Ok(path) = path_val.to_str() {
                             if path.ends_with(".npz") {
                                 let vars = builtins::load_all_from_npz(&path)
-                                    .map_err(ScriptError::Runtime)?;
+                                    .map_err(|e| ScriptError::runtime(e))?;
                                 if !suppress {
                                     let names: Vec<&str> = vars.iter().map(|(n, _)| n.as_str()).collect();
                                     println!("loaded: {}", names.join(", "));
@@ -486,7 +523,7 @@ impl Evaluator {
 
                 let val = self.eval_expr(expr)?;
                 if !suppress && !self.in_function && !matches!(val, Value::None) {
-                    println!("{}", val);
+                    println!("{}", val.format_display(self.format_commas));
                 }
             }
         }
@@ -498,7 +535,7 @@ impl Evaluator {
             Value::Bool(b)    => Ok(*b),
             Value::Scalar(n)  => Ok(*n != 0.0),
             Value::Complex(c) => Ok(c.re != 0.0 || c.im != 0.0),
-            other => Err(ScriptError::Runtime(format!(
+            other => Err(ScriptError::runtime(format!(
                 "{} condition must be a bool or scalar, got {}", context, other.type_name()
             ))),
         }
@@ -523,20 +560,20 @@ impl Evaluator {
             Expr::Var(name) => {
                 self.env.get(name)
                     .cloned()
-                    .ok_or_else(|| ScriptError::Undefined(name.clone()))
+                    .ok_or_else(|| ScriptError::undefined(name.clone()))
             }
             Expr::UnaryMinus(inner) => {
                 let v = self.eval_expr(inner)?;
-                v.negate().map_err(ScriptError::Type)
+                v.negate().map_err(|e| ScriptError::type_err(e))
             }
             Expr::UnaryNot(inner) => {
                 let v = self.eval_expr(inner)?;
-                v.not().map_err(ScriptError::Type)
+                v.not().map_err(|e| ScriptError::type_err(e))
             }
             Expr::BinOp { op, lhs, rhs } => {
                 let l = self.eval_expr(lhs)?;
                 let r = self.eval_expr(rhs)?;
-                Value::binop(*op, l, r).map_err(ScriptError::Type)
+                Value::binop(*op, l, r).map_err(|e| ScriptError::type_err(e))
             }
             Expr::Call { name, args } => {
                 // ── In-script profiling control ───────────────────────────
@@ -544,7 +581,7 @@ impl Evaluator {
                     // profile(fft, myfun) or profile() — args are bare Var names or strings
                     let names: Vec<String> = args.iter().map(|a| match a {
                         Expr::Var(n) | Expr::Str(n) => Ok(n.clone()),
-                        _ => Err(ScriptError::Runtime(
+                        _ => Err(ScriptError::runtime(
                             "profile: arguments must be function names (e.g. profile(fft, myfun))".to_string()
                         )),
                     }).collect::<Result<_, _>>()?;
@@ -572,7 +609,7 @@ impl Evaluator {
                 }
                 if name == "feval" && !args.is_empty() {
                     let name_val = self.eval_expr(&args[0])?;
-                    let fn_name  = name_val.to_str().map_err(|_| ScriptError::Runtime(
+                    let fn_name  = name_val.to_str().map_err(|_| ScriptError::runtime(
                         "feval: first argument must be a string function name".to_string()
                     ))?;
                     let rest: Vec<Value> = args[1..].iter()
@@ -582,7 +619,7 @@ impl Evaluator {
                 }
 
                 // If the name refers to a vector/matrix in the environment, this is indexing.
-                if matches!(self.env.get(name.as_str()), Some(Value::Vector(_)) | Some(Value::Matrix(_)) | Some(Value::SparseVector(_)) | Some(Value::SparseMatrix(_))) {
+                if matches!(self.env.get(name.as_str()), Some(Value::Vector(_)) | Some(Value::Matrix(_)) | Some(Value::SparseVector(_)) | Some(Value::SparseMatrix(_)) | Some(Value::Tuple(_)) | Some(Value::Str(_))) {
                     let container = self.env[name.as_str()].clone();
 
                     // For 2-argument matrix indexing, bind `end` context-sensitively per dimension.
@@ -615,6 +652,8 @@ impl Evaluator {
                             Value::Matrix(m) => m.nrows(),
                             Value::SparseVector(sv) => sv.len,
                             Value::SparseMatrix(sm) => sm.rows,
+                            Value::Tuple(t) => t.len(),
+                            Value::Str(s) => s.chars().count(),
                             _ => unreachable!(),
                         };
                         self.env.insert("end".to_string(), Value::Scalar(len as f64));
@@ -625,7 +664,7 @@ impl Evaluator {
                         vals
                     };
 
-                    container.index(idx_vals).map_err(ScriptError::Runtime)
+                    container.index(idx_vals).map_err(|e| ScriptError::runtime(e))
                 } else if let Some(func) = self.user_fns.get(name.as_str()).cloned() {
                     let vals: Vec<Value> = args.iter()
                         .map(|a| self.eval_expr(a))
@@ -662,17 +701,17 @@ impl Evaluator {
                 let evaled: Vec<Vec<Value>> = rows.iter()
                     .map(|row| row.iter().map(|e| self.eval_expr(e)).collect::<Result<_, _>>())
                     .collect::<Result<_, _>>()?;
-                Value::from_matrix_rows(evaled).map_err(ScriptError::Type)
+                Value::from_matrix_rows(evaled).map_err(|e| ScriptError::type_err(e))
             }
             Expr::Range { start, step, stop } => {
-                let s = self.eval_expr(start)?.to_scalar().map_err(ScriptError::Type)?;
-                let e = self.eval_expr(stop)?.to_scalar().map_err(ScriptError::Type)?;
+                let s = self.eval_expr(start)?.to_scalar().map_err(|e| ScriptError::type_err(e))?;
+                let e = self.eval_expr(stop)?.to_scalar().map_err(|e| ScriptError::type_err(e))?;
                 let inc = match step {
-                    Some(st) => self.eval_expr(st)?.to_scalar().map_err(ScriptError::Type)?,
+                    Some(st) => self.eval_expr(st)?.to_scalar().map_err(|e| ScriptError::type_err(e))?,
                     None     => 1.0,
                 };
                 if inc == 0.0 {
-                    return Err(ScriptError::Runtime("range step cannot be zero".to_string()));
+                    return Err(ScriptError::runtime("range step cannot be zero".to_string()));
                 }
                 let mut vals: Vec<C64> = Vec::new();
                 let mut cur = s;
@@ -687,11 +726,11 @@ impl Evaluator {
             }
             Expr::Transpose(inner) => {
                 let v = self.eval_expr(inner)?;
-                v.transpose().map_err(ScriptError::Runtime)
+                v.transpose().map_err(|e| ScriptError::runtime(e))
             }
             Expr::NonConjTranspose(inner) => {
                 let v = self.eval_expr(inner)?;
-                v.non_conj_transpose().map_err(ScriptError::Runtime)
+                v.non_conj_transpose().map_err(|e| ScriptError::runtime(e))
             }
             Expr::All => Ok(Value::All),
             Expr::Index { expr, args } => {
@@ -707,7 +746,7 @@ impl Evaluator {
                     .map(|a| self.eval_expr(a))
                     .collect::<Result<_, _>>()?;
                 self.env.remove("end");
-                container.index(idx_vals).map_err(ScriptError::Runtime)
+                container.index(idx_vals).map_err(|e| ScriptError::runtime(e))
             }
             Expr::Lambda { params, body } => {
                 Ok(Value::Lambda {
@@ -730,7 +769,7 @@ impl Evaluator {
                 match obj {
                     Value::Struct(fields) => fields.get(field.as_str())
                         .cloned()
-                        .ok_or_else(|| ScriptError::Runtime(
+                        .ok_or_else(|| ScriptError::runtime(
                             format!("struct has no field '{}'", field)
                         )),
                     Value::StateSpace { a, b, c, d } => match field.as_str() {
@@ -738,11 +777,11 @@ impl Evaluator {
                         "B" => Ok(Value::Matrix(b)),
                         "C" => Ok(Value::Matrix(c)),
                         "D" => Ok(Value::Matrix(d)),
-                        other => Err(ScriptError::Runtime(format!(
+                        other => Err(ScriptError::runtime(format!(
                             "ss has no field '{}'; valid fields are A, B, C, D", other
                         ))),
                     },
-                    other => Err(ScriptError::Runtime(format!(
+                    other => Err(ScriptError::runtime(format!(
                         "cannot access field '{}' on {}", field, other.type_name()
                     ))),
                 }
@@ -777,7 +816,7 @@ impl Evaluator {
             }).collect(),
             Value::Scalar(n) => vec![Value::Scalar(*n)],
             Value::Complex(c) => vec![Value::Complex(*c)],
-            other => return Err(ScriptError::Runtime(format!(
+            other => return Err(ScriptError::runtime(format!(
                 "arrayfun: second argument must be a vector or scalar, got {}", other.type_name()
             ))),
         };
@@ -798,7 +837,7 @@ impl Evaluator {
                     match r {
                         Value::Scalar(n) => out.push(Complex::new(n, 0.0)),
                         Value::Complex(c) => out.push(c),
-                        other => return Err(ScriptError::Runtime(format!(
+                        other => return Err(ScriptError::runtime(format!(
                             "arrayfun: element {} returned {}, expected scalar", i + 1, other.type_name()
                         ))),
                     }
@@ -814,23 +853,23 @@ impl Evaluator {
                     match r {
                         Value::Vector(v) => {
                             if v.len() != row_len {
-                                return Err(ScriptError::Runtime(format!(
+                                return Err(ScriptError::runtime(format!(
                                     "arrayfun: element {} returned vector of length {}, expected {}",
                                     i + 1, v.len(), row_len
                                 )));
                             }
                             flat.extend(v.iter().copied());
                         }
-                        other => return Err(ScriptError::Runtime(format!(
+                        other => return Err(ScriptError::runtime(format!(
                             "arrayfun: element {} returned {}, expected vector", i + 1, other.type_name()
                         ))),
                     }
                 }
                 let m = ndarray::Array2::from_shape_vec((nrows, row_len), flat)
-                    .map_err(|e| ScriptError::Runtime(e.to_string()))?;
+                    .map_err(|e| ScriptError::runtime(e.to_string()))?;
                 Ok(Value::Matrix(m))
             }
-            Some(other) => Err(ScriptError::Runtime(format!(
+            Some(other) => Err(ScriptError::runtime(format!(
                 "arrayfun: function returned unsupported type {}", other.type_name()
             ))),
         }
@@ -843,10 +882,10 @@ impl Evaluator {
         use num_complex::Complex;
         use ndarray::Array2;
 
-        let t_vec = t_val.to_cvector().map_err(|e| ScriptError::Runtime(format!("rk4: t must be a vector: {}", e)))?;
+        let t_vec = t_val.to_cvector().map_err(|e| ScriptError::runtime(format!("rk4: t must be a vector: {}", e)))?;
         let nt = t_vec.len();
         if nt < 2 {
-            return Err(ScriptError::Runtime("rk4: t must have at least 2 points".to_string()));
+            return Err(ScriptError::runtime("rk4: t must have at least 2 points".to_string()));
         }
 
         // x0 can be a scalar, vector (column), or 1×1 matrix
@@ -854,7 +893,7 @@ impl Evaluator {
             Value::Scalar(s)  => vec![*s],
             Value::Vector(v)  => v.iter().map(|c| c.re).collect(),
             Value::Matrix(m) if m.ncols() == 1 => m.column(0).iter().map(|c| c.re).collect(),
-            other => return Err(ScriptError::Runtime(format!(
+            other => return Err(ScriptError::runtime(format!(
                 "rk4: x0 must be a scalar or column vector, got {}", other.type_name()))),
         };
         let nx = state0.len();
@@ -878,7 +917,7 @@ impl Evaluator {
                 Value::Scalar(s)  => Ok(vec![s]),
                 Value::Vector(v)  => Ok(v.iter().map(|c| c.re).collect()),
                 Value::Matrix(m) if m.ncols() == 1 => Ok(m.column(0).iter().map(|c| c.re).collect()),
-                other => Err(ScriptError::Runtime(format!(
+                other => Err(ScriptError::runtime(format!(
                     "rk4: f must return a scalar or column vector, got {}", other.type_name()))),
             }
         };
@@ -946,7 +985,7 @@ impl Evaluator {
                 self.profiler.exit_higher_order();
                 result
             }
-            other => Err(ScriptError::Runtime(format!(
+            other => Err(ScriptError::runtime(format!(
                 "arrayfun: first argument must be a lambda or function handle, got {}", other.type_name()
             ))),
         }
@@ -966,7 +1005,7 @@ impl Evaluator {
         args: Vec<Value>,
     ) -> Result<Value, ScriptError> {
         if args.len() != params.len() {
-            return Err(ScriptError::Runtime(format!(
+            return Err(ScriptError::runtime(format!(
                 "lambda expects {} argument(s), got {}", params.len(), args.len()
             )));
         }
@@ -1000,7 +1039,7 @@ impl Evaluator {
     /// Call a user-defined function with scope isolation.
     fn eval_user_fn(&mut self, func: UserFn, args: Vec<Value>) -> Result<Value, ScriptError> {
         if args.len() != func.params.len() {
-            return Err(ScriptError::Runtime(format!(
+            return Err(ScriptError::runtime(format!(
                 "function expects {} argument(s), got {}", func.params.len(), args.len()
             )));
         }

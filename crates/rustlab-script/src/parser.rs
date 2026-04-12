@@ -1,4 +1,4 @@
-use crate::ast::{BinOp, Expr, Stmt};
+use crate::ast::{BinOp, Expr, Stmt, StmtKind};
 use crate::error::ScriptError;
 use crate::lexer::{Spanned, Token};
 
@@ -97,10 +97,11 @@ impl Parser {
                     stmts.push(self.parse_function_def()?);
                 }
                 Token::Return => {
+                    let line = self.current_line();
                     self.advance();
                     let suppress = self.consume_stmt_end()?;
                     let _ = suppress;
-                    stmts.push(Stmt::Return);
+                    stmts.push(Stmt::new(StmtKind::Return, line));
                 }
                 Token::If => {
                     stmts.push(self.parse_if_stmt()?);
@@ -116,6 +117,9 @@ impl Parser {
                 }
                 Token::Run => {
                     stmts.push(self.parse_run_stmt()?);
+                }
+                Token::Format => {
+                    stmts.push(self.parse_format_stmt()?);
                 }
                 Token::Else | Token::ElseIf => {
                     return Err(ScriptError::Parse {
@@ -179,6 +183,7 @@ impl Parser {
     }
 
     fn parse_index_assign(&mut self) -> Result<Stmt, ScriptError> {
+        let line = self.current_line();
         let name = match self.advance() {
             Token::Ident(s) => s.clone(),
             _ => unreachable!(),
@@ -191,18 +196,20 @@ impl Parser {
         self.advance(); // consume '='
         let expr = self.parse_range_expr()?;
         let suppress = self.consume_stmt_end()?;
-        Ok(Stmt::IndexAssign { name, indices, expr, suppress })
+        Ok(Stmt::new(StmtKind::IndexAssign { name, indices, expr, suppress }, line))
     }
 
     fn parse_while_stmt(&mut self) -> Result<Stmt, ScriptError> {
+        let line = self.current_line();
         self.advance(); // consume 'while'
         let cond = self.parse_range_expr()?;
         let _ = self.consume_stmt_end()?;
         let body = self.parse_stmts_until_end(true)?;
-        Ok(Stmt::While { cond, body })
+        Ok(Stmt::new(StmtKind::While { cond, body }, line))
     }
 
     fn parse_for_stmt(&mut self) -> Result<Stmt, ScriptError> {
+        let line = self.current_line();
         self.advance(); // consume 'for'
         let var = match self.peek_token().clone() {
             Token::Ident(s) => { self.advance(); s }
@@ -215,7 +222,7 @@ impl Parser {
         let iter = self.parse_range_expr()?;
         let _ = self.consume_stmt_end()?;
         let body = self.parse_stmts_until_end(true)?;
-        Ok(Stmt::For { var, iter, body })
+        Ok(Stmt::new(StmtKind::For { var, iter, body }, line))
     }
 
     /// Peek ahead to decide if we have `IDENT = expr` or `IDENT += expr` etc.
@@ -246,6 +253,7 @@ impl Parser {
     }
 
     fn parse_field_assignment(&mut self) -> Result<Stmt, ScriptError> {
+        let line = self.current_line();
         let object = match self.advance() {
             Token::Ident(s) => s.clone(),
             _ => unreachable!(),
@@ -258,10 +266,11 @@ impl Parser {
         self.advance(); // consume '='
         let expr = self.parse_range_expr()?;
         let suppress = self.consume_stmt_end()?;
-        Ok(Stmt::FieldAssign { object, field, expr, suppress })
+        Ok(Stmt::new(StmtKind::FieldAssign { object, field, expr, suppress }, line))
     }
 
     fn parse_function_def(&mut self) -> Result<Stmt, ScriptError> {
+        let line = self.current_line();
         self.advance(); // consume 'function'
         self.skip_newlines();
 
@@ -301,10 +310,11 @@ impl Parser {
         // Body — parsed until `end`
         let body = self.parse_stmts_until_end(true)?;
 
-        Ok(Stmt::FunctionDef { name, params, return_var, body })
+        Ok(Stmt::new(StmtKind::FunctionDef { name, params, return_var, body }, line))
     }
 
     fn parse_if_stmt(&mut self) -> Result<Stmt, ScriptError> {
+        let line = self.current_line();
         self.advance(); // consume 'if'
         let cond = self.parse_range_expr()?;
         let _ = self.consume_stmt_end()?;
@@ -330,7 +340,7 @@ impl Parser {
             vec![]
         };
 
-        Ok(Stmt::If { cond, then_body, elseif_arms, else_body })
+        Ok(Stmt::new(StmtKind::If { cond, then_body, elseif_arms, else_body }, line))
     }
 
     /// Parse statements until `end`, `else`, or `elseif`.
@@ -373,12 +383,13 @@ impl Parser {
         match self.peek_token() {
             Token::Newline   => { self.advance(); self.parse_one_body_stmt() }
             Token::Function  => self.parse_function_def(),
-            Token::Return    => { self.advance(); let _ = self.consume_stmt_end()?; Ok(Stmt::Return) }
+            Token::Return    => { let line = self.current_line(); self.advance(); let _ = self.consume_stmt_end()?; Ok(Stmt::new(StmtKind::Return, line)) }
             Token::If        => self.parse_if_stmt(),
             Token::For       => self.parse_for_stmt(),
             Token::While     => self.parse_while_stmt(),
             Token::Switch    => self.parse_switch_stmt(),
             Token::Run       => self.parse_run_stmt(),
+            Token::Format    => self.parse_format_stmt(),
             Token::LBracket if self.is_multi_assign() => self.parse_multi_assign(),
             Token::Ident(_)  => {
                 if self.is_field_assignment()       { self.parse_field_assignment() }
@@ -391,6 +402,7 @@ impl Parser {
     }
 
     fn parse_switch_stmt(&mut self) -> Result<Stmt, ScriptError> {
+        let line = self.current_line();
         self.advance(); // consume 'switch'
         let expr = self.parse_range_expr()?;
         let _ = self.consume_stmt_end()?;
@@ -450,10 +462,11 @@ impl Parser {
             }
         }
 
-        Ok(Stmt::Switch { expr, cases, otherwise })
+        Ok(Stmt::new(StmtKind::Switch { expr, cases, otherwise }, line))
     }
 
     fn parse_run_stmt(&mut self) -> Result<Stmt, ScriptError> {
+        let line = self.current_line();
         self.advance(); // consume 'run'
         // Collect the rest of the line as a file path (unquoted, like MATLAB)
         let mut path_chars = Vec::new();
@@ -483,7 +496,31 @@ impl Parser {
                 msg: "run: expected a file path".to_string(),
             });
         }
-        Ok(Stmt::Run { path })
+        Ok(Stmt::new(StmtKind::Run { path }, line))
+    }
+
+    fn parse_format_stmt(&mut self) -> Result<Stmt, ScriptError> {
+        let line = self.current_line();
+        self.advance(); // consume 'format'
+        let mode = match self.peek_token() {
+            Token::Ident(s) => {
+                let m = s.clone();
+                self.advance();
+                m
+            }
+            Token::Newline | Token::Eof | Token::Semicolon => {
+                // bare `format` with no arg — show current mode
+                String::new()
+            }
+            other => {
+                return Err(ScriptError::Parse {
+                    line: self.current_line(),
+                    msg: format!("format: expected mode name (commas, default), got {:?}", other),
+                });
+            }
+        };
+        let _ = self.consume_stmt_end()?;
+        Ok(Stmt::new(StmtKind::Format { mode }, line))
     }
 
     /// `[IDENT, IDENT, ...] =` (not `==`) at statement level
@@ -510,6 +547,7 @@ impl Parser {
     }
 
     fn parse_multi_assign(&mut self) -> Result<Stmt, ScriptError> {
+        let line = self.current_line();
         self.advance(); // consume '['
         let mut names = Vec::new();
         names.push(match self.peek_token().clone() {
@@ -530,7 +568,7 @@ impl Parser {
         self.advance(); // consume '='
         let expr = self.parse_range_expr()?;
         let suppress = self.consume_stmt_end()?;
-        Ok(Stmt::MultiAssign { names, expr, suppress })
+        Ok(Stmt::new(StmtKind::MultiAssign { names, expr, suppress }, line))
     }
 
     fn parse_param_list(&mut self) -> Result<Vec<String>, ScriptError> {
@@ -556,6 +594,7 @@ impl Parser {
     }
 
     fn parse_assignment(&mut self) -> Result<Stmt, ScriptError> {
+        let line = self.current_line();
         let name = match self.advance() {
             Token::Ident(s) => s.clone(),
             _ => unreachable!(),
@@ -578,13 +617,14 @@ impl Parser {
             None => rhs,
         };
         let suppress = self.consume_stmt_end()?;
-        Ok(Stmt::Assign { name, expr, suppress })
+        Ok(Stmt::new(StmtKind::Assign { name, expr, suppress }, line))
     }
 
     fn parse_expr_stmt(&mut self) -> Result<Stmt, ScriptError> {
+        let line = self.current_line();
         let expr = self.parse_range_expr()?;
         let suppress = self.consume_stmt_end()?;
-        Ok(Stmt::Expr(expr, suppress))
+        Ok(Stmt::new(StmtKind::Expr(expr, suppress), line))
     }
 
     /// range_expr = logical_or (":" logical_or (":" logical_or)?)?

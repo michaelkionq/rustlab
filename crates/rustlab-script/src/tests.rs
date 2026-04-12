@@ -218,7 +218,7 @@ mod lexer_tests {
 #[cfg(test)]
 mod parser_tests {
     use crate::{lexer, parser};
-    use crate::ast::{Stmt, Expr, BinOp};
+    use crate::ast::{Stmt, StmtKind, Expr, BinOp};
 
     fn parse(src: &str) -> Vec<Stmt> {
         let src = if src.ends_with('\n') { src.to_string() } else { format!("{}\n", src) };
@@ -227,9 +227,9 @@ mod parser_tests {
     }
 
     fn first_expr(src: &str) -> Expr {
-        match &parse(src)[0] {
-            Stmt::Expr(e, _) => e.clone(),
-            Stmt::Assign { expr, .. } => expr.clone(),
+        match &parse(src)[0].kind {
+            StmtKind::Expr(e, _) => e.clone(),
+            StmtKind::Assign { expr, .. } => expr.clone(),
             _ => panic!("expected expression or assignment statement"),
         }
     }
@@ -245,8 +245,8 @@ mod parser_tests {
     #[test]
     fn assignment_stmt() {
         let stmts = parse("x = 42");
-        match &stmts[0] {
-            Stmt::Assign { name, expr: Expr::Number(n), suppress: false } => {
+        match &stmts[0].kind {
+            StmtKind::Assign { name, expr: Expr::Number(n), suppress: false } => {
                 assert_eq!(name, "x");
                 assert!((*n - 42.0).abs() < 1e-12);
             }
@@ -257,8 +257,8 @@ mod parser_tests {
     #[test]
     fn suppress_flag_with_semicolon() {
         let stmts = parse("x = 42;");
-        match &stmts[0] {
-            Stmt::Assign { suppress: true, .. } => {}
+        match &stmts[0].kind {
+            StmtKind::Assign { suppress: true, .. } => {}
             other => panic!("Expected suppressed assign, got {other:?}"),
         }
     }
@@ -845,6 +845,73 @@ mod error_tests {
     #[test]
     fn det_non_square_errors() {
         let _err = eval_err("det([1,2,3;4,5,6])");
+    }
+}
+
+// ─── Error line number tests ────────────────────────────────────────────────
+
+#[cfg(test)]
+mod error_line_tests {
+    fn eval_err(src: &str) -> crate::error::ScriptError {
+        let src = format!("{}\n", src);
+        let tokens = crate::lexer::tokenize(&src).unwrap();
+        let stmts = crate::parser::parse(tokens).unwrap();
+        let mut ev = crate::eval::Evaluator::new();
+        let mut last_err = None;
+        for stmt in &stmts {
+            if let Err(e) = ev.exec_stmt(stmt) {
+                last_err = Some(e);
+                break;
+            }
+        }
+        last_err.expect("expected an error but script ran successfully")
+    }
+
+    #[test]
+    fn undefined_var_has_line_number() {
+        let err = eval_err("a = 1\nb = 2\nc = d + 1");
+        let msg = err.to_string();
+        assert!(msg.contains("line 3"), "expected 'line 3' in: {msg}");
+        assert!(msg.contains("undefined variable"), "expected 'undefined variable' in: {msg}");
+        assert!(msg.contains("'d'"), "expected quoted variable name in: {msg}");
+    }
+
+    #[test]
+    fn type_error_has_line_number() {
+        let err = eval_err("a = [1,2,3]\nb = 'hello'\nc = a + b");
+        let msg = err.to_string();
+        assert!(msg.contains("line 3"), "expected 'line 3' in: {msg}");
+        assert!(msg.contains("type error"), "expected 'type error' in: {msg}");
+    }
+
+    #[test]
+    fn runtime_error_has_line_number() {
+        let err = eval_err("x = 1:3\ny = 2\nz = x(10)");
+        let msg = err.to_string();
+        assert!(msg.contains("line 3"), "expected 'line 3' in: {msg}");
+    }
+
+    #[test]
+    fn line_1_error() {
+        let err = eval_err("nonexistent_thing + 1");
+        let msg = err.to_string();
+        assert!(msg.contains("line 1"), "expected 'line 1' in: {msg}");
+    }
+
+    #[test]
+    fn error_inside_loop_body() {
+        let err = eval_err("for k = 1:3\n  x = undefined_var\nend");
+        let msg = err.to_string();
+        assert!(msg.contains("line 2"), "expected 'line 2' in: {msg}");
+        assert!(msg.contains("undefined variable"), "expected 'undefined variable' in: {msg}");
+    }
+
+    #[test]
+    fn arg_count_error_has_line_number() {
+        let err = eval_err("a = 1\nabs(1, 2, 3)");
+        let msg = err.to_string();
+        assert!(msg.contains("line 2"), "expected 'line 2' in: {msg}");
+        assert!(msg.contains("arguments"), "expected 'arguments' in: {msg}");
     }
 }
 
@@ -5609,5 +5676,735 @@ if income > 0, tax = tax + income * r1; end
     fn compound_assign_with_suppress() {
         let ev = eval_str("x = 10; x += 5;");
         assert_eq!(get_scalar(&ev, "x"), 15.0);
+    }
+}
+
+// ── Comma formatting tests ──────────────────────────────────────────────────
+
+#[cfg(test)]
+mod comma_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::{Value, insert_commas};
+
+    fn eval_str(src: &str) -> Evaluator {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts { ev.exec_stmt(stmt).unwrap(); }
+        ev
+    }
+
+    fn get_str(ev: &Evaluator, name: &str) -> String {
+        match ev.get(name).unwrap() {
+            Value::Str(s) => s.clone(),
+            other => panic!("Expected string for '{name}', got {other:?}"),
+        }
+    }
+
+    // ── insert_commas unit tests ────────────────────────────────────────────
+
+    #[test] fn commas_small()      { assert_eq!(insert_commas("123"), "123"); }
+    #[test] fn commas_thousands()  { assert_eq!(insert_commas("1234"), "1,234"); }
+    #[test] fn commas_millions()   { assert_eq!(insert_commas("1234567"), "1,234,567"); }
+    #[test] fn commas_decimal()    { assert_eq!(insert_commas("1234567.89"), "1,234,567.89"); }
+    #[test] fn commas_negative()   { assert_eq!(insert_commas("-1234567"), "-1,234,567"); }
+    #[test] fn commas_neg_decimal(){ assert_eq!(insert_commas("-1234567.89"), "-1,234,567.89"); }
+    #[test] fn commas_zero()       { assert_eq!(insert_commas("0"), "0"); }
+    #[test] fn commas_small_dec()  { assert_eq!(insert_commas("0.123"), "0.123"); }
+
+    // ── commas() builtin ────────────────────────────────────────────────────
+
+    #[test]
+    fn commas_builtin_integer() {
+        let ev = eval_str("s = commas(1234567)");
+        assert_eq!(get_str(&ev, "s"), "1,234,567");
+    }
+
+    #[test]
+    fn commas_builtin_float() {
+        let ev = eval_str("s = commas(1234567.89, 2)");
+        assert_eq!(get_str(&ev, "s"), "1,234,567.89");
+    }
+
+    #[test]
+    fn commas_builtin_small() {
+        let ev = eval_str("s = commas(42)");
+        assert_eq!(get_str(&ev, "s"), "42");
+    }
+
+    #[test]
+    fn commas_builtin_negative() {
+        let ev = eval_str("s = commas(-9876543, 0)");
+        assert_eq!(get_str(&ev, "s"), "-9,876,543");
+    }
+
+    // ── sprintf with , flag ─────────────────────────────────────────────────
+
+    #[test]
+    fn sprintf_comma_d() {
+        let ev = eval_str("s = sprintf('%,d', 1234567)");
+        assert_eq!(get_str(&ev, "s"), "1,234,567");
+    }
+
+    #[test]
+    fn sprintf_comma_f() {
+        let ev = eval_str("s = sprintf('%,.2f', 1234567.89)");
+        assert_eq!(get_str(&ev, "s"), "1,234,567.89");
+    }
+
+    #[test]
+    fn sprintf_no_comma() {
+        let ev = eval_str("s = sprintf('%d', 1234567)");
+        assert_eq!(get_str(&ev, "s"), "1234567");
+    }
+
+    // ── format commas / format default ──────────────────────────────────────
+
+    #[test]
+    fn format_commas_mode() {
+        let ev = eval_str("format commas\nx = 1234567;");
+        assert!(ev.format_commas);
+    }
+
+    #[test]
+    fn format_default_mode() {
+        let ev = eval_str("format commas\nformat default");
+        assert!(!ev.format_commas);
+    }
+
+    #[test]
+    fn format_display_scalar_commas() {
+        let val = Value::Scalar(1234567.0);
+        assert_eq!(val.format_display(true), "1,234,567");
+    }
+
+    #[test]
+    fn format_display_scalar_no_commas() {
+        let val = Value::Scalar(1234567.0);
+        assert_eq!(val.format_display(false), "1234567");
+    }
+
+    #[test]
+    fn format_display_negative() {
+        let val = Value::Scalar(-1234567.5);
+        assert_eq!(val.format_display(true), "-1,234,567.5");
+    }
+}
+
+// ── Underscore digit separator tests ────────────────────────────────────────
+
+#[cfg(test)]
+mod underscore_literal_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+
+    fn eval_str(src: &str) -> Evaluator {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts { ev.exec_stmt(stmt).unwrap(); }
+        ev
+    }
+
+    fn get_scalar(ev: &Evaluator, name: &str) -> f64 {
+        match ev.get(name).unwrap() {
+            Value::Scalar(n) => *n,
+            other => panic!("Expected scalar for '{name}', got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn integer_underscores() {
+        let ev = eval_str("x = 1_000_000;");
+        assert_eq!(get_scalar(&ev, "x"), 1_000_000.0);
+    }
+
+    #[test]
+    fn thousands_separator() {
+        let ev = eval_str("x = 48_000;");
+        assert_eq!(get_scalar(&ev, "x"), 48_000.0);
+    }
+
+    #[test]
+    fn decimal_with_underscores() {
+        let ev = eval_str("x = 1_234.567_89;");
+        assert_eq!(get_scalar(&ev, "x"), 1234.56789);
+    }
+
+    #[test]
+    fn fractional_underscores() {
+        let ev = eval_str("x = 3.141_592_653;");
+        assert_eq!(get_scalar(&ev, "x"), 3.141592653);
+    }
+
+    #[test]
+    fn scientific_with_underscores() {
+        let ev = eval_str("x = 1_000e3;");
+        assert_eq!(get_scalar(&ev, "x"), 1_000_000.0);
+    }
+
+    #[test]
+    fn no_underscores_baseline() {
+        let ev = eval_str("x = 1234567;");
+        assert_eq!(get_scalar(&ev, "x"), 1234567.0);
+    }
+
+    #[test]
+    fn single_underscore() {
+        let ev = eval_str("x = 1_2;");
+        assert_eq!(get_scalar(&ev, "x"), 12.0);
+    }
+
+    #[test]
+    fn underscore_in_vector() {
+        let ev = eval_str("v = [1_000, 2_000, 3_000];");
+        match ev.get("v").unwrap() {
+            Value::Vector(v) => {
+                assert_eq!(v[0].re, 1000.0);
+                assert_eq!(v[1].re, 2000.0);
+                assert_eq!(v[2].re, 3000.0);
+            }
+            other => panic!("Expected vector, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn underscore_in_expression() {
+        let ev = eval_str("x = 1_000 + 2_000;");
+        assert_eq!(get_scalar(&ev, "x"), 3000.0);
+    }
+}
+
+mod string_index_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+
+    fn eval(src: &str) -> Evaluator {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts { ev.exec_stmt(stmt).unwrap(); }
+        ev
+    }
+
+    fn get_str(ev: &Evaluator, name: &str) -> String {
+        match ev.get(name).unwrap() {
+            Value::Str(s) => s.clone(),
+            other => panic!("Expected string for '{name}', got {other:?}"),
+        }
+    }
+
+    fn try_run(src: &str) -> Result<Evaluator, crate::error::ScriptError> {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts)?;
+        Ok(ev)
+    }
+
+    #[test]
+    fn single_char() {
+        let ev = eval("a = 'hello'; b = a(1)");
+        assert_eq!(get_str(&ev, "b"), "h");
+    }
+
+    #[test]
+    fn single_char_mid() {
+        let ev = eval("a = 'hello'; b = a(3)");
+        assert_eq!(get_str(&ev, "b"), "l");
+    }
+
+    #[test]
+    fn single_char_last() {
+        let ev = eval("a = 'hello'; b = a(5)");
+        assert_eq!(get_str(&ev, "b"), "o");
+    }
+
+    #[test]
+    fn range_slice() {
+        let ev = eval("a = 'hello world'; b = a(1:5)");
+        assert_eq!(get_str(&ev, "b"), "hello");
+    }
+
+    #[test]
+    fn range_slice_mid() {
+        let ev = eval("a = 'hello world'; b = a(7:11)");
+        assert_eq!(get_str(&ev, "b"), "world");
+    }
+
+    #[test]
+    fn all_index() {
+        let ev = eval("a = 'hello'; b = a(:)");
+        assert_eq!(get_str(&ev, "b"), "hello");
+    }
+
+    #[test]
+    fn length_of_string() {
+        let ev = eval("a = 'hello'; n = length(a)");
+        match ev.get("n").unwrap() {
+            Value::Scalar(v) => assert_eq!(*v, 5.0),
+            other => panic!("Expected scalar, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn out_of_bounds() {
+        assert!(try_run("a = 'hi'; b = a(3)").is_err());
+    }
+
+    #[test]
+    fn out_of_bounds_range() {
+        assert!(try_run("a = 'hi'; b = a(1:5)").is_err());
+    }
+
+    #[test]
+    fn single_char_string() {
+        let ev = eval("a = 'x'; b = a(1)");
+        assert_eq!(get_str(&ev, "b"), "x");
+    }
+
+    #[test]
+    fn zero_index_string_errors() {
+        assert!(try_run("a = 'hello'; b = a(0)").is_err());
+    }
+
+    #[test]
+    fn zero_index_vector_errors() {
+        assert!(try_run("v = [10, 20, 30]; x = v(0)").is_err());
+    }
+}
+
+mod toml_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+    use std::io::Write;
+
+    fn run(src: &str) -> Evaluator {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts).unwrap();
+        ev
+    }
+
+    fn try_run(src: &str) -> Result<Evaluator, crate::error::ScriptError> {
+        let src = format!("{}\n", src);
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts)?;
+        Ok(ev)
+    }
+
+    fn close(a: f64, b: f64) -> bool { (a - b).abs() < 1e-9 }
+
+    fn tmp_path(name: &str) -> String {
+        let dir = std::env::temp_dir();
+        dir.join(format!("rustlab_test_{name}.toml")).to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn round_trip_flat_struct() {
+        let path = tmp_path("flat");
+        let ev = run(&format!(
+            "s = struct(\"x\", 42, \"name\", \"hello\", \"flag\", true);\n\
+             save(\"{path}\", s);\n\
+             t = load(\"{path}\");"
+        ));
+        match ev.get("t").unwrap() {
+            Value::Struct(fields) => {
+                assert!(matches!(fields.get("x"), Some(Value::Scalar(n)) if close(*n, 42.0)));
+                assert!(matches!(fields.get("name"), Some(Value::Str(s)) if s == "hello"));
+                assert!(matches!(fields.get("flag"), Some(Value::Bool(true))));
+            }
+            other => panic!("expected struct, got {other:?}"),
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn round_trip_nested_struct() {
+        let path = tmp_path("nested");
+        // Use struct() constructor to avoid dot-assign path parsing issues
+        let src = format!(
+            "audio = struct(\"sr\", 44100, \"bits\", 16);\n\
+             s = struct(\"audio\", audio, \"name\", \"config\");\n\
+             save(\"{path}\", s);\n\
+             t = load(\"{path}\");\n\
+             sr = t.audio.sr;"
+        );
+        let ev = run(&src);
+        match ev.get("sr").unwrap() {
+            Value::Scalar(n) => assert!(close(*n, 44100.0)),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn round_trip_with_vector() {
+        let path = tmp_path("vec");
+        let ev = run(&format!(
+            "v = linspace(1, 3, 3);\n\
+             s = struct(\"coeffs\", v);\n\
+             save(\"{path}\", s);\n\
+             t = load(\"{path}\");\n\
+             c = t.coeffs;"
+        ));
+        match ev.get("c").unwrap() {
+            Value::Vector(v) => {
+                assert_eq!(v.len(), 3);
+                assert!(close(v[0].re, 1.0));
+                assert!(close(v[1].re, 2.0));
+                assert!(close(v[2].re, 3.0));
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn scalar_integer_preservation() {
+        let path = tmp_path("int");
+        let ev = run(&format!(
+            "s = struct(\"n\", 100);\n\
+             save(\"{path}\", s);\n\
+             t = load(\"{path}\");\n\
+             v = t.n;"
+        ));
+        match ev.get("v").unwrap() {
+            Value::Scalar(n) => assert!(close(*n, 100.0)),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+        // Verify the file actually has an integer (no decimal point)
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("n = 100\n") || text.contains("n = 100\r\n"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn scalar_float_preservation() {
+        let path = tmp_path("float");
+        let ev = run(&format!(
+            "s = struct(\"pi\", 3.14);\n\
+             save(\"{path}\", s);\n\
+             t = load(\"{path}\");\n\
+             v = t.pi;"
+        ));
+        match ev.get("v").unwrap() {
+            Value::Scalar(n) => assert!(close(*n, 3.14)),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn error_on_non_struct_top_level() {
+        let path = tmp_path("nonstruct");
+        let result = try_run(&format!("save(\"{path}\", 42);"));
+        assert!(result.is_err(), "saving a scalar to TOML should error");
+    }
+
+    #[test]
+    fn error_on_complex_in_struct() {
+        let path = tmp_path("complex");
+        let result = try_run(&format!(
+            "s = struct(\"z\", 1 + j*2);\n\
+             save(\"{path}\", s);"
+        ));
+        assert!(result.is_err(), "saving complex values to TOML should error");
+    }
+
+    #[test]
+    fn load_external_toml() {
+        let path = tmp_path("external");
+        {
+            let mut f = std::fs::File::create(&path).unwrap();
+            write!(f, r#"
+title = "DSP Config"
+version = 3
+
+[audio]
+sample_rate = 48000
+channels = 2
+buffer_size = 256
+
+[filter]
+type = "lowpass"
+cutoff_hz = 1000.5
+enabled = true
+taps = [1.0, 0.5, 0.25]
+"#).unwrap();
+        }
+        let ev = run(&format!(
+            "cfg = load(\"{path}\");\n\
+             sr = cfg.audio.sample_rate;\n\
+             ftype = cfg.filter.type;\n\
+             enabled = cfg.filter.enabled;\n\
+             taps = cfg.filter.taps;\n\
+             ver = cfg.version;"
+        ));
+        match ev.get("sr").unwrap() {
+            Value::Scalar(n) => assert!(close(*n, 48000.0)),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+        match ev.get("ftype").unwrap() {
+            Value::Str(s) => assert_eq!(s, "lowpass"),
+            other => panic!("expected string, got {other:?}"),
+        }
+        match ev.get("enabled").unwrap() {
+            Value::Bool(b) => assert!(*b),
+            other => panic!("expected bool, got {other:?}"),
+        }
+        match ev.get("taps").unwrap() {
+            Value::Vector(v) => {
+                assert_eq!(v.len(), 3);
+                assert!(close(v[0].re, 1.0));
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+        match ev.get("ver").unwrap() {
+            Value::Scalar(n) => assert!(close(*n, 3.0)),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // ── Array of tables (Tuple of Structs) ───────────────────────────────
+
+    #[test]
+    fn load_array_of_tables() {
+        let path = tmp_path("array_tables");
+        {
+            let mut f = std::fs::File::create(&path).unwrap();
+            write!(f, r#"
+title = "chain"
+
+[[filters]]
+name = "lp"
+cutoff = 1000
+
+[[filters]]
+name = "hp"
+cutoff = 5000
+"#).unwrap();
+        }
+        let ev = run(&format!(
+            "cfg = load(\"{path}\");\n\
+             filters = cfg.filters;\n\
+             n = length(filters);\n\
+             f1 = filters(1);\n\
+             f2 = filters(2);"
+        ));
+        match ev.get("n").unwrap() {
+            Value::Scalar(n) => assert!(close(*n, 2.0)),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+        match ev.get("f1").unwrap() {
+            Value::Struct(fields) => {
+                assert!(matches!(fields.get("name"), Some(Value::Str(s)) if s == "lp"));
+                assert!(matches!(fields.get("cutoff"), Some(Value::Scalar(n)) if close(*n, 1000.0)));
+            }
+            other => panic!("expected struct, got {other:?}"),
+        }
+        match ev.get("f2").unwrap() {
+            Value::Struct(fields) => {
+                assert!(matches!(fields.get("name"), Some(Value::Str(s)) if s == "hp"));
+            }
+            other => panic!("expected struct, got {other:?}"),
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // ── Tuple indexing ──���────────────────────────────────────────────────
+
+    #[test]
+    fn tuple_index_end_keyword() {
+        let path = tmp_path("tuple_end");
+        {
+            let mut f = std::fs::File::create(&path).unwrap();
+            write!(f, r#"
+[[items]]
+val = 10
+[[items]]
+val = 20
+[[items]]
+val = 30
+"#).unwrap();
+        }
+        let ev = run(&format!(
+            "cfg = load(\"{path}\");\n\
+             items = cfg.items;\n\
+             last = items(end);\n\
+             v = last.val;"
+        ));
+        match ev.get("v").unwrap() {
+            Value::Scalar(n) => assert!(close(*n, 30.0)),
+            other => panic!("expected scalar 30, got {other:?}"),
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn tuple_index_out_of_bounds() {
+        let path = tmp_path("tuple_oob");
+        {
+            let mut f = std::fs::File::create(&path).unwrap();
+            write!(f, "[[items]]\nval = 1\n").unwrap();
+        }
+        let result = try_run(&format!(
+            "cfg = load(\"{path}\");\n\
+             items = cfg.items;\n\
+             bad = items(5);"
+        ));
+        assert!(result.is_err(), "out-of-bounds tuple index should error");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn tuple_loop_with_length() {
+        let path = tmp_path("tuple_loop");
+        {
+            let mut f = std::fs::File::create(&path).unwrap();
+            write!(f, r#"
+[[items]]
+x = 10
+[[items]]
+x = 20
+[[items]]
+x = 30
+"#).unwrap();
+        }
+        let ev = run(&format!(
+            "cfg = load(\"{path}\");\n\
+             items = cfg.items;\n\
+             total = 0;\n\
+             for k = 1:length(items)\n\
+               it = items(k);\n\
+               total = total + it.x;\n\
+             end"
+        ));
+        match ev.get("total").unwrap() {
+            Value::Scalar(n) => assert!(close(*n, 60.0)),
+            other => panic!("expected 60, got {other:?}"),
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // ── Matrix round-trip ────────────────────────────────────────────────
+
+    #[test]
+    fn round_trip_matrix() {
+        let path = tmp_path("matrix");
+        let ev = run(&format!(
+            "M = [1, 2; 3, 4];\n\
+             s = struct(\"data\", M);\n\
+             save(\"{path}\", s);\n\
+             t = load(\"{path}\");\n\
+             d = t.data;"
+        ));
+        // Matrix becomes array of arrays in TOML; loads back as Tuple of Vectors
+        match ev.get("d").unwrap() {
+            Value::Tuple(rows) => {
+                assert_eq!(rows.len(), 2);
+                match &rows[0] {
+                    Value::Vector(v) => {
+                        assert_eq!(v.len(), 2);
+                        assert!(close(v[0].re, 1.0));
+                        assert!(close(v[1].re, 2.0));
+                    }
+                    other => panic!("expected vector row, got {other:?}"),
+                }
+                match &rows[1] {
+                    Value::Vector(v) => {
+                        assert!(close(v[0].re, 3.0));
+                        assert!(close(v[1].re, 4.0));
+                    }
+                    other => panic!("expected vector row, got {other:?}"),
+                }
+            }
+            other => panic!("expected tuple of vectors, got {other:?}"),
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // ── Edge cases ──��────────────────────────────────────────────────────
+
+    #[test]
+    fn empty_struct() {
+        let path = tmp_path("empty");
+        let ev = run(&format!(
+            "s = struct();\n\
+             save(\"{path}\", s);\n\
+             t = load(\"{path}\");"
+        ));
+        match ev.get("t").unwrap() {
+            Value::Struct(fields) => assert!(fields.is_empty()),
+            other => panic!("expected empty struct, got {other:?}"),
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn string_with_special_chars() {
+        let path = tmp_path("special_str");
+        {
+            let mut f = std::fs::File::create(&path).unwrap();
+            // Write TOML directly with escaped chars
+            write!(f, "msg = \"hello \\\"world\\\" tab\\there\"\n").unwrap();
+        }
+        let ev = run(&format!(
+            "cfg = load(\"{path}\");\n\
+             m = cfg.msg;"
+        ));
+        match ev.get("m").unwrap() {
+            Value::Str(s) => {
+                assert!(s.contains("\"world\""), "should contain escaped quotes: {s}");
+                assert!(s.contains('\t'), "should contain tab: {s}");
+            }
+            other => panic!("expected string, got {other:?}"),
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_nonexistent_file() {
+        let result = try_run("x = load(\"/tmp/no_such_file_rustlab_test.toml\");");
+        assert!(result.is_err(), "loading nonexistent TOML should error");
+    }
+
+    #[test]
+    fn load_malformed_toml() {
+        let path = tmp_path("malformed");
+        {
+            let mut f = std::fs::File::create(&path).unwrap();
+            write!(f, "[broken\nkey = ???\n").unwrap();
+        }
+        let result = try_run(&format!("x = load(\"{path}\");"));
+        assert!(result.is_err(), "loading malformed TOML should error");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn empty_array_becomes_empty_vector() {
+        let path = tmp_path("empty_arr");
+        {
+            let mut f = std::fs::File::create(&path).unwrap();
+            write!(f, "vals = []\n").unwrap();
+        }
+        let ev = run(&format!(
+            "cfg = load(\"{path}\");\n\
+             v = cfg.vals;"
+        ));
+        match ev.get("v").unwrap() {
+            Value::Vector(v) => assert_eq!(v.len(), 0),
+            other => panic!("expected empty vector, got {other:?}"),
+        }
+        let _ = std::fs::remove_file(&path);
     }
 }

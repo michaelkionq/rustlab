@@ -1,0 +1,22 @@
+# Example: DSP pipeline configuration
+# This file can be loaded by rustlab with:  cfg = load("toml_config.toml")
+
+project = "audio_filter"
+version = 2
+
+[audio]
+sample_rate = 48000
+frame_size = 512
+channels = 1
+
+[filter]
+type = "lowpass"
+cutoff_hz = 1200
+taps = 63
+window = "hann"
+
+[quantization]
+word_bits = 16
+frac_bits = 15
+round = "round_even"
+overflow = "saturate"

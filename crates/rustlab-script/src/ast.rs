@@ -1,5 +1,17 @@
 #[derive(Debug, Clone)]
-pub enum Stmt {
+pub struct Stmt {
+    pub kind: StmtKind,
+    pub line: usize,
+}
+
+impl Stmt {
+    pub fn new(kind: StmtKind, line: usize) -> Self {
+        Self { kind, line }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum StmtKind {
     /// `name = expr` — suppress=true when line ends with `;`
     Assign { name: String, expr: Expr, suppress: bool },
     /// bare expression — suppress=true when line ends with `;`
@@ -30,6 +42,8 @@ pub enum Stmt {
     },
     /// `run path` — execute another .r script and merge its definitions
     Run { path: String },
+    /// `format commas` / `format default` — change display mode
+    Format { mode: String },
     /// `[a, b, c] = expr` — multi-value assignment (unpacks a Tuple)
     MultiAssign { names: Vec<String>, expr: Expr, suppress: bool },
     /// `for VAR = iter_expr ... end` — iterate over elements of a vector

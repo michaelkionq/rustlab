@@ -1250,10 +1250,12 @@ Save a single variable to a file. Format is determined by the file extension.
 |-----------|--------|-------|
 | `.npy` | NumPy binary | Real arrays stored as `float64`, complex as `complex128`. Compatible with `numpy.load()` in Python. |
 | `.csv` | CSV text | Complex values written as `a+bi`. Real arrays produce plain numbers. |
+| `.toml` | TOML text | Top-level value must be a struct. Nested structs, vectors, booleans, and strings are supported. |
 
 ```
 save("signal.npy", x)
 save("coeffs.csv", h)
+save("config.toml", cfg)
 ```
 
 ### `save(filename, "name1", x1, "name2", x2, ...)`
@@ -1266,11 +1268,13 @@ save("session.npz", "signal", x, "filter", h, "freqs", f)
 The resulting file is directly readable by `numpy.load("session.npz")` in Python.
 
 ### `load(filename)`
-Load a single array from a `.npy` or `.csv` file. Returns a scalar, vector, or matrix depending on the stored shape.
+Load a single array from a `.npy` or `.csv` file, or a struct from a `.toml` file. Returns a scalar, vector, matrix, or struct depending on the file format and content.
 
 ```
 x = load("signal.npy")
 h = load("coeffs.csv")
+cfg = load("config.toml")       % returns a struct
+sr = cfg.audio.sample_rate       % access nested fields
 ```
 
 ### `load(filename, varname)`
@@ -1470,12 +1474,57 @@ disp(A)
 ```
 
 ### `fprintf(fmt, args...)`
-Formatted print. Supports C-style format specifiers: `%d`, `%f`, `%g`, `%e`, `%s`, `%%`. Escape sequences: `\n`, `\t`.
+Formatted print. Supports C-style format specifiers: `%d`, `%f`, `%g`, `%e`, `%s`, `%%`. Flags: `-`, `+`, `0`, `#`, `,` (comma inserts thousands separators). Escape sequences: `\n`, `\t`.
 ```
 fprintf("x = %f, n = %d\n", 3.14, 42)
 fprintf("GM=%.1f dB  PM=%.1f deg\n", 20*log10(Gm), Pm)
+fprintf("population: %,d\n", 1234567)       % → population: 1,234,567
+fprintf("price: $%,.2f\n", 1234567.89)      % → price: $1,234,567.89
 ```
 - Does not append a trailing newline unless `\n` is included in the format string.
+
+### `sprintf(fmt, args...)`
+Same format specifiers and flags as `fprintf`, but returns the formatted string instead of printing it.
+```
+s = sprintf("%,.2f", 1234567.89)    % → "1,234,567.89"
+s = sprintf("%d items", 42)         % → "42 items"
+```
+
+### `commas(x)` / `commas(x, precision)`
+Format a number with thousands-separator commas. Returns a string.
+```
+commas(1234567)         % → "1,234,567"
+commas(1234567.89)      % → "1,234,567.89"
+commas(1234567.89, 2)   % → "1,234,567.89"
+commas(-9876543)        % → "-9,876,543"
+```
+- With one argument: integers display without decimals, floats use default precision.
+- With two arguments: the second specifies the number of decimal places.
+
+### `format` command
+Set the global display format mode. Affects how numeric values are auto-printed.
+```
+format commas       % enable thousands separators in all output
+format default      % restore normal display
+format              % show current mode
+```
+Example:
+```
+format commas
+x = 1234567         % → x = 1,234,567
+format default
+x                   % → 1234567
+```
+
+### Underscore digit separators
+Underscores can be used inside numeric literals for readability. They are stripped during parsing and have no effect on the value. Works like Rust, Python, and C++14.
+```
+x = 1_000_000           % → 1000000
+fs = 48_000              % → 48000
+y = 3.141_592_653        % → 3.141592653
+z = 1_234.567_89         % → 1234.56789
+v = [1_000, 2_000]       % works in vectors
+```
 
 ### Range operator: `start:stop` / `start:step:stop`
 ```

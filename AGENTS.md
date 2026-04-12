@@ -334,6 +334,7 @@ cargo install --path crates/rustlab-cli   # → ~/.cargo/bin/rustlab
 - `src/eval/mod.rs` — `Evaluator` struct: holds `env`, `builtins`, `user_fns`, `in_function`, `profiler: profile::Profiler`; public API: `run()`, `run_script()`, `enable_profiling()`, `has_profile_data()`, `take_profile()`
 - `src/eval/value.rs` — `Value` enum: `Scalar(f64)`, `Complex(C64)`, `Vector(CVector)`, `Matrix(CMatrix)`, `Str(String)`, `Struct(HashMap<String,Value>)`, `Bool(bool)`, `Lambda { params, body, captured_env }`, `FuncHandle(String)`, `QFmt`, `FirState(Arc<Mutex<Vec<C64>>>)`, `AudioIn { sample_rate, frame_size }`, `AudioOut { sample_rate, frame_size }`, `LiveFigure(Arc<Mutex<Option<rustlab_plot::LiveFigure>>>)`, `All`, `None`
 - `src/eval/builtins.rs` — `BuiltinRegistry`: `HashMap<String, BuiltinFn>` where `BuiltinFn = fn(Vec<Value>) -> Result<Value, ScriptError>`
+- `src/eval/toml_io.rs` — TOML import/export: `save_toml()`, `load_toml()`, and `Value ↔ toml::Value` converters
 - `src/eval/profile.rs` — `Profiler` struct (opt-in, zero overhead when disabled); `print_report()` prints table to stderr
 - `src/lib.rs` — public entry points: `run(source)`, `run_profiled(source)`
 
@@ -341,7 +342,7 @@ cargo install --path crates/rustlab-cli   # → ~/.cargo/bin/rustlab
 
 **`BUILTIN_CONSTS`:** These constant names (`i`, `j`, `pi`, `e`, `Inf`, `NaN`, `true`, `false`) survive `clear_vars()` — they are re-inserted automatically so the REPL never loses them.
 
-**How `Call` nodes are evaluated:** At eval time, if the name exists in `env` as a `Vector` or `Matrix`, it is treated as 1-based indexing — `end` is temporarily bound to the vector length. If the name holds a `Lambda`, it is called with its captured environment. Otherwise it is a `BuiltinRegistry` call.
+**How `Call` nodes are evaluated:** At eval time, if the name exists in `env` as a `Vector`, `Matrix`, `Tuple`, `Str`, or sparse variant, it is treated as 1-based indexing — `end` is temporarily bound to the container length. String indexing returns a string: `s(3)` → single char, `s(1:5)` → substring, `s(:)` → full copy. If the name holds a `Lambda`, it is called with its captured environment. Otherwise it is a `BuiltinRegistry` call.
 
 **Lambda / anonymous functions:** `@(x, y) expr` creates a `Value::Lambda` that captures the current env by snapshot. `@name` creates a `Value::FuncHandle` that lazily resolves to a lambda clone (if `name` holds a lambda) or dispatches to a builtin/user function. `arrayfun(f, v)` maps any callable over a vector, returning a `Vector` (all scalar outputs) or a `Matrix` (all vector outputs of equal length). `feval("name", args...)` calls a function by string name.
 
@@ -398,6 +399,7 @@ stmt        = IDENT ("=" | "+=" | "-=" | "*=" | "/=") range_expr [";"] "\n"  # a
                 ("case" range_expr stmt*)*
                 ["otherwise" stmt*] "end"
             | "run" FILEPATH [";"] "\n"                    # execute .r script
+            | "format" IDENT [";"] "\n"                    # display mode (commas, default)
             | "#" ... "\n"                                  # comment
             | "..." ... "\n"                                # line continuation
 
@@ -439,6 +441,7 @@ primary     = NUMBER | STRING | IDENT
 | Run (include) | `run file.r` | Execute a .r script; merges variables and functions into current scope |
 | Line continuation | `x = a + ...` (newline) `  b` | `...` skips rest of line; statement continues on next line |
 | Single-quote strings | `'hello'` | Alternative string delimiters; context-dependent (transpose after `)`, `]`, ident, number) |
+| String indexing | `s(3)`, `s(1:5)`, `s(:)` | 1-based; returns string; `end` supported |
 | Clear workspace | `clear` | Bare command (no parens); removes all user vars/fns, keeps built-in constants |
 | Clear figure | `clf` | Bare command (no parens); resets figure state (equivalent to `figure()`) |
 | Lambda | `f = @(x) x^2` | Creates anonymous function; captures env by snapshot at creation |
@@ -451,6 +454,8 @@ primary     = NUMBER | STRING | IDENT
 | Element-wise | `.*` `./` `.^` | Always element-wise on vectors/matrices |
 | Matrix literal | `[1,2; 3,4]` | `;` separates rows |
 | Sparse types | `SparseVector`, `SparseMatrix` | COO format; 0-based internal, 1-based in script; auto-promote to dense in binops |
+| Underscore literals | `1_000_000`, `3.141_592` | Digit separators stripped at lex time; like Rust/Python/C++ |
+| Format mode | `format commas` / `format default` | Bare command; toggles thousands separators in auto-print output |
 
 ### All builtin functions
 
@@ -522,6 +527,8 @@ primary     = NUMBER | STRING | IDENT
 | `spsolve` | `spsolve(A, b)` | Solve A×x = b where A is sparse (converts to dense internally) |
 | `spdiags` | `spdiags(V, D, m, n)` | Build sparse matrix from diagonals; D=0 main, >0 super, <0 sub |
 | `sprand` | `sprand(m, n, density)` | Random sparse matrix with ~density×m×n non-zeros, values in [0,1) |
+| `sprintf` | `sprintf(fmt, args...)` | Like `fprintf` but returns the formatted string |
+| `commas` | `commas(x)` / `commas(x, prec)` | Format number with thousands separators; returns Str |
 | `error` | `error(msg)` | Halt script execution with a runtime error message |
 | `min` | `min(v)` / `min(a, b)` | Minimum of vector or two scalars |
 | `max` | `max(v)` / `max(a, b)` | Maximum of vector or two scalars |

@@ -14,3 +14,4 @@ anyhow.workspace        = true
 rand.workspace          = true
 rand_distr.workspace    = true
 zip.workspace           = true
+toml.workspace          = true
