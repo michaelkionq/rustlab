@@ -18,13 +18,16 @@
 #   ./examples/audio/spectrum_monitor.sh --test
 
 # ── Options ──
-show_time = 0;   # set to 1 to show time-domain waveform subplot
+show_time   = 0;     # set to 1 to show time-domain waveform subplot
+update_sec  = 0.5;   # display update interval in seconds
 
 sr       = 44100.0;
 frame    = 256;
 fft_size = 4096;
 half     = fft_size / 2;
-update_every = 172;   # ~1 s at 44100/256
+frames_per_fft = fft_size / frame;                          # 16
+update_every   = max(frames_per_fft, round(update_sec * sr / frame));  # frames between redraws
+slots    = frames_per_fft;           # number of frame slots in buffer
 
 # Hann window and frequency axis
 win  = window("hann", fft_size);
@@ -51,12 +54,15 @@ else
     plot_labels(fig, 1, "Spectrum", "Frequency (Hz)", "Magnitude (dB)")
 end
 
-buf   = zeros(fft_size);
+# Ring buffer: store each frame in its own slot for O(frame) writes
+# On read, concatenate tail + head to get contiguous time-domain data.
+ring  = zeros(fft_size);
+wpos  = 0;        # next slot index (0-based, wraps at slots)
 count = 0;
 
 # Running axis limits — expand to fit data, rounded to 10 dB steps
-db_lo =  0.0;
-db_hi = -120.0;
+db_lo = -120.0;
+db_hi =  0.0;
 
 # Running amplitude limits for time-domain plot
 amp_lo =  0.0;
@@ -65,16 +71,25 @@ amp_hi =  0.0;
 while true
     samples = audio_read(adc);
 
-    # Write into circular buffer
-    base = mod(count, fft_size / frame) * frame;
+    # Write frame into the current ring slot
+    base = wpos * frame;
     for k = 1:frame
-        buf(base + k) = real(samples(k));
+        ring(base + k) = real(samples(k));
     end
+    wpos  = mod(wpos + 1, slots);
     count = count + 1;
 
-    # Update plot every ~1 second, skip first cycle (buffer not yet full)
-    if count >= (fft_size / frame)
+    # Update plot once per full buffer cycle, skip until buffer is full
+    if count >= frames_per_fft
         if mod(count, update_every) == 0
+            # Linearize ring buffer: data after write-pointer is oldest,
+            # data before it is newest → [tail, head] is time-contiguous.
+            head_end = wpos * frame;
+            if head_end == 0
+                buf = ring;
+            else
+                buf = [ring(head_end + 1:fft_size), ring(1:head_end)];
+            end
             # --- Time-domain waveform (panel 1, if enabled) ---
             if show_time
                 cur_amp_min = min(buf);
