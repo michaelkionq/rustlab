@@ -549,6 +549,7 @@ impl Evaluator {
                         return Ok(());
                     }
                     if name == "clf" {
+                        rustlab_plot::report_auto_capture();
                         rustlab_plot::FIGURE.with(|fig| fig.borrow_mut().reset());
                         rustlab_plot::sync_figure_outputs();
                         return Ok(());

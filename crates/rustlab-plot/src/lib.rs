@@ -8,6 +8,7 @@ pub mod viewer_client;
 #[cfg(feature = "viewer")]
 pub mod viewer_live;
 pub mod html;
+pub mod report;
 
 pub use ascii::{
     imagesc_terminal,
@@ -32,7 +33,8 @@ pub use figure::{
     figure_new, figure_new_html, figure_switch,
     current_figure_id, current_figure_output, set_current_figure_output,
 };
-pub use html::{render_figure_html, set_html_figure_path, clear_html_figure_path, sync_html_file};
+pub use html::{render_figure_html, render_figure_plotly_div, set_html_figure_path, clear_html_figure_path, sync_html_file};
+pub use report::{report_start, report_active, report_add, report_auto_capture, report_save, report_end, report_len};
 
 use rustlab_core::RVector;
 

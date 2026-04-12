@@ -21,17 +21,19 @@ pub fn execute(args: RunArgs) -> Result<()> {
         std::env::set_current_dir(dir)
             .with_context(|| format!("failed to chdir to {:?}", dir))?;
     }
-    let result = if args.profile {
-        rustlab_script::run_profiled(&source)
+
+    // Use run_script_source to support report directives in scripts.
+    // Fall back to direct run for profiling mode (no report support needed).
+    if args.profile {
+        match rustlab_script::run_profiled(&source) {
+            Ok(()) => Ok(()),
+            Err(rustlab_script::ScriptError::AudioEof) => Ok(()),
+            Err(rustlab_script::ScriptError::Interrupted) => Ok(()),
+            Err(e) => Err(anyhow::anyhow!("{}", e)),
+        }
     } else {
-        rustlab_script::run(&source)
-    };
-    match result {
-        Ok(()) => Ok(()),
-        // stdin closed cleanly (e.g. audio source finished) — exit 0 silently
-        Err(rustlab_script::ScriptError::AudioEof) => Ok(()),
-        // User pressed Ctrl-C or 'q' during a live figure — exit 0 silently
-        Err(rustlab_script::ScriptError::Interrupted) => Ok(()),
-        Err(e) => Err(anyhow::anyhow!("{}", e)),
+        let mut ev = rustlab_script::Evaluator::new();
+        super::repl::run_script_source(&source, &mut ev);
+        Ok(())
     }
 }

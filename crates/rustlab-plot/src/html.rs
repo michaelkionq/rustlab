@@ -53,6 +53,35 @@ pub fn render_figure_html(path: &str) -> Result<(), PlotError> {
 
 /// Render a `FigureState` to an HTML file with Plotly.
 pub fn render_figure_state_html(fig: &FigureState, path: &str) -> Result<(), PlotError> {
+    let div_content = render_figure_plotly_div(fig, "plot");
+
+    let mut html = String::with_capacity(4096 + div_content.len());
+    html.push_str(r##"<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>RustLab Plot</title>
+<script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+<style>
+  body { margin: 0; background: #1e1e2e; }
+  #plot { width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+"##);
+    html.push_str(&div_content);
+    html.push_str(r##"</body>
+</html>
+"##);
+
+    std::fs::write(path, html).map_err(|e| PlotError::FileOutput(e.to_string()))
+}
+
+/// Render a `FigureState` as a Plotly `<div>` + `<script>` fragment.
+/// The `div_id` is used as the element ID for `Plotly.newPlot()`.
+/// This is the shared building block for both single-file HTML export
+/// and multi-figure report generation.
+pub fn render_figure_plotly_div(fig: &FigureState, div_id: &str) -> String {
     let rows = fig.subplot_rows;
     let cols = fig.subplot_cols;
     let n_panels = rows * cols;
@@ -197,42 +226,31 @@ yaxis{ax}: {{ domain: [{y0:.4}, {y1:.4}], title: {{ text: "{ylabel}" }}{yrange},
         }
     }
 
-    let mut html = String::with_capacity(4096 + traces.len());
-    html.push_str(r##"<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>RustLab Plot</title>
-<script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
-<style>
-  body { margin: 0; background: #1e1e2e; }
-  #plot { width: 100vw; height: 100vh; }
-</style>
-</head>
-<body>
-<div id="plot"></div>
+    // JS variable names can't contain hyphens, so replace with underscores
+    let js_var = div_id.replace('-', "_");
+
+    let mut out = String::with_capacity(4096 + traces.len());
+    out.push_str(&format!(r#"<div id="{div_id}"></div>
 <script>
-var data = ["##);
-    html.push_str(&traces);
-    html.push_str(r##"];
-var layout = {
+var data_{js_var} = ["#, div_id = div_id, js_var = js_var));
+    out.push_str(&traces);
+    out.push_str(&format!(r##"];
+var layout_{js_var} = {{
   paper_bgcolor: "#1e1e2e",
   plot_bgcolor: "#1e1e2e",
-  font: { color: "#cdd6f4" },
-  "##);
-    html.push_str(&layout_axes);
-    html.push_str("  annotations: [");
-    html.push_str(&annotations);
-    html.push_str(r##"],
-  margin: { t: 60, b: 60, l: 70, r: 30 },
-};
-Plotly.newPlot("plot", data, layout, { responsive: true });
+  font: {{ color: "#cdd6f4" }},
+  "##, js_var = js_var));
+    out.push_str(&layout_axes);
+    out.push_str("  annotations: [");
+    out.push_str(&annotations);
+    out.push_str(&format!(r##"],
+  margin: {{ t: 60, b: 60, l: 70, r: 30 }},
+}};
+Plotly.newPlot("{div_id}", data_{js_var}, layout_{js_var}, {{ responsive: true }});
 </script>
-</body>
-</html>
-"##);
+"##, div_id = div_id, js_var = js_var));
 
-    std::fs::write(path, html).map_err(|e| PlotError::FileOutput(e.to_string()))
+    out
 }
 
 fn color_to_css(c: &SeriesColor) -> String {

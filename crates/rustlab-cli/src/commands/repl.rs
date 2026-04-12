@@ -466,6 +466,20 @@ const HELP: &[HelpEntry] = &[
         detail: "sprand(m, n, density)  — m×n sparse matrix with ~density*m*n non-zeros\n  Values are uniform in [0, 1). Density must be in [0, 1].\n\nExample:\n  S = sprand(100, 100, 0.05)  → ~500 non-zeros" },
     HelpEntry { name: "plot_limits", brief: "Set axis limits for a live figure panel",
         detail: "plot_limits(fig, panel, xmin, xmax, ymin, ymax)  — fix axes for one panel\n\nExample:\n  plot_limits(fig, 1, 0, 1000, -100, 0)" },
+    // Reports
+    HelpEntry { name: "report", brief: "Generate an HTML report with collected figures",
+        detail: "report start \"title\"                — begin a report session\n\
+                 report save                         — save to report/index.html and end session\n\
+                 report save \"path/output.html\"      — save to custom path\n\
+                 report add \"Section Name\"           — manually capture with a custom heading\n\n\
+                 Figures are captured automatically on clf and figure().\n\
+                 The last figure is captured when you call report save.\n\n\
+                 Workflow:\n\
+                 >> report start \"Filter Analysis\"\n\
+                 >> plot(x); title(\"Input Signal\")\n\
+                 >> clf\n\
+                 >> plotdb(w, H); title(\"Frequency Response\")\n\
+                 >> report save" },
 ];
 
 fn whos_type(v: &rustlab_script::Value) -> &'static str {
@@ -677,6 +691,136 @@ fn cmd_ls(path: &str) {
     println!("\n");
 }
 
+/// Run a script source string, handling REPL-only directives (like `report`)
+/// that the parser doesn't understand. Script lines are grouped into chunks
+/// of parseable code separated by directive lines.
+pub(crate) fn run_script_source(src: &str, ev: &mut Evaluator) {
+    // Fast path: no directives → parse and run the whole file at once
+    if !src.lines().any(|l| {
+        let t = l.trim();
+        t == "report" || t.starts_with("report ")
+    }) {
+        match lexer::tokenize(src).and_then(|t| parser::parse(t)) {
+            Err(e) => eprintln!("error: {e}"),
+            Ok(stmts) => {
+                for stmt in &stmts {
+                    if let Err(e) = ev.exec_stmt(stmt) {
+                        eprintln!("error: {e}");
+                        break;
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    let mut code_buf = String::new();
+    let mut had_error = false;
+
+    for line in src.lines() {
+        let trimmed = line.trim();
+
+        // Skip blank/comment lines — accumulate into code buffer
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('%') {
+            code_buf.push_str(line);
+            code_buf.push('\n');
+            continue;
+        }
+
+        // Check for report directive
+        let is_report = trimmed == "report" || trimmed.starts_with("report ");
+        if is_report {
+            // Flush accumulated code first
+            if !code_buf.trim().is_empty() {
+                match lexer::tokenize(&code_buf).and_then(|t| parser::parse(t)) {
+                    Err(e) => { eprintln!("error: {e}"); had_error = true; }
+                    Ok(stmts) => {
+                        for stmt in &stmts {
+                            if let Err(e) = ev.exec_stmt(stmt) {
+                                eprintln!("error: {e}");
+                                had_error = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            code_buf.clear();
+            if had_error { break; }
+
+            // Execute the report directive
+            let args = trimmed.strip_prefix("report").unwrap().trim();
+            cmd_report(args);
+            continue;
+        }
+
+        code_buf.push_str(line);
+        code_buf.push('\n');
+    }
+
+    // Flush remaining code
+    if !had_error && !code_buf.trim().is_empty() {
+        match lexer::tokenize(&code_buf).and_then(|t| parser::parse(t)) {
+            Err(e) => eprintln!("error: {e}"),
+            Ok(stmts) => {
+                for stmt in &stmts {
+                    if let Err(e) = ev.exec_stmt(stmt) {
+                        eprintln!("error: {e}");
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn cmd_report(args: &str) {
+    if args.is_empty() {
+        eprintln!("report: expected subcommand (start, save, add)");
+        eprintln!("  Type 'help report' for usage.");
+        return;
+    }
+
+    let (sub, rest) = match args.find(|c: char| c.is_whitespace()) {
+        Some(i) => (&args[..i], args[i..].trim()),
+        None    => (args, ""),
+    };
+
+    // Strip surrounding quotes from rest argument if present
+    let rest_unquoted = rest
+        .strip_prefix('"').and_then(|s| s.strip_suffix('"'))
+        .or_else(|| rest.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+        .unwrap_or(rest);
+
+    match sub {
+        "start" => {
+            let title = if rest_unquoted.is_empty() { "RustLab Report" } else { rest_unquoted };
+            rustlab_plot::report_start(title);
+            eprintln!("report: started \"{}\" — figures auto-captured on clf/figure()", title);
+        }
+        "add" => {
+            match rustlab_plot::report_add(rest_unquoted) {
+                Ok(()) => {
+                    let n = rustlab_plot::report_len();
+                    eprintln!("report: captured figure ({} total)", n);
+                }
+                Err(e) => eprintln!("report: {e}"),
+            }
+        }
+        "save" => {
+            let path = if rest_unquoted.is_empty() { "report/index.html" } else { rest_unquoted };
+            match rustlab_plot::report_save(path) {
+                Ok(n) => eprintln!("report: saved {} figure(s) to {path}", n),
+                Err(e) => eprintln!("report: {e}"),
+            }
+        }
+        _ => {
+            eprintln!("report: unknown subcommand '{sub}'");
+            eprintln!("  Type 'help report' for usage.");
+        }
+    }
+}
+
 fn print_help_list() {
     println!();
     println!("  {:<26}  {}", color::bold("Command / Topic"), color::bold("Description"));
@@ -706,7 +850,7 @@ fn print_help_list() {
                                "savefig","savestem","savebar","savescatter",
                                "savedb","saveimagesc","hist","savehist"]),
         ("Figure Controls",  &["figure","clf","hold","grid","viewer","xlabel","ylabel","title",
-                               "xlim","ylim","subplot","legend"]),
+                               "xlim","ylim","subplot","legend","report"]),
         ("Controls",         &["tf","pole","zero","ss","ctrb","obsv",
                                "bode","step","margin","lqr","rlocus",
                                "rk4","lyap","gram","care","dare","place","freqresp"]),
@@ -948,20 +1092,20 @@ pub fn execute() -> Result<()> {
                     match std::fs::read_to_string(path) {
                         Err(e) => eprintln!("run: {path}: {e}"),
                         Ok(src) => {
-                            match lexer::tokenize(&src).and_then(|t| parser::parse(t)) {
-                                Err(e) => eprintln!("error: {e}"),
-                                Ok(stmts) => {
-                                    for stmt in &stmts {
-                                        if let Err(e) = ev.exec_stmt(stmt) {
-                                            eprintln!("error: {e}");
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
+                            run_script_source(&src, &mut ev);
                         }
                     }
                     if let Some(h) = rl.helper_mut() { h.sync(&ev); }
+                    continue;
+                }
+
+                // report commands
+                if let Some(rest) = trimmed.strip_prefix("report ") {
+                    cmd_report(rest.trim());
+                    continue;
+                }
+                if trimmed == "report" {
+                    cmd_report("");
                     continue;
                 }
 
