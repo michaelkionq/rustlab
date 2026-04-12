@@ -32,19 +32,24 @@ pub fn render_figure_file(path: &str) -> Result<(), PlotError> {
     }
     FIGURE.with(|fig| {
         let fig = fig.borrow();
-        let rows = fig.subplot_rows;
-        let cols = fig.subplot_cols;
-        let w = (cols as u32 * 900).min(3600);
-        let h = (rows as u32 * 500).min(3000);
-
-        if path.ends_with(".svg") {
-            let root = SVGBackend::new(path, (w, h)).into_drawing_area();
-            render_to_backend(root, &fig, rows, cols)
-        } else {
-            let root = BitMapBackend::new(path, (w, h)).into_drawing_area();
-            render_to_backend(root, &fig, rows, cols)
-        }
+        render_figure_state_to_file(&fig, path)
     })
+}
+
+/// Render a given FigureState to a file (PNG or SVG by extension).
+pub fn render_figure_state_to_file(fig: &FigureState, path: &str) -> Result<(), PlotError> {
+    let rows = fig.subplot_rows;
+    let cols = fig.subplot_cols;
+    let w = (cols as u32 * 900).min(3600);
+    let h = (rows as u32 * 500).min(3000);
+
+    if path.ends_with(".svg") {
+        let root = SVGBackend::new(path, (w, h)).into_drawing_area();
+        render_to_backend(root, fig, rows, cols)
+    } else {
+        let root = BitMapBackend::new(path, (w, h)).into_drawing_area();
+        render_to_backend(root, fig, rows, cols)
+    }
 }
 
 fn render_to_backend<DB>(
