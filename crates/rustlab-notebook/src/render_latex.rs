@@ -100,8 +100,9 @@ fn markdown_to_latex(md: &str) -> String {
 
     let mut out = String::new();
     let mut in_table = false;
+    #[allow(unused_assignments)]
     let mut table_alignments: Vec<pulldown_cmark::Alignment> = Vec::new();
-    let mut table_cell_idx = 0;
+    let mut table_cell_idx: usize = 0;
     let mut table_in_head = false;
 
     for event in parser {
@@ -275,4 +276,295 @@ fn escape_latex(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::execute::Rendered;
+
+    // ── escape_latex ──
+
+    #[test]
+    fn escape_latex_special_chars() {
+        assert_eq!(escape_latex("a & b"), "a \\& b");
+        assert_eq!(escape_latex("100%"), "100\\%");
+        assert_eq!(escape_latex("#1"), "\\#1");
+        assert_eq!(escape_latex("x_1"), "x\\_1");
+        assert_eq!(escape_latex("{x}"), "\\{x\\}");
+        assert_eq!(escape_latex("~"), "\\textasciitilde{}");
+        assert_eq!(escape_latex("^"), "\\textasciicircum{}");
+        assert_eq!(escape_latex("\\"), "\\textbackslash{}");
+        assert_eq!(escape_latex("$5"), "\\$5");
+    }
+
+    #[test]
+    fn escape_latex_passthrough() {
+        assert_eq!(escape_latex("hello world"), "hello world");
+    }
+
+    // ── escape_latex_preserving_math ──
+
+    #[test]
+    fn preserve_math_inline() {
+        let result = escape_latex_preserving_math("value of $x_1$ is 5%");
+        assert_eq!(result, "value of $x_1$ is 5\\%");
+    }
+
+    #[test]
+    fn preserve_math_multiple() {
+        let result = escape_latex_preserving_math("$a$ and $b$");
+        assert_eq!(result, "$a$ and $b$");
+    }
+
+    #[test]
+    fn preserve_math_no_math() {
+        let result = escape_latex_preserving_math("a & b");
+        assert_eq!(result, "a \\& b");
+    }
+
+    #[test]
+    fn preserve_math_special_inside_math() {
+        // Inside $...$, special chars should NOT be escaped
+        let result = escape_latex_preserving_math("$x_{max}$");
+        assert_eq!(result, "$x_{max}$");
+    }
+
+    #[test]
+    fn preserve_math_empty() {
+        assert_eq!(escape_latex_preserving_math(""), "");
+    }
+
+    // ── markdown_to_latex ──
+
+    #[test]
+    fn md_to_latex_heading_h1() {
+        let out = markdown_to_latex("# Title");
+        assert!(out.contains("\\section{Title}"));
+    }
+
+    #[test]
+    fn md_to_latex_heading_h2() {
+        let out = markdown_to_latex("## Sub");
+        assert!(out.contains("\\subsection{Sub}"));
+    }
+
+    #[test]
+    fn md_to_latex_heading_h3() {
+        let out = markdown_to_latex("### Sub Sub");
+        assert!(out.contains("\\subsubsection{Sub Sub}"));
+    }
+
+    #[test]
+    fn md_to_latex_emphasis() {
+        let out = markdown_to_latex("*italic*");
+        assert!(out.contains("\\emph{italic}"));
+    }
+
+    #[test]
+    fn md_to_latex_strong() {
+        let out = markdown_to_latex("**bold**");
+        assert!(out.contains("\\textbf{bold}"));
+    }
+
+    #[test]
+    fn md_to_latex_inline_code() {
+        let out = markdown_to_latex("`x = 1`");
+        assert!(out.contains("\\texttt{"));
+    }
+
+    #[test]
+    fn md_to_latex_code_block() {
+        let out = markdown_to_latex("```\ncode here\n```");
+        assert!(out.contains("\\begin{verbatim}"));
+        assert!(out.contains("\\end{verbatim}"));
+    }
+
+    #[test]
+    fn md_to_latex_unordered_list() {
+        let out = markdown_to_latex("- item one\n- item two");
+        assert!(out.contains("\\begin{itemize}"));
+        assert!(out.contains("\\item"));
+        assert!(out.contains("\\end{itemize}"));
+    }
+
+    #[test]
+    fn md_to_latex_ordered_list() {
+        let out = markdown_to_latex("1. first\n2. second");
+        assert!(out.contains("\\begin{enumerate}"));
+        assert!(out.contains("\\item"));
+        assert!(out.contains("\\end{enumerate}"));
+    }
+
+    #[test]
+    fn md_to_latex_blockquote() {
+        let out = markdown_to_latex("> quoted text");
+        assert!(out.contains("\\begin{quote}"));
+        assert!(out.contains("\\end{quote}"));
+    }
+
+    #[test]
+    fn md_to_latex_link() {
+        let out = markdown_to_latex("[click](https://example.com)");
+        assert!(out.contains("\\href{https://example.com}"));
+        assert!(out.contains("{click}"));
+    }
+
+    #[test]
+    fn md_to_latex_table() {
+        let md = "| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |";
+        let out = markdown_to_latex(md);
+        assert!(out.contains("\\begin{tabular}"));
+        assert!(out.contains("\\toprule"));
+        assert!(out.contains("\\midrule"));
+        assert!(out.contains("\\bottomrule"));
+        assert!(out.contains("\\end{tabular}"));
+        assert!(out.contains(" & "));
+    }
+
+    #[test]
+    fn md_to_latex_inline_math() {
+        let out = markdown_to_latex("The value $x^2$ is large.");
+        assert!(out.contains("$x^2$"));
+    }
+
+    #[test]
+    fn md_to_latex_display_math() {
+        let out = markdown_to_latex("$$E = mc^2$$");
+        assert!(out.contains("\\[\nE = mc^2\n\\]"));
+    }
+
+    #[test]
+    fn md_to_latex_special_chars_escaped() {
+        let out = markdown_to_latex("Use 100% of the CPU & GPU");
+        assert!(out.contains("100\\%"));
+        assert!(out.contains("\\&"));
+    }
+
+    #[test]
+    fn md_to_latex_paragraph() {
+        let out = markdown_to_latex("Para one.\n\nPara two.");
+        // Paragraphs should be separated
+        assert!(out.contains("Para one."));
+        assert!(out.contains("Para two."));
+    }
+
+    #[test]
+    fn md_to_latex_empty() {
+        assert_eq!(markdown_to_latex(""), "");
+    }
+
+    // ── render_latex (integration) ──
+
+    #[test]
+    fn render_latex_preamble() {
+        let tex = render_latex("Test Title", &[], std::path::Path::new("/tmp/test_plots"));
+        assert!(tex.contains("\\documentclass"));
+        assert!(tex.contains("\\usepackage{graphicx}"));
+        assert!(tex.contains("\\usepackage{svg}"));
+        assert!(tex.contains("\\usepackage{amsmath,amssymb}"));
+        assert!(tex.contains("\\usepackage{booktabs}"));
+        assert!(tex.contains("\\begin{document}"));
+        assert!(tex.contains("\\end{document}"));
+        assert!(tex.contains("\\maketitle"));
+    }
+
+    #[test]
+    fn render_latex_title_escaped() {
+        let tex = render_latex("A & B", &[], std::path::Path::new("/tmp/test_plots"));
+        assert!(tex.contains("\\title{A \\& B}"));
+    }
+
+    #[test]
+    fn render_latex_code_block() {
+        let blocks = vec![
+            Rendered::Code {
+                source: "x = 42".to_string(),
+                text_output: String::new(),
+                error: None,
+                figure: None,
+                hidden: false,
+            },
+        ];
+        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"));
+        assert!(tex.contains("\\begin{verbatim}\nx = 42\n\\end{verbatim}"));
+    }
+
+    #[test]
+    fn render_latex_hidden_block() {
+        let blocks = vec![
+            Rendered::Code {
+                source: "secret = 42".to_string(),
+                text_output: "ans = 42".to_string(),
+                error: None,
+                figure: None,
+                hidden: true,
+            },
+        ];
+        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"));
+        // Source should not appear in verbatim
+        assert!(!tex.contains("secret = 42"));
+        // But text output should
+        assert!(tex.contains("ans = 42"));
+    }
+
+    #[test]
+    fn render_latex_text_output() {
+        let blocks = vec![
+            Rendered::Code {
+                source: "x = 1".to_string(),
+                text_output: "ans = 1".to_string(),
+                error: None,
+                figure: None,
+                hidden: false,
+            },
+        ];
+        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"));
+        assert!(tex.contains("\\begin{quote}"));
+        assert!(tex.contains("ans = 1"));
+    }
+
+    #[test]
+    fn render_latex_empty_output_not_shown() {
+        let blocks = vec![
+            Rendered::Code {
+                source: "x = 1;".to_string(),
+                text_output: "   \n  ".to_string(),
+                error: None,
+                figure: None,
+                hidden: false,
+            },
+        ];
+        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"));
+        // Only one verbatim (source), no quote block for output
+        let verbatim_count = tex.matches("\\begin{verbatim}").count();
+        assert_eq!(verbatim_count, 1);
+        assert!(!tex.contains("\\begin{quote}"));
+    }
+
+    #[test]
+    fn render_latex_error() {
+        let blocks = vec![
+            Rendered::Code {
+                source: "bad".to_string(),
+                text_output: String::new(),
+                error: Some("undefined variable".to_string()),
+                figure: None,
+                hidden: false,
+            },
+        ];
+        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"));
+        assert!(tex.contains("\\color{red}"));
+        assert!(tex.contains("undefined variable"));
+    }
+
+    #[test]
+    fn render_latex_markdown_section() {
+        let blocks = vec![
+            Rendered::Markdown("## Analysis\n\nSome text with $x^2$ math.".to_string()),
+        ];
+        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"));
+        assert!(tex.contains("\\subsection{Analysis}"));
+        assert!(tex.contains("$x^2$"));
+    }
 }

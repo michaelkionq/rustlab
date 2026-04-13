@@ -3959,8 +3959,15 @@ ref_full = convolve(x, h);
 
     #[test]
     fn live_figure_errors_on_non_tty() {
-        // In test context stdout is not a tty, so figure_live should return an error.
-        assert!(try_run("fig = figure_live(2, 1);").is_err(),
+        // In test context stdout is not a tty, so figure_live should return an error
+        // — unless the viewer feature is enabled AND a viewer is running, in which
+        // case figure_live connects via IPC and succeeds without a tty.
+        let result = try_run("fig = figure_live(2, 1);");
+        if cfg!(feature = "viewer") && result.is_ok() {
+            // Viewer was running — figure_live connected via IPC, which is fine.
+            return;
+        }
+        assert!(result.is_err(),
             "figure_live should fail when stdout is not a tty");
     }
 

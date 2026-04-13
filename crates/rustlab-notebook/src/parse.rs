@@ -161,4 +161,104 @@ mod tests {
         assert!(matches!(&blocks[2], Block::Markdown(s) if s.contains("Visible:")));
         assert!(matches!(&blocks[3], Block::Code { source, hidden } if source == "disp(x)" && !hidden));
     }
+
+    #[test]
+    fn empty_input() {
+        let blocks = parse_notebook("");
+        assert_eq!(blocks.len(), 0);
+    }
+
+    #[test]
+    fn markdown_only() {
+        let src = "# Title\n\nJust prose, no code.";
+        let blocks = parse_notebook(src);
+        assert_eq!(blocks.len(), 1);
+        assert!(matches!(&blocks[0], Block::Markdown(s) if s.contains("Just prose")));
+    }
+
+    #[test]
+    fn code_only() {
+        let src = "```rustlab\nx = 1\n```";
+        let blocks = parse_notebook(src);
+        assert_eq!(blocks.len(), 1);
+        assert!(matches!(&blocks[0], Block::Code { source, hidden } if source == "x = 1" && !hidden));
+    }
+
+    #[test]
+    fn empty_code_block() {
+        let src = "```rustlab\n```";
+        let blocks = parse_notebook(src);
+        assert_eq!(blocks.len(), 1);
+        assert!(matches!(&blocks[0], Block::Code { source, .. } if source.is_empty()));
+    }
+
+    #[test]
+    fn unclosed_code_block() {
+        let src = "```rustlab\nx = 1\ny = 2";
+        let blocks = parse_notebook(src);
+        assert_eq!(blocks.len(), 1);
+        assert!(matches!(&blocks[0], Block::Code { source, .. } if source.contains("x = 1") && source.contains("y = 2")));
+    }
+
+    #[test]
+    fn consecutive_code_blocks() {
+        let src = "```rustlab\na = 1\n```\n```rustlab\nb = 2\n```";
+        let blocks = parse_notebook(src);
+        assert_eq!(blocks.len(), 2);
+        assert!(matches!(&blocks[0], Block::Code { source, .. } if source == "a = 1"));
+        assert!(matches!(&blocks[1], Block::Code { source, .. } if source == "b = 2"));
+    }
+
+    #[test]
+    fn hide_directive_strips_from_markdown() {
+        // The <!-- hide --> comment should not appear in the markdown block
+        let src = "Intro\n\n<!-- hide -->\n```rustlab\nx = 1\n```";
+        let blocks = parse_notebook(src);
+        if let Block::Markdown(md) = &blocks[0] {
+            assert!(!md.contains("<!-- hide -->"), "directive should be stripped: {md:?}");
+        }
+    }
+
+    #[test]
+    fn hide_at_start_of_file() {
+        let src = "<!-- hide -->\n```rustlab\nsetup_code\n```\n\nVisible text";
+        let blocks = parse_notebook(src);
+        assert!(matches!(&blocks[0], Block::Code { hidden, .. } if *hidden));
+    }
+
+    #[test]
+    fn multiple_hide_directives() {
+        let src = "<!-- hide -->\n```rustlab\na = 1\n```\n\n<!-- hide -->\n```rustlab\nb = 2\n```\n\n```rustlab\nc = 3\n```";
+        let blocks = parse_notebook(src);
+        assert!(matches!(&blocks[0], Block::Code { hidden, .. } if *hidden));
+        assert!(matches!(&blocks[1], Block::Code { hidden, .. } if *hidden));
+        assert!(matches!(&blocks[2], Block::Code { hidden, .. } if !hidden));
+    }
+
+    #[test]
+    fn rustlab_fence_with_trailing_text() {
+        // ```rustlab some_option should still be treated as rustlab
+        let src = "```rustlab ignore\nx = 1\n```";
+        let blocks = parse_notebook(src);
+        assert_eq!(blocks.len(), 1);
+        assert!(matches!(&blocks[0], Block::Code { source, .. } if source == "x = 1"));
+    }
+
+    #[test]
+    fn frontmatter_no_closing() {
+        // If no closing --- found, don't strip anything
+        let src = "---\ntitle: Test\nno closing\n# Heading";
+        let blocks = parse_notebook(src);
+        assert_eq!(blocks.len(), 1);
+        if let Block::Markdown(md) = &blocks[0] {
+            assert!(md.contains("---"), "should preserve content when frontmatter unclosed");
+        }
+    }
+
+    #[test]
+    fn multiline_code_block() {
+        let src = "```rustlab\nline1\nline2\nline3\n```";
+        let blocks = parse_notebook(src);
+        assert!(matches!(&blocks[0], Block::Code { source, .. } if source == "line1\nline2\nline3"));
+    }
 }

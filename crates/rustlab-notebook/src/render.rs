@@ -423,6 +423,16 @@ fn highlight_rustlab(source: &str) -> String {
             continue;
         }
 
+        // Dot-operators: .* ./ .^ .'
+        if ch == '.' && i + 1 < len && matches!(chars[i + 1], '*' | '/' | '^' | '\'') {
+            out.push_str("<span class=\"syn-op\">");
+            push_escaped_char(&mut out, ch);
+            push_escaped_char(&mut out, chars[i + 1]);
+            out.push_str("</span>");
+            i += 2;
+            continue;
+        }
+
         // Number: digits, optionally with . or e
         if ch.is_ascii_digit() || (ch == '.' && i + 1 < len && chars[i + 1].is_ascii_digit()) {
             out.push_str("<span class=\"syn-num\">");
@@ -471,7 +481,7 @@ fn highlight_rustlab(source: &str) -> String {
             if i + 1 < len {
                 let next = chars[i + 1];
                 let two: String = [ch, next].iter().collect();
-                if matches!(two.as_str(), ".^" | ".*" | "./" | ".'" | "==" | "~=" | "<=" | ">=" | "&&" | "||") {
+                if matches!(two.as_str(), "==" | "~=" | "<=" | ">=" | "&&" | "||") {
                     push_escaped_char(&mut out, ch);
                     push_escaped_char(&mut out, next);
                     i += 2;
@@ -516,5 +526,388 @@ fn push_escaped_char(out: &mut String, ch: char) {
         '>' => out.push_str("&gt;"),
         '"' => out.push_str("&quot;"),
         _ => out.push(ch),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::execute::Rendered;
+
+    // ── escape_html ──
+
+    #[test]
+    fn escape_html_special_chars() {
+        assert_eq!(escape_html("<b>\"a & b\"</b>"), "&lt;b&gt;&quot;a &amp; b&quot;&lt;/b&gt;");
+    }
+
+    #[test]
+    fn escape_html_passthrough() {
+        assert_eq!(escape_html("hello world 123"), "hello world 123");
+    }
+
+    // ── strip_tags ──
+
+    #[test]
+    fn strip_tags_basic() {
+        assert_eq!(strip_tags("<b>bold</b> text"), "bold text");
+    }
+
+    #[test]
+    fn strip_tags_nested() {
+        assert_eq!(strip_tags("<a href=\"#\"><em>link</em></a>"), "link");
+    }
+
+    #[test]
+    fn strip_tags_no_tags() {
+        assert_eq!(strip_tags("plain text"), "plain text");
+    }
+
+    // ── inject_heading_ids ──
+
+    #[test]
+    fn inject_heading_ids_h1() {
+        let mut nav = String::new();
+        let mut idx = 0;
+        let result = inject_heading_ids("<h1>Title</h1>", &mut nav, &mut idx);
+        assert!(result.contains("id=\"heading-1\""));
+        assert!(nav.contains("href=\"#heading-1\""));
+        assert!(nav.contains("class=\"h1\""));
+        assert_eq!(idx, 1);
+    }
+
+    #[test]
+    fn inject_heading_ids_multiple_levels() {
+        let mut nav = String::new();
+        let mut idx = 0;
+        let html = "<h1>A</h1><h2>B</h2><h3>C</h3>";
+        let result = inject_heading_ids(html, &mut nav, &mut idx);
+        assert!(result.contains("id=\"heading-1\""));
+        assert!(result.contains("id=\"heading-2\""));
+        assert!(result.contains("id=\"heading-3\""));
+        assert!(nav.contains("class=\"h1\""));
+        assert!(nav.contains("class=\"h2\""));
+        assert!(nav.contains("class=\"h3\""));
+        assert_eq!(idx, 3);
+    }
+
+    #[test]
+    fn inject_heading_ids_no_headings() {
+        let mut nav = String::new();
+        let mut idx = 0;
+        let result = inject_heading_ids("<p>no headings</p>", &mut nav, &mut idx);
+        assert_eq!(result, "<p>no headings</p>");
+        assert!(nav.is_empty());
+        assert_eq!(idx, 0);
+    }
+
+    #[test]
+    fn inject_heading_ids_with_inner_tags() {
+        let mut nav = String::new();
+        let mut idx = 0;
+        let result = inject_heading_ids("<h1><em>Styled</em> Title</h1>", &mut nav, &mut idx);
+        assert!(result.contains("id=\"heading-1\""));
+        // Nav text should be stripped of tags
+        assert!(nav.contains("Styled Title"));
+    }
+
+    // ── is_string_quote ──
+
+    #[test]
+    fn string_quote_at_start() {
+        let chars: Vec<char> = "'hello'".chars().collect();
+        assert!(is_string_quote(&chars, 0));
+    }
+
+    #[test]
+    fn transpose_after_paren() {
+        let chars: Vec<char> = "x)'".chars().collect();
+        assert!(!is_string_quote(&chars, 2));
+    }
+
+    #[test]
+    fn transpose_after_identifier() {
+        let chars: Vec<char> = "A'".chars().collect();
+        assert!(!is_string_quote(&chars, 1));
+    }
+
+    #[test]
+    fn string_quote_after_operator() {
+        let chars: Vec<char> = "='hello'".chars().collect();
+        assert!(is_string_quote(&chars, 1));
+    }
+
+    #[test]
+    fn string_quote_after_space() {
+        let chars: Vec<char> = " 'hello'".chars().collect();
+        assert!(is_string_quote(&chars, 1));
+    }
+
+    // ── highlight_rustlab ──
+
+    #[test]
+    fn highlight_keywords() {
+        let out = highlight_rustlab("if x end");
+        assert!(out.contains("<span class=\"syn-kw\">if</span>"));
+        assert!(out.contains("<span class=\"syn-kw\">end</span>"));
+    }
+
+    #[test]
+    fn highlight_all_keywords() {
+        for kw in KEYWORDS {
+            let out = highlight_rustlab(kw);
+            assert!(out.contains("syn-kw"), "keyword {kw} not highlighted");
+        }
+    }
+
+    #[test]
+    fn highlight_function_call() {
+        let out = highlight_rustlab("plot(x)");
+        assert!(out.contains("<span class=\"syn-fn\">plot</span>"));
+    }
+
+    #[test]
+    fn highlight_identifier_not_function() {
+        let out = highlight_rustlab("x = 1");
+        assert!(!out.contains("syn-fn"));
+        assert!(!out.contains("syn-kw"));
+        assert_eq!(out.contains("x"), true);
+    }
+
+    #[test]
+    fn highlight_numbers() {
+        let out = highlight_rustlab("42");
+        assert!(out.contains("<span class=\"syn-num\">42</span>"));
+    }
+
+    #[test]
+    fn highlight_float() {
+        let out = highlight_rustlab("3.14");
+        assert!(out.contains("<span class=\"syn-num\">3.14</span>"));
+    }
+
+    #[test]
+    fn highlight_scientific_notation() {
+        let out = highlight_rustlab("1.5e-3");
+        assert!(out.contains("<span class=\"syn-num\">1.5e-3</span>"));
+    }
+
+    #[test]
+    fn highlight_complex_literal() {
+        let out = highlight_rustlab("2.5j");
+        assert!(out.contains("<span class=\"syn-num\">2.5j</span>"));
+    }
+
+    #[test]
+    fn highlight_leading_dot_number() {
+        let out = highlight_rustlab(".5");
+        assert!(out.contains("<span class=\"syn-num\">.5</span>"));
+    }
+
+    #[test]
+    fn highlight_string_double() {
+        let out = highlight_rustlab("\"hello\"");
+        assert!(out.contains("<span class=\"syn-str\">&quot;hello&quot;</span>"));
+    }
+
+    #[test]
+    fn highlight_string_single() {
+        let out = highlight_rustlab("x = 'world'");
+        assert!(out.contains("<span class=\"syn-str\">'world'</span>"));
+    }
+
+    #[test]
+    fn highlight_comment() {
+        let out = highlight_rustlab("% a comment");
+        assert!(out.contains("<span class=\"syn-com\">"));
+        assert!(out.contains("a comment"));
+    }
+
+    #[test]
+    fn highlight_comment_stops_at_newline() {
+        let out = highlight_rustlab("% comment\nx = 1");
+        // The comment span should not include the next line
+        assert!(out.contains("</span>\nx"));
+    }
+
+    #[test]
+    fn highlight_operators() {
+        let out = highlight_rustlab("x + y");
+        assert!(out.contains("<span class=\"syn-op\">+</span>"));
+    }
+
+    #[test]
+    fn highlight_two_char_operators() {
+        for op in &[".*", "./", ".^", "==", "~=", "<=", ">=", "&&", "||"] {
+            let out = highlight_rustlab(op);
+            // Should be a single span, not two separate ones
+            assert!(out.contains(&format!("<span class=\"syn-op\">{}</span>",
+                op.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;"))),
+                "two-char op {op} not highlighted as unit");
+        }
+    }
+
+    #[test]
+    fn highlight_transpose_not_string() {
+        let out = highlight_rustlab("x'");
+        // After identifier, ' is transpose — should NOT be a string
+        assert!(!out.contains("syn-str"));
+    }
+
+    #[test]
+    fn highlight_special_chars_escaped() {
+        let out = highlight_rustlab("x < y & z");
+        assert!(out.contains("&lt;"));
+        assert!(out.contains("&amp;"));
+    }
+
+    #[test]
+    fn highlight_empty() {
+        assert_eq!(highlight_rustlab(""), "");
+    }
+
+    #[test]
+    fn highlight_multiline() {
+        let out = highlight_rustlab("for k = 1:3\n  disp(k)\nend");
+        assert!(out.contains("<span class=\"syn-kw\">for</span>"));
+        assert!(out.contains("<span class=\"syn-kw\">end</span>"));
+        assert!(out.contains("<span class=\"syn-fn\">disp</span>"));
+    }
+
+    // ── render_html (integration) ──
+
+    #[test]
+    fn render_html_basic_structure() {
+        let blocks = vec![
+            Rendered::Markdown("# Hello".to_string()),
+        ];
+        let html = render_html("Test", &blocks);
+        assert!(html.contains("<!DOCTYPE html>"));
+        assert!(html.contains("<title>Test</title>"));
+        assert!(html.contains("class=\"prose\""));
+        assert!(html.contains("Generated by rustlab-notebook"));
+    }
+
+    #[test]
+    fn render_html_code_block() {
+        let blocks = vec![
+            Rendered::Code {
+                source: "x = 42".to_string(),
+                text_output: "ans = 42".to_string(),
+                error: None,
+                figure: None,
+                hidden: false,
+            },
+        ];
+        let html = render_html("Test", &blocks);
+        assert!(html.contains("class=\"source\""));
+        assert!(html.contains("class=\"output\""));
+        assert!(html.contains("ans = 42"));
+    }
+
+    #[test]
+    fn render_html_error_block() {
+        let blocks = vec![
+            Rendered::Code {
+                source: "bad".to_string(),
+                text_output: String::new(),
+                error: Some("undefined variable".to_string()),
+                figure: None,
+                hidden: false,
+            },
+        ];
+        let html = render_html("Test", &blocks);
+        assert!(html.contains("class=\"error\""));
+        assert!(html.contains("undefined variable"));
+    }
+
+    #[test]
+    fn render_html_hidden_block() {
+        let blocks = vec![
+            Rendered::Code {
+                source: "secret = 42".to_string(),
+                text_output: "ans = 42".to_string(),
+                error: None,
+                figure: None,
+                hidden: true,
+            },
+        ];
+        let html = render_html("Test", &blocks);
+        // Source should not appear
+        assert!(!html.contains("secret = 42"));
+        assert!(!html.contains("class=\"source\""));
+        // But output should still appear
+        assert!(html.contains("ans = 42"));
+    }
+
+    #[test]
+    fn render_html_empty_output_not_shown() {
+        let blocks = vec![
+            Rendered::Code {
+                source: "x = 1;".to_string(),
+                text_output: "   \n  ".to_string(), // whitespace only
+                error: None,
+                figure: None,
+                hidden: false,
+            },
+        ];
+        let html = render_html("Test", &blocks);
+        // Source shown, but no output div
+        assert!(html.contains("class=\"source\""));
+        assert!(!html.contains("class=\"output\""));
+    }
+
+    #[test]
+    fn render_html_katex_included() {
+        let html = render_html("Test", &[]);
+        assert!(html.contains("katex"));
+        assert!(html.contains("auto-render"));
+    }
+
+    #[test]
+    fn render_html_plotly_included() {
+        let html = render_html("Test", &[]);
+        assert!(html.contains("plotly"));
+    }
+
+    #[test]
+    fn render_html_nav_toggle() {
+        let html = render_html("Test", &[]);
+        assert!(html.contains("nav-toggle"));
+    }
+
+    #[test]
+    fn render_html_title_escaped() {
+        let html = render_html("A <script> & \"test\"", &[]);
+        assert!(html.contains("A &lt;script&gt; &amp; &quot;test&quot;"));
+    }
+
+    #[test]
+    fn render_html_syntax_highlighting_in_code() {
+        let blocks = vec![
+            Rendered::Code {
+                source: "for k = 1:10\n  plot(k)\nend".to_string(),
+                text_output: String::new(),
+                error: None,
+                figure: None,
+                hidden: false,
+            },
+        ];
+        let html = render_html("Test", &blocks);
+        assert!(html.contains("syn-kw"));
+        assert!(html.contains("syn-fn"));
+        assert!(html.contains("syn-num"));
+    }
+
+    #[test]
+    fn render_html_nav_from_headings() {
+        let blocks = vec![
+            Rendered::Markdown("# Section One\n\n## Sub Section".to_string()),
+        ];
+        let html = render_html("Test", &blocks);
+        assert!(html.contains("heading-1"));
+        assert!(html.contains("heading-2"));
+        assert!(html.contains("Section One"));
+        assert!(html.contains("Sub Section"));
     }
 }

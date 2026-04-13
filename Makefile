@@ -19,7 +19,11 @@ EXAMPLES_ALL := \
 # Non-interactive subset — safe for headless / CI runs.
 EXAMPLES_CI := complex_basics save_load firpm fixed_point
 
-.PHONY: install install-viewer examples examples-ci perf clean-examples clean help $(EXAMPLES_ALL)
+.PHONY: test install install-viewer examples examples-ci perf clean-examples clean help $(EXAMPLES_ALL)
+
+## Run all workspace tests (including viewer feature)
+test:
+	$(CARGO) test --workspace --features viewer
 
 ## Build release binaries (rustlab + rustlab-viewer + rustlab-notebook) and install to $(INSTALL_DIR)
 install:
@@ -83,6 +87,7 @@ help:
 	@echo ""
 	@echo "Usage: make <target>"
 	@echo ""
+	@echo "  test                Run all workspace tests"
 	@echo "  install             Build release binary and install to $(INSTALL_DIR) (override with INSTALL_DIR=...)"
 	@echo "                      (runs codesign automatically on macOS, skips it on Linux)"
 	@echo "  examples            Run all examples (interactive ones need a real terminal)"
