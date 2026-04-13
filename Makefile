@@ -19,7 +19,14 @@ EXAMPLES_ALL := \
 # Non-interactive subset — safe for headless / CI runs.
 EXAMPLES_CI := complex_basics save_load firpm fixed_point
 
-.PHONY: test install install-viewer examples examples-ci perf clean-examples clean help $(EXAMPLES_ALL)
+.PHONY: all build test install install-viewer examples examples-ci perf clean-examples clean help $(EXAMPLES_ALL)
+
+## Default: build workspace in debug mode
+all: build
+
+## Build workspace in debug mode
+build:
+	$(CARGO) build --workspace --features viewer
 
 ## Run all workspace tests (including viewer feature)
 test:
@@ -87,6 +94,7 @@ help:
 	@echo ""
 	@echo "Usage: make <target>"
 	@echo ""
+	@echo "  (default) / build   Build workspace in debug mode"
 	@echo "  test                Run all workspace tests"
 	@echo "  install             Build release binary and install to $(INSTALL_DIR) (override with INSTALL_DIR=...)"
 	@echo "                      (runs codesign automatically on macOS, skips it on Linux)"
