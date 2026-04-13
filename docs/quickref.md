@@ -93,8 +93,8 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | Function | Description |
 |---|---|
 | `linspace(a, b, n)` | n evenly-spaced points from a to b |
-| `zeros(n)` / `zeros(n, m)` | Length-n zero vector, or n×m zero matrix |
-| `ones(n)` / `ones(n, m)` | Length-n ones vector, or n×m ones matrix |
+| `zeros(n)` / `zeros(m, n)` / `zeros([m, n])` | Zero vector or matrix; accepts `size()` output |
+| `ones(n)` / `ones(m, n)` / `ones([m, n])` | Ones vector or matrix; accepts `size()` output |
 | `eye(n)` | n×n identity matrix |
 | `rand(n)` | n floats uniform [0, 1) |
 | `randn(n)` / `randn(m, n)` | n floats (or m×n matrix) from N(0,1) |
@@ -314,7 +314,9 @@ Mixed sparse+dense pairs auto-promote to dense.
 | `plot(v, "color", "r", "label", "name", "style", "dashed")` | Key-value options; colors: `r g b c m y k w` or full names |
 | `stem(v)` / `stem(v, "title")` | Stem plot |
 | `bar(y)` / `bar(x, y)` / `bar(y, "title")` | Bar chart |
+| `bar(M)` / `bar(x, M)` / `bar(x, M, "title")` | Grouped bar chart (each column = group) |
 | `scatter(x, y)` / `scatter(x, y, "title")` | Scatter plot |
+| `hline(y)` / `hline(y, color, label)` | Horizontal reference line (dashed); `yline()` alias |
 | `plotdb(Hz)` / `plotdb(Hz, "title")` | dB frequency response (Hz from `freqz` or `spectrum`) |
 | `imagesc(M)` / `imagesc(M, cmap)` | Matrix heatmap; colormaps: `"viridis"` `"jet"` `"hot"` `"gray"` |
 

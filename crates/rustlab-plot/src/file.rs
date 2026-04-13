@@ -138,6 +138,10 @@ where
         }
     }
 
+    // Pre-compute grouped bar offsets
+    let bar_series_count = sp.series.iter().filter(|s| s.kind == PlotKind::Bar).count();
+    let mut bar_series_idx = 0usize;
+
     // Draw each series
     for s in &sp.series {
         let rgb = s.color.to_plotters();
@@ -191,12 +195,20 @@ where
             }
             PlotKind::Bar => {
                 let n = s.x_data.len();
-                let bar_w = if n > 1 {
+                let group_w = if n > 1 {
                     let span = s.x_data[n - 1] - s.x_data[0];
                     (span / (n - 1) as f64) * 0.8
                 } else {
                     0.8
                 };
+                let (bar_w, offset) = if bar_series_count > 1 {
+                    let bw = group_w / bar_series_count as f64;
+                    let off = -group_w / 2.0 + bw * bar_series_idx as f64 + bw / 2.0;
+                    (bw * 0.9, off)
+                } else {
+                    (group_w, 0.0)
+                };
+                bar_series_idx += 1;
                 let half = bar_w / 2.0;
 
                 // Baseline
@@ -208,16 +220,18 @@ where
                 // Filled bars
                 chart.draw_series(
                     s.x_data.iter().copied().zip(s.y_data.iter().copied()).map(|(x, y)| {
+                        let cx = x + offset;
                         let (y0, y1) = if y >= 0.0 { (0.0, y) } else { (y, 0.0) };
-                        Rectangle::new([(x - half, y0), (x + half, y1)], rgb.filled())
+                        Rectangle::new([(cx - half, y0), (cx + half, y1)], rgb.filled())
                     })
                 ).map_err(err)?;
 
                 // Bar outlines
                 chart.draw_series(
                     s.x_data.iter().copied().zip(s.y_data.iter().copied()).map(|(x, y)| {
+                        let cx = x + offset;
                         let (y0, y1) = if y >= 0.0 { (0.0, y) } else { (y, 0.0) };
-                        Rectangle::new([(x - half, y0), (x + half, y1)], BLACK.stroke_width(1))
+                        Rectangle::new([(cx - half, y0), (cx + half, y1)], BLACK.stroke_width(1))
                     })
                 ).map_err(err)?;
             }

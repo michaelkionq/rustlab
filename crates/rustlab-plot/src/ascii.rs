@@ -102,22 +102,34 @@ pub(crate) fn draw_subplots(
                 }
             }).collect();
 
+            // Count bar series for grouped offset
+            let bar_series_count = sp.series.iter().filter(|s| s.kind == PlotKind::Bar).count();
+            let mut bar_series_idx = 0usize;
             let bar_points: Vec<Vec<(f64, f64)>> = sp.series.iter().map(|s| {
                 if s.kind == PlotKind::Bar {
                     let n = s.x_data.len();
-                    let bar_w = if n > 1 {
+                    let group_w = if n > 1 {
                         let span = s.x_data[n - 1] - s.x_data[0];
                         (span / (n - 1) as f64) * 0.8
                     } else {
                         0.8
                     };
+                    let (bar_w, offset) = if bar_series_count > 1 {
+                        let bw = group_w / bar_series_count as f64;
+                        let off = -group_w / 2.0 + bw * bar_series_idx as f64 + bw / 2.0;
+                        (bw * 0.9, off)
+                    } else {
+                        (group_w, 0.0)
+                    };
+                    bar_series_idx += 1;
                     let half = bar_w / 2.0;
                     let mut pts = Vec::with_capacity(n * 4);
                     for (&x, &y) in s.x_data.iter().zip(s.y_data.iter()) {
-                        pts.push((x - half, 0.0));
-                        pts.push((x - half, y));
-                        pts.push((x + half, y));
-                        pts.push((x + half, 0.0));
+                        let cx = x + offset;
+                        pts.push((cx - half, 0.0));
+                        pts.push((cx - half, y));
+                        pts.push((cx + half, y));
+                        pts.push((cx + half, 0.0));
                     }
                     pts
                 } else {

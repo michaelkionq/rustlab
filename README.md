@@ -296,7 +296,7 @@ rustlab ships with 180+ builtins. Here are the most commonly used; see [`docs/qu
 | **Fixed-point** | `qfmt`, `quantize`, `qadd`, `qmul`, `qconv`, `snr` |
 | **Control systems** | `tf`, `ss`, `pole`, `zero`, `bode`, `step`, `margin`, `rlocus`, `lqr`, `ctrb`, `obsv`, `care`, `dare`, `place` |
 | **ML / activation** | `softmax`, `relu`, `gelu`, `layernorm` |
-| **Plotting** | `plot`, `stem`, `bar`, `scatter`, `plotdb`, `imagesc`, `subplot`, `hold`, `figure`, `legend`, `savefig`, `savedb` |
+| **Plotting** | `plot`, `stem`, `bar`, `scatter`, `hline`/`yline`, `plotdb`, `imagesc`, `subplot`, `hold`, `figure`, `legend`, `savefig`, `savedb` |
 | **Live plotting** | `figure_live`, `plot_update`, `figure_draw`, `figure_close`, `mag2db` |
 | **I/O** | `print`, `disp`, `fprintf`, `save`, `load`, `whos` |
 | **Streaming** | `state_init`, `filter_stream`, `audio_in`, `audio_out`, `audio_read`, `audio_write` |

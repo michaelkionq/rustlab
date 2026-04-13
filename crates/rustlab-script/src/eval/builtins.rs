@@ -148,6 +148,8 @@ impl BuiltinRegistry {
         r.register("ylim",        builtin_ylim);
         r.register("subplot",     builtin_subplot);
         r.register("legend",      builtin_legend);
+        r.register("hline",       builtin_hline);
+        r.register("yline",       builtin_hline);  // MATLAB alias
         r.register("imagesc",     builtin_imagesc);
         r.register("saveimagesc", builtin_saveimagesc);
         // Import / export
@@ -734,26 +736,46 @@ fn builtin_meshgrid(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 // ─── Array construction ────────────────────────────────────────────────────
 
-fn builtin_zeros(args: Vec<Value>) -> Result<Value, ScriptError> {
-    check_args_range("zeros", &args, 1, 2)?;
+/// Unpack size arguments for array constructors like zeros, ones, rand, randn.
+/// Accepts: f(n), f(m,n), or f([m,n]) (vector from size()).
+/// Returns (Some(m), n) for matrix or (None, n) for vector.
+fn unpack_size_args(args: &[Value], name: &str) -> Result<(Option<usize>, usize), ScriptError> {
     if args.len() == 2 {
         let m = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
         let n = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
-        Ok(Value::Matrix(Array2::zeros((m, n))))
+        Ok((Some(m), n))
+    } else if let Value::Vector(v) = &args[0] {
+        if v.len() == 2 {
+            let m = v[0].re.round() as usize;
+            let n = v[1].re.round() as usize;
+            Ok((Some(m), n))
+        } else {
+            Err(ScriptError::type_err(format!(
+                "{name}: expected scalar or 2-element vector, got {}-element vector", v.len()
+            )))
+        }
     } else {
         let n = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
+        Ok((None, n))
+    }
+}
+
+fn builtin_zeros(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args_range("zeros", &args, 1, 2)?;
+    let (m, n) = unpack_size_args(&args, "zeros")?;
+    if let Some(m) = m {
+        Ok(Value::Matrix(Array2::zeros((m, n))))
+    } else {
         Ok(Value::Vector(Array1::zeros(n)))
     }
 }
 
 fn builtin_ones(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("ones", &args, 1, 2)?;
-    if args.len() == 2 {
-        let m = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
-        let n = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    let (m, n) = unpack_size_args(&args, "ones")?;
+    if let Some(m) = m {
         Ok(Value::Matrix(Array2::from_elem((m, n), Complex::new(1.0, 0.0))))
     } else {
-        let n = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
         Ok(Value::Vector(Array1::from_elem(n, Complex::new(1.0, 0.0))))
     }
 }
@@ -780,13 +802,11 @@ fn builtin_rand(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("rand", &args, 1, 2)?;
     let mut rng = rand::thread_rng();
     let dist = Uniform::new(0.0_f64, 1.0);
-    if args.len() == 2 {
-        let m = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
-        let n = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    let (m, n) = unpack_size_args(&args, "rand")?;
+    if let Some(m) = m {
         let data: Vec<C64> = (0..m*n).map(|_| Complex::new(dist.sample(&mut rng), 0.0)).collect();
         Ok(Value::Matrix(Array2::from_shape_vec((m, n), data).unwrap()))
     } else {
-        let n = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
         Ok(Value::Vector(Array1::from_iter((0..n).map(|_| Complex::new(dist.sample(&mut rng), 0.0)))))
     }
 }
@@ -796,13 +816,11 @@ fn builtin_randn(args: Vec<Value>) -> Result<Value, ScriptError> {
     let mut rng = rand::thread_rng();
     let dist = Normal::new(0.0_f64, 1.0)
         .map_err(|e| ScriptError::type_err(format!("randn: {e}")))?;
-    if args.len() == 2 {
-        let m = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
-        let n = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    let (m, n) = unpack_size_args(&args, "randn")?;
+    if let Some(m) = m {
         let data: Vec<C64> = (0..m*n).map(|_| Complex::new(dist.sample(&mut rng), 0.0)).collect();
         Ok(Value::Matrix(Array2::from_shape_vec((m, n), data).unwrap()))
     } else {
-        let n = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
         Ok(Value::Vector(Array1::from_iter((0..n).map(|_| Complex::new(dist.sample(&mut rng), 0.0)))))
     }
 }
@@ -1787,6 +1805,75 @@ fn builtin_hold(args: Vec<Value>) -> Result<Value, ScriptError> {
         }
     };
     FIGURE.with(|fig| fig.borrow_mut().hold = on);
+    sync_figure_outputs();
+    Ok(Value::None)
+}
+
+/// hline(y) / hline(y, "color") / hline(y, "color", "label")
+/// Draw a horizontal reference line at y value(s).
+fn builtin_hline(args: Vec<Value>) -> Result<Value, ScriptError> {
+    if args.is_empty() || args.len() > 3 {
+        return Err(ScriptError::type_err(
+            "hline: expected hline(y), hline(y, color), or hline(y, color, label)".to_string()
+        ));
+    }
+    let y_vals: Vec<f64> = match &args[0] {
+        Value::Scalar(n) => vec![*n],
+        Value::Vector(v) => v.iter().map(|c| c.re).collect(),
+        other => return Err(ScriptError::type_err(format!("hline: expected scalar or vector, got {}", other))),
+    };
+    let color = if args.len() >= 2 {
+        let s = args[1].to_str().map_err(|e| ScriptError::type_err(e))?;
+        SeriesColor::parse(&s)
+    } else {
+        None
+    };
+    let label = if args.len() >= 3 {
+        args[2].to_str().map_err(|e| ScriptError::type_err(e))?
+    } else {
+        String::new()
+    };
+    // Use a wide x-range; the renderers clip to the subplot's xlim
+    let x_span = FIGURE.with(|fig| {
+        let fig = fig.borrow();
+        let sp = fig.current();
+        if sp.series.is_empty() {
+            (-1e6_f64, 1e6_f64)
+        } else {
+            let mut lo = f64::INFINITY;
+            let mut hi = f64::NEG_INFINITY;
+            for s in &sp.series {
+                for &x in &s.x_data {
+                    if x < lo { lo = x; }
+                    if x > hi { hi = x; }
+                }
+            }
+            let margin = (hi - lo).abs() * 0.1;
+            (lo - margin, hi + margin)
+        }
+    });
+    FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        if !fig.hold { fig.current_mut().series.clear(); fig.current_mut().title.clear(); }
+        for &y in &y_vals {
+            let c = color.unwrap_or_else(|| fig.next_color());
+            let lbl = if label.is_empty() {
+                format!("y={}", y)
+            } else {
+                label.clone()
+            };
+            let sp = fig.current_mut();
+            sp.series.push(rustlab_plot::Series {
+                label: lbl,
+                x_data: vec![x_span.0, x_span.1],
+                y_data: vec![y, y],
+                color: c,
+                style: LineStyle::Dashed,
+                kind: rustlab_plot::PlotKind::Line,
+            });
+        }
+    });
+    render_figure_terminal().map_err(|e| ScriptError::runtime(e.to_string()))?;
     sync_figure_outputs();
     Ok(Value::None)
 }
@@ -4581,11 +4668,48 @@ fn builtin_layernorm(args: Vec<Value>) -> Result<Value, ScriptError> {
 // ─── bar builtin ─────────────────────────────────────────────────────────────
 
 /// bar(y)  or  bar(x, y)  or  bar(x, y, "title")  or  bar(y, "title")
+/// bar(M)  or  bar(x, M)  or  bar(x, M, "title")  — grouped bar chart (each column = group)
 fn builtin_bar(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.is_empty() || args.len() > 3 {
         return Err(ScriptError::type_err(
-            "bar: expected bar(y), bar(x,y), bar(y,title), or bar(x,y,title)".to_string()
+            "bar: expected bar(y), bar(x,y), bar(M), bar(x,M), bar(x,y,title), or bar(x,M,title)".to_string()
         ));
+    }
+    // Check if the y-data argument is a matrix (grouped bar chart)
+    let y_arg_idx = if args.len() >= 2 && !matches!(&args[1], Value::Str(_)) { 1 } else { 0 };
+    if let Value::Matrix(m) = &args[y_arg_idx] {
+        let x_data: Vec<f64> = if y_arg_idx == 1 {
+            to_real_vector(&args[0])?.to_vec()
+        } else {
+            (0..m.nrows()).map(|i| i as f64).collect()
+        };
+        let title = if args.len() > y_arg_idx + 1 {
+            args[y_arg_idx + 1].to_str().unwrap_or_default()
+        } else {
+            String::new()
+        };
+        // Each column is a group
+        FIGURE.with(|fig| {
+            let mut fig = fig.borrow_mut();
+            if !fig.hold { fig.current_mut().series.clear(); fig.current_mut().title.clear(); }
+            for col in 0..m.ncols() {
+                let y_data: Vec<f64> = m.column(col).iter().map(|c| c.re).collect();
+                let color = fig.next_color();
+                let sp = fig.current_mut();
+                if !title.is_empty() && sp.title.is_empty() { sp.title = title.clone(); }
+                sp.series.push(rustlab_plot::Series {
+                    label: format!("group{}", col + 1),
+                    x_data: x_data.clone(),
+                    y_data,
+                    color,
+                    style: LineStyle::Solid,
+                    kind: rustlab_plot::PlotKind::Bar,
+                });
+            }
+        });
+        render_figure_terminal().map_err(|e| ScriptError::runtime(e.to_string()))?;
+        sync_figure_outputs();
+        return Ok(Value::None);
     }
     let (x_data, y_data, title) = extract_xy_with_title(&args, "bar")?;
     push_xy_bar(x_data, y_data, "bar", &title, None);

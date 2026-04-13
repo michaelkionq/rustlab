@@ -36,8 +36,12 @@ pub fn execute_notebook(blocks: &[Block]) -> Vec<Rendered> {
             }
             Block::Code { source, hidden } => {
                 // Reset figure before each code block so we only capture
-                // what this block produces.
-                FIGURE.with(|fig| fig.borrow_mut().reset());
+                // what this block produces — unless hold is on, in which
+                // case we preserve the figure state for multi-block overlays.
+                let hold_active = FIGURE.with(|fig| fig.borrow().hold);
+                if !hold_active {
+                    FIGURE.with(|fig| fig.borrow_mut().reset());
+                }
 
                 // Capture text output during execution
                 rustlab_script::start_capture();

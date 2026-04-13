@@ -245,6 +245,7 @@ var layout_{js_var} = {{
     out.push_str(&annotations);
     out.push_str(&format!(r##"],
   margin: {{ t: 60, b: 60, l: 70, r: 30 }},
+  barmode: "group",
 }};
 Plotly.newPlot("{div_id}", data_{js_var}, layout_{js_var}, {{ responsive: true }});
 </script>

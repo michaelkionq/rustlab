@@ -347,18 +347,20 @@ tanh([-2.0, 0.0, 2.0])   # → [~-0.964, 0.0, ~0.964]
 
 ## Array Construction
 
-### `zeros(n)` / `zeros(n, m)`
-Returns a length-n complex zero vector, or an n×m zero matrix when two arguments are given.
+### `zeros(n)` / `zeros(m, n)` / `zeros([m, n])`
+Returns a length-n complex zero vector, or an m×n zero matrix when two arguments (or a 2-element vector) are given. Accepts the output of `size()` directly.
 ```
-zeros(4)      # → [0+0j, 0+0j, 0+0j, 0+0j]
-zeros(2, 3)   # → 2×3 matrix of zeros
+zeros(4)         # → [0+0j, 0+0j, 0+0j, 0+0j]
+zeros(2, 3)      # → 2×3 matrix of zeros
+zeros(size(A))   # → zero matrix matching A's dimensions
 ```
 
-### `ones(n)` / `ones(n, m)`
-Returns a length-n complex ones vector, or an n×m matrix of ones when two arguments are given.
+### `ones(n)` / `ones(m, n)` / `ones([m, n])`
+Returns a length-n complex ones vector, or an m×n matrix of ones when two arguments (or a 2-element vector) are given. Accepts the output of `size()` directly.
 ```
-ones(3)       # → [1+0j, 1+0j, 1+0j]
-ones(2, 3)    # → 2×3 matrix of ones
+ones(3)          # → [1+0j, 1+0j, 1+0j]
+ones(2, 3)       # → 2×3 matrix of ones
+ones(size(A))    # → ones matrix matching A's dimensions
 ```
 
 ### `linspace(start, stop, n)`
@@ -1189,8 +1191,27 @@ Bar chart. Each element of `y` is rendered as a filled vertical bar. `x` specifi
 bar([3, 1, 4, 1, 5, 9, 2, 6])
 bar(categories, counts, "Vote Counts")
 ```
+
+#### Grouped bar charts: `bar(M)` / `bar(x, M)` / `bar(x, M, title)`
+When `y` is a matrix, each column becomes a separate bar group rendered side-by-side. This is the MATLAB-style grouped bar chart.
+```
+A = [10, 20; 15, 25; 12, 18]
+bar(A)                        % 3 positions, 2 groups
+bar([1, 2, 3], A, "Sales")   % explicit x positions
+```
 - Negative bar heights are supported (bars extend downward from zero).
 - Press any key to close the terminal display.
+
+### `hline(y)` / `hline(y, color)` / `hline(y, color, label)`
+Draw a horizontal reference line at the specified y value. `yline()` is an alias. Best used with `hold("on")` to overlay on an existing plot.
+```
+plot(x, data)
+hold on
+hline(threshold, "r", "limit")     % red dashed line at y=threshold
+hline([lo, hi], "g")                % two green lines
+```
+- Lines are rendered as dashed by default.
+- Accepts a scalar (one line) or a vector (multiple lines).
 
 ### `scatter(x, y)` / `scatter(x, y, title)`
 Scatter plot — renders each (x, y) pair as a dot. No lines are drawn between points.
