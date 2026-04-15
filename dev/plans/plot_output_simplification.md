@@ -1,6 +1,6 @@
 # Plan: Simplify Plot Output Routing
 
-**Status:** proposal  
+**Status:** core fix implemented (PlotContext)  
 **Related:** `dev/issues/notebook-tui-suppression.md`
 
 ---

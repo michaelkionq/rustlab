@@ -1,5 +1,5 @@
 use rustlab_script::Evaluator;
-use rustlab_plot::{FIGURE, FigureState, FigureOutput, set_current_figure_output};
+use rustlab_plot::{FIGURE, FigureState, PlotContext, set_plot_context};
 use crate::parse::Block;
 
 /// A rendered block ready for HTML output.
@@ -27,7 +27,8 @@ pub enum Rendered {
 /// evaluator's output buffer.
 pub fn execute_notebook(blocks: &[Block]) -> Vec<Rendered> {
     // Suppress TUI plot rendering — notebook captures FigureState directly.
-    set_current_figure_output(FigureOutput::Html(String::new()));
+    // PlotContext::Notebook is sticky: figure() calls cannot override it.
+    set_plot_context(PlotContext::Notebook);
 
     let mut ev = Evaluator::new();
     let mut rendered = Vec::with_capacity(blocks.len());

@@ -28,10 +28,11 @@ pub use file::{
     save_bar, save_scatter,
 };
 pub use figure::{
-    colormap_rgb, FigureState, FigureOutput, LineStyle, PlotKind, Series, SeriesColor, SubplotState,
+    colormap_rgb, FigureState, FigureOutput, LineStyle, PlotContext, PlotKind, Series, SeriesColor, SubplotState,
     FIGURE,
     figure_new, figure_new_html, figure_switch,
     current_figure_id, current_figure_output, set_current_figure_output,
+    plot_context, set_plot_context,
 };
 pub use html::{render_figure_html, render_figure_plotly_div, set_html_figure_path, clear_html_figure_path, sync_html_file};
 pub use report::{report_start, report_active, report_add, report_auto_capture, report_save, report_end, report_len};

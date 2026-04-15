@@ -237,6 +237,10 @@ pub(crate) fn draw_subplots(
 
 /// Render the current FIGURE state to the terminal.
 pub fn render_figure_terminal() -> Result<(), PlotError> {
+    // Notebook context: never render to terminal.
+    if crate::figure::plot_context() == crate::figure::PlotContext::Notebook {
+        return Ok(());
+    }
     // Route based on the current figure's output mode.
     match crate::figure::current_figure_output() {
         crate::figure::FigureOutput::Html(_) => return Ok(()),
@@ -284,6 +288,9 @@ pub fn render_figure_terminal() -> Result<(), PlotError> {
 
 /// Render an imagesc heatmap to the terminal using colored block characters.
 pub fn imagesc_terminal(matrix: &CMatrix, title: &str, colormap: &str) -> Result<(), PlotError> {
+    if crate::figure::plot_context() == crate::figure::PlotContext::Notebook {
+        return Ok(());
+    }
     let (nrows, ncols) = (matrix.nrows(), matrix.ncols());
     if nrows == 0 || ncols == 0 { return Err(PlotError::EmptyData); }
 

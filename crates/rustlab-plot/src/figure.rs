@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
 /// Named or RGB color for a plot series.
@@ -156,6 +156,33 @@ thread_local! {
     pub static FIGURE: RefCell<FigureState> = RefCell::new(FigureState::new());
 }
 
+// ─── Process-level plot context ───────────────────────────────────────────
+
+/// Process-level context that controls default output routing.
+/// Set once at startup by each binary; cannot be overridden by user code.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PlotContext {
+    /// Interactive terminal (REPL, `rustlab run`). TUI rendering allowed.
+    Terminal,
+    /// Notebook batch rendering. No TUI, no viewer. Figures are captured
+    /// as FigureState by the notebook executor.
+    Notebook,
+}
+
+thread_local! {
+    static PLOT_CONTEXT: Cell<PlotContext> = Cell::new(PlotContext::Terminal);
+}
+
+/// Set the process-level plot context. Call once at startup.
+pub fn set_plot_context(ctx: PlotContext) {
+    PLOT_CONTEXT.with(|c| c.set(ctx));
+}
+
+/// Get the current plot context.
+pub fn plot_context() -> PlotContext {
+    PLOT_CONTEXT.with(|c| c.get())
+}
+
 // ─── Multi-figure store (figure handles) ──────────────────────────────────
 
 /// Output routing mode for a figure.
@@ -242,6 +269,9 @@ fn save_current() {
 
 /// Determine the default output mode for a new figure.
 fn default_new_output() -> FigureOutput {
+    if plot_context() == PlotContext::Notebook {
+        return FigureOutput::Html(String::new());
+    }
     #[cfg(feature = "viewer")]
     if crate::viewer_live::viewer_active() {
         let fig_id = crate::viewer_live::allocate_viewer_fig_id();
