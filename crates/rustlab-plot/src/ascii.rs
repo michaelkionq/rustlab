@@ -206,16 +206,21 @@ pub(crate) fn draw_subplots(
             let x_mid = (x_min + x_max) / 2.0;
             let y_mid = (y_min + y_max) / 2.0;
 
+            let x_labels_vec = if let Some(labels) = &sp.x_labels {
+                labels.iter().map(|l| ratatui::text::Span::raw(l.clone())).collect()
+            } else {
+                vec![
+                    ratatui::text::Span::raw(fmt_g(x_min)),
+                    ratatui::text::Span::raw(fmt_g(x_mid)),
+                    ratatui::text::Span::raw(fmt_g(x_max)),
+                ]
+            };
             let chart = Chart::new(datasets)
                 .block(Block::default().borders(Borders::ALL).title(title))
                 .x_axis(Axis::default()
                     .title(xlabel)
                     .bounds([x_min, x_max])
-                    .labels(vec![
-                        ratatui::text::Span::raw(fmt_g(x_min)),
-                        ratatui::text::Span::raw(fmt_g(x_mid)),
-                        ratatui::text::Span::raw(fmt_g(x_max)),
-                    ]))
+                    .labels(x_labels_vec))
                 .y_axis(Axis::default()
                     .title(ylabel)
                     .bounds([y_min, y_max])

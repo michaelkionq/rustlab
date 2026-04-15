@@ -80,6 +80,8 @@ pub enum Value {
     SparseVector(SparseVec),
     /// Sparse matrix (COO format).
     SparseMatrix(SparseMat),
+    /// String array: `{"a", "b", "c"}`.
+    StringArray(Vec<String>),
 }
 
 impl Value {
@@ -102,6 +104,7 @@ impl Value {
                 Ok(Value::SparseMatrix(SparseMat { rows: sm.rows, cols: sm.cols, entries }))
             }
             Value::LiveFigure(_) => Err("cannot negate live_figure".to_string()),
+            Value::StringArray(_) => Err("cannot negate string_array".to_string()),
             other => Err(format!("cannot negate {}", other.type_name())),
         }
     }
@@ -129,6 +132,7 @@ impl Value {
             Value::LiveFigure(_) => "live_figure",
             Value::SparseVector(_) => "sparse_vector",
             Value::SparseMatrix(_) => "sparse_matrix",
+            Value::StringArray(_) => "string_array",
         }
     }
 
@@ -379,6 +383,30 @@ impl Value {
                         Ok(Value::Str(result))
                     }
                     other => Err(format!("invalid string index type: {}", other.type_name())),
+                }
+            }
+            Value::StringArray(arr) => {
+                match &idx {
+                    Value::All => Ok(Value::StringArray(arr)),
+                    Value::Scalar(n) => {
+                        let i = Self::one_based_to_zero(*n)?;
+                        if i >= arr.len() {
+                            return Err(format!("index {} out of bounds (length {})", *n as usize, arr.len()));
+                        }
+                        Ok(Value::Str(arr[i].clone()))
+                    }
+                    Value::Vector(idx_v) => {
+                        let result: Result<Vec<_>, _> = idx_v.iter().map(|c| {
+                            let i = Self::one_based_to_zero(c.re)?;
+                            if i >= arr.len() {
+                                Err(format!("index {} out of bounds (length {})", c.re as usize, arr.len()))
+                            } else {
+                                Ok(arr[i].clone())
+                            }
+                        }).collect();
+                        Ok(Value::StringArray(result?))
+                    }
+                    other => Err(format!("invalid string_array index type: {}", other.type_name())),
                 }
             }
             other => Err(format!("cannot index into {}", other.type_name())),
@@ -1123,6 +1151,28 @@ impl Value {
             other => Err(format!("expected string, got {}", other.type_name())),
         }
     }
+
+    /// Convert to Vec<String>.
+    pub fn to_string_array(&self) -> Result<Vec<String>, String> {
+        match self {
+            Value::StringArray(v) => Ok(v.clone()),
+            other => Err(format!("expected string_array, got {}", other.type_name())),
+        }
+    }
+
+    /// Build a StringArray from evaluated cell elements (all must be strings).
+    pub fn from_cell_elements(vals: Vec<Value>) -> Result<Value, String> {
+        let mut strings = Vec::with_capacity(vals.len());
+        for v in vals {
+            match v {
+                Value::Str(s) => strings.push(s),
+                other => return Err(format!(
+                    "cell array elements must be strings, got {}", other.type_name()
+                )),
+            }
+        }
+        Ok(Value::StringArray(strings))
+    }
 }
 
 impl fmt::Display for Value {
@@ -1272,6 +1322,19 @@ impl fmt::Display for Value {
                 }
                 if sm.entries.len() > MAX_ELEMS {
                     write!(f, "\n  ... ({} total)", sm.entries.len())?;
+                }
+                Ok(())
+            }
+            Value::StringArray(arr) => {
+                let n = arr.len();
+                write!(f, "{{1×{n}}} ")?;
+                let show = n.min(MAX_ELEMS);
+                for (i, s) in arr.iter().take(show).enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "\"{}\"", s)?;
+                }
+                if n > MAX_ELEMS {
+                    write!(f, ", ... ({n} total)")?;
                 }
                 Ok(())
             }

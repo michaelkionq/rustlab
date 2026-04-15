@@ -944,6 +944,28 @@ impl Parser {
                 self.expect(&Token::RBracket)?;
                 Ok(Expr::Matrix(rows))
             }
+            Token::LBrace => {
+                self.advance(); // consume '{'
+                self.skip_newlines();
+                let mut elems: Vec<Expr> = Vec::new();
+                if self.peek_token() != &Token::RBrace {
+                    elems.push(self.parse_range_expr()?);
+                    loop {
+                        self.skip_newlines();
+                        if self.peek_token() == &Token::Comma {
+                            self.advance();
+                            self.skip_newlines();
+                            if self.peek_token() == &Token::RBrace { break; }
+                            elems.push(self.parse_range_expr()?);
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.skip_newlines();
+                self.expect(&Token::RBrace)?;
+                Ok(Expr::CellArray(elems))
+            }
             Token::LParen => {
                 self.advance(); // consume '('
                 self.skip_newlines();

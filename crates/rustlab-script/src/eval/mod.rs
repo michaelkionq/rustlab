@@ -71,6 +71,16 @@ impl Evaluator {
         self.env.get(name)
     }
 
+    /// Set a variable in the environment.
+    pub fn set(&mut self, name: &str, value: Value) {
+        self.env.insert(name.to_string(), value);
+    }
+
+    /// Remove a variable from the environment.
+    pub fn remove(&mut self, name: &str) {
+        self.env.remove(name);
+    }
+
     /// Remove all user-defined variables and functions, keeping built-in constants (j, pi, e).
     pub fn clear_vars(&mut self) {
         const BUILTIN_CONSTS: &[&str] = &["i", "j", "pi", "e", "Inf", "NaN", "true", "false"];
@@ -676,7 +686,7 @@ impl Evaluator {
                 }
 
                 // If the name refers to a vector/matrix in the environment, this is indexing.
-                if matches!(self.env.get(name.as_str()), Some(Value::Vector(_)) | Some(Value::Matrix(_)) | Some(Value::SparseVector(_)) | Some(Value::SparseMatrix(_)) | Some(Value::Tuple(_)) | Some(Value::Str(_))) {
+                if matches!(self.env.get(name.as_str()), Some(Value::Vector(_)) | Some(Value::Matrix(_)) | Some(Value::SparseVector(_)) | Some(Value::SparseMatrix(_)) | Some(Value::Tuple(_)) | Some(Value::Str(_)) | Some(Value::StringArray(_))) {
                     let container = self.env[name.as_str()].clone();
 
                     // For 2-argument matrix indexing, bind `end` context-sensitively per dimension.
@@ -711,6 +721,7 @@ impl Evaluator {
                             Value::SparseMatrix(sm) => sm.rows,
                             Value::Tuple(t) => t.len(),
                             Value::Str(s) => s.chars().count(),
+                            Value::StringArray(v) => v.len(),
                             _ => unreachable!(),
                         };
                         self.env.insert("end".to_string(), Value::Scalar(len as f64));
@@ -759,6 +770,12 @@ impl Evaluator {
                     .map(|row| row.iter().map(|e| self.eval_expr(e)).collect::<Result<_, _>>())
                     .collect::<Result<_, _>>()?;
                 Value::from_matrix_rows(evaled).map_err(|e| ScriptError::type_err(e))
+            }
+            Expr::CellArray(elems) => {
+                let evaled: Vec<Value> = elems.iter()
+                    .map(|e| self.eval_expr(e))
+                    .collect::<Result<_, _>>()?;
+                Value::from_cell_elements(evaled).map_err(|e| ScriptError::type_err(e))
             }
             Expr::Range { start, step, stop } => {
                 let s = self.eval_expr(start)?.to_scalar().map_err(|e| ScriptError::type_err(e))?;

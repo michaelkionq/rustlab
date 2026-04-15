@@ -213,7 +213,7 @@ const HELP: &[HelpEntry] = &[
     HelpEntry { name: "stem",  brief: "Stem plot of a vector",
         detail: "stem(v)  or  stem(v, \"title\")  — discrete-sample stem chart" },
     HelpEntry { name: "bar",       brief: "Bar chart in the terminal",
-        detail: "bar(y)                — bars at positions 0,1,2,…\nbar(x, y)             — bars at explicit x positions\nbar(y, \"title\")        — with title\nbar(x, y, \"title\")     — explicit positions with title\nbar(M)                — grouped bar chart (each column = group)\nbar(x, M)             — grouped bars at explicit x positions\nbar(x, M, \"title\")    — grouped bars with title\n  Negative heights supported (bars extend below zero).\n  Press any key to close." },
+        detail: "bar(y)                — bars at positions 0,1,2,…\nbar(x, y)             — bars at explicit x positions\nbar(labels, y)        — categorical bars with string array labels\nbar(labels, y, title) — categorical bars with title\nbar(y, \"title\")        — with title\nbar(x, y, \"title\")     — explicit positions with title\nbar(M)                — grouped bar chart (each column = group)\nbar(x, M)             — grouped bars at explicit x positions\nbar(x, M, \"title\")    — grouped bars with title\n  Negative heights supported (bars extend below zero).\n\nExamples:\n  bar([10, 20, 30])\n  bar({'Jan','Feb','Mar'}, [10, 20, 30], 'Sales')" },
     HelpEntry { name: "scatter",   brief: "Scatter plot in the terminal",
         detail: "scatter(x, y)          — plot (x,y) points as dots\nscatter(x, y, \"title\") — with title\n  No lines drawn between points.\n  Press any key to close." },
     HelpEntry { name: "hline",     brief: "Horizontal reference line",
@@ -441,6 +441,9 @@ const HELP: &[HelpEntry] = &[
         detail: "figure_close(fig)  — drop live figure, restore normal terminal\n\nAlso fires automatically on script end or Ctrl-C via Drop.\n\nExample:\n  figure_close(fig)" },
     HelpEntry { name: "mag2db", brief: "Convert magnitude to dB: 20·log10(|X|)",
         detail: "mag2db(X)  — element-wise, floored at −200 dB (1e-10 floor)\n  X — scalar, complex, vector, or matrix\n\nExamples:\n  mag2db(1.0)         % 0 dB\n  mag2db(0.0)         % -200 dB\n  mag2db(fft(frame))  % spectrum in dB" },
+    // Cell / string arrays
+    HelpEntry { name: "iscell", brief: "True if argument is a string array",
+        detail: "iscell(x) — returns true if x is a string array ({...}), false otherwise\n\nExamples:\n  iscell({'a', 'b'})  % true\n  iscell([1, 2])      % false" },
     // Sparse
     HelpEntry { name: "sparse", brief: "Build sparse matrix or convert dense→sparse",
         detail: "sparse(I, J, V, m, n)  — build m×n sparse matrix from 1-based row/col/value vectors\nsparse(A)              — convert dense matrix/vector to sparse (drops near-zeros)\n\nDuplicate (i,j) entries are summed.\n\nExamples:\n  S = sparse([1,2,3], [1,2,3], [10,20,30], 3, 3)\n  S2 = sparse(eye(3))" },
@@ -508,6 +511,7 @@ fn whos_type(v: &rustlab_script::Value) -> &'static str {
         Value::LiveFigure(_)  => "live_figure",
         Value::SparseVector(_) => "sparse_vector",
         Value::SparseMatrix(_) => "sparse_matrix",
+        Value::StringArray(_) => "string_array",
     }
 }
 
@@ -529,6 +533,7 @@ fn whos_size(v: &rustlab_script::Value) -> String {
             let fill = if total > 0 { 100.0 * sm.nnz() as f64 / total as f64 } else { 0.0 };
             format!("{}×{}, nnz={}, fill={:.0}%", sm.rows, sm.cols, sm.nnz(), fill)
         }
+        Value::StringArray(v) => format!("1×{}", v.len()),
         Value::All            => "—".to_string(),
         _                     => "1×1".to_string(),
     }
@@ -591,6 +596,13 @@ fn whos_preview(v: &rustlab_script::Value) -> String {
         }
         Value::SparseVector(sv) => format!("sparse [1×{}, nnz={}]", sv.len, sv.nnz()),
         Value::SparseMatrix(sm) => format!("sparse [{}×{}, nnz={}]", sm.rows, sm.cols, sm.nnz()),
+        Value::StringArray(arr) => {
+            let preview: Vec<String> = arr.iter().take(3)
+                .map(|s| format!("\"{}\"", s))
+                .collect();
+            let suffix = if arr.len() > 3 { ", …" } else { "" };
+            format!("{{{}{}}}", preview.join(", "), suffix)
+        }
     }
 }
 
@@ -843,10 +855,10 @@ fn print_help_list() {
                                "fir_notch","firpm","firpmq","freqz",
                                "butterworth_lowpass","butterworth_highpass",
                                "filtfilt","convolve","upfirdn","window",
-                               "fft","ifft","fftshift","fftfreq","spectrum"]),
+                               "fft","ifft","fftshift","fftfreq","spectrum","mag2db"]),
         ("Streaming DSP",    &["state_init","filter_stream"]),
         ("Audio I/O",        &["audio_in","audio_out","audio_read","audio_write"]),
-        ("Live Plotting",    &["figure_live","plot_update","plot_labels","plot_limits","figure_draw","figure_close","mag2db"]),
+        ("Live Plotting",    &["figure_live","plot_update","plot_labels","plot_limits","figure_draw","figure_close"]),
         ("Fixed-point",      &["qfmt","quantize","qadd","qmul","qconv","snr"]),
         ("Plotting",         &["plot","stem","bar","scatter","hline","yline","plotdb","imagesc",
                                "savefig","savestem","savebar","savescatter",
@@ -858,6 +870,7 @@ fn print_help_list() {
                                "rk4","lyap","gram","care","dare","place","freqresp"]),
         ("Sparse",           &["sparse","sparsevec","speye","spzeros","spdiags","sprand","full","nnz","issparse","nonzeros","find","spsolve"]),
         ("Structs",          &["struct","isstruct","fieldnames","isfield","rmfield"]),
+        ("Cell Arrays",      &["iscell"]),
         ("Control Flow",     &["if","elseif","switch","for","function","error","index_assign","chained_index"]),
         ("Output",           &["disp","fprintf","sprintf","commas","print"]),
         ("Formatting",       &["format","underscores"]),

@@ -13,8 +13,24 @@ mod net;
 mod render;
 
 fn main() {
-    // Parse optional --socket argument
     let args: Vec<String> = std::env::args().collect();
+
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        println!("rustlab-viewer {}", env!("CARGO_PKG_VERSION"));
+        println!("Standalone interactive plot viewer for rustlab\n");
+        println!("Usage: rustlab-viewer [--socket PATH]\n");
+        println!("Options:");
+        println!("  --socket PATH  Custom Unix socket path");
+        println!("  -h, --help     Print help");
+        println!("  -V, --version  Print version");
+        return;
+    }
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("rustlab-viewer {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
+    // Parse optional --socket argument
     if let Some(pos) = args.iter().position(|a| a == "--socket") {
         if let Some(path) = args.get(pos + 1) {
             std::env::set_var("RUSTLAB_VIEWER_SOCK", path);

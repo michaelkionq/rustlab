@@ -3,8 +3,8 @@
 **Binary:** `rustlab-notebook`  
 **Input:** Standard `.md` files with ` ```rustlab ` fenced code blocks  
 **Output:** Self-contained HTML reports (and eventually more)  
-**Current phase:** design  
-**Status:** planning  
+**Current phase:** complete through Phase 6  
+**Status:** Phases 1–6 complete; Future phases (live server, editable notebooks) not started  
 
 ---
 
@@ -262,7 +262,7 @@ sub-phases (e.g., LaTeX-without-plots first, then static images, then PDF).
 
 ---
 
-## Phase 6 — Multi-Notebook Projects
+## Phase 6 — Multi-Notebook Projects ✓ COMPLETE
 
 **Goal:** Render a directory of notebooks into a linked report site.
 
@@ -270,14 +270,13 @@ sub-phases (e.g., LaTeX-without-plots first, then static images, then PDF).
 rustlab-notebook render notebooks/           → notebooks/*.html + index.html
 ```
 
-- Render all `.md` files in a directory
-- Generate an index page with links to each notebook
-- Shared navigation across notebooks
-- Cross-notebook links (`[see filter design](filter_design.md)`) resolve
-  to the rendered HTML equivalents
-- Each notebook has its own independent evaluator state
+- ✓ Render all `.md` files in a directory
+- ✓ Generate an index page with links to each notebook (catppuccin dark theme)
+- ✓ Cross-notebook links (`[see filter design](filter_design.md)`) resolve
+  to the rendered HTML equivalents (`.md` → `.html` rewriting)
+- ✓ Each notebook has its own independent evaluator state
 - A `<!-- include: setup.r -->` directive could run shared setup code
-  before the notebook's own blocks
+  before the notebook's own blocks (deferred to future)
 
 ---
 

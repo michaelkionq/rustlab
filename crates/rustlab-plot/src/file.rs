@@ -118,12 +118,26 @@ where
         .build_cartesian_2d(x_lo..x_hi, y_lo..y_hi)
         .map_err(err)?;
 
-    chart.configure_mesh()
-        .disable_mesh()
-        .x_desc(xlabel)
-        .y_desc(ylabel)
-        .draw()
-        .map_err(err)?;
+    if let Some(labels) = &sp.x_labels {
+        let labels_c = labels.clone();
+        chart.configure_mesh()
+            .disable_mesh()
+            .x_desc(xlabel)
+            .y_desc(ylabel)
+            .x_label_formatter(&|v| {
+                let idx = (*v as usize).wrapping_sub(1);
+                if idx < labels_c.len() { labels_c[idx].clone() } else { String::new() }
+            })
+            .draw()
+            .map_err(err)?;
+    } else {
+        chart.configure_mesh()
+            .disable_mesh()
+            .x_desc(xlabel)
+            .y_desc(ylabel)
+            .draw()
+            .map_err(err)?;
+    }
 
     if sp.grid {
         const N: usize = 5;

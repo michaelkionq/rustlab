@@ -1189,7 +1189,14 @@ Alias: `histogram()`
 Bar chart. Each element of `y` is rendered as a filled vertical bar. `x` specifies the bar centre positions (defaults to 0, 1, 2, …).
 ```
 bar([3, 1, 4, 1, 5, 9, 2, 6])
-bar(categories, counts, "Vote Counts")
+bar([1,2,3], [10,20,30], "Counts")
+```
+
+#### Categorical bar charts: `bar(labels, y)` / `bar(labels, y, title)`
+When the first argument is a string array, it provides categorical x-axis labels:
+```
+bar({"Jan", "Feb", "Mar"}, [10, 20, 30])
+bar({"A", "B", "C"}, [5, 8, 3], "Results")
 ```
 
 #### Grouped bar charts: `bar(M)` / `bar(x, M)` / `bar(x, M, title)`
@@ -1821,6 +1828,50 @@ Returns a new struct with the named field removed. Errors if the field does not 
 ```
 s2 = rmfield(s, "z")
 ```
+
+---
+
+## Cell Arrays (String Arrays)
+
+String arrays hold ordered collections of strings and are created with brace syntax.
+
+### `{"a", "b", "c"}`
+String array literal. All elements must be strings (single- or double-quoted). Creates a `StringArray` value.
+```
+labels = {"Jan", "Feb", "Mar"}
+colors = {'red', 'green', 'blue'}
+```
+
+### Indexing: `sa(i)` / `sa(2:4)` / `sa(:)`
+1-based indexing into string arrays. Scalar index returns a string; slice or `:` returns a new string array. `end` is supported.
+```
+labels = {"a", "b", "c", "d"}
+labels(2)         # → "b"
+labels(end)       # → "d"
+labels(1:3)       # → {"a", "b", "c"}
+```
+
+### `iscell(x)`
+Returns `true` if `x` is a string array, `false` otherwise.
+```
+labels = {"a", "b"}
+iscell(labels)    # → true
+iscell([1, 2])    # → false
+```
+
+### `length(sa)` / `numel(sa)` / `size(sa)`
+Standard size functions work on string arrays:
+- `length(sa)` — number of elements
+- `numel(sa)` — same as `length`
+- `size(sa)` — returns `[1, n]`
+
+### Categorical bar charts: `bar(labels, y)` / `bar(labels, y, title)`
+When the first argument to `bar` is a string array, it becomes the x-axis category labels:
+```
+bar({"Jan", "Feb", "Mar"}, [10, 20, 30])
+bar({"A", "B", "C"}, [5, 8, 3], "Results")
+```
+Categorical labels appear on the x-axis in terminal, HTML (Plotly), and file (PNG/SVG) output.
 
 ---
 

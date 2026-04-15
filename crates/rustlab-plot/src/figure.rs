@@ -90,6 +90,8 @@ pub struct SubplotState {
     pub series: Vec<Series>,
     pub xlim:   (Option<f64>, Option<f64>),
     pub ylim:   (Option<f64>, Option<f64>),
+    /// Categorical x-axis tick labels (e.g. from string array bar charts).
+    pub x_labels: Option<Vec<String>>,
 }
 impl SubplotState {
     pub fn new() -> Self {
@@ -97,6 +99,7 @@ impl SubplotState {
             title: String::new(), xlabel: String::new(), ylabel: String::new(),
             grid: true, series: Vec::new(),
             xlim: (None, None), ylim: (None, None),
+            x_labels: None,
         }
     }
 }

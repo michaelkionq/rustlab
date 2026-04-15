@@ -41,6 +41,8 @@ pub enum Token {
     RParen,
     LBracket,
     RBracket,
+    LBrace,
+    RBrace,
     Comma,
     Semicolon,
     // Keywords
@@ -193,6 +195,8 @@ pub fn tokenize(source: &str) -> Result<Vec<Spanned>, ScriptError> {
             ')' => { tokens.push(Spanned { token: Token::RParen,    line }); pos += 1; }
             '[' => { tokens.push(Spanned { token: Token::LBracket,  line }); pos += 1; }
             ']' => { tokens.push(Spanned { token: Token::RBracket,  line }); pos += 1; }
+            '{' => { tokens.push(Spanned { token: Token::LBrace,    line }); pos += 1; }
+            '}' => { tokens.push(Spanned { token: Token::RBrace,    line }); pos += 1; }
             ',' => { tokens.push(Spanned { token: Token::Comma,     line }); pos += 1; }
             ';' => { tokens.push(Spanned { token: Token::Semicolon, line }); pos += 1; }
             // Dot operators (.*  ./  .^  .') must be checked before the number branch

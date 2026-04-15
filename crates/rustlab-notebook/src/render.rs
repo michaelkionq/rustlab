@@ -12,11 +12,13 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
     for block in blocks {
         match block {
             Rendered::Markdown(md) => {
+                // Rewrite .md links to .html for cross-notebook references
+                let md = rewrite_md_links(md);
                 // Convert markdown to HTML
                 let mut opts = Options::empty();
                 opts.insert(Options::ENABLE_TABLES);
                 opts.insert(Options::ENABLE_STRIKETHROUGH);
-                let parser = Parser::new_ext(md, opts);
+                let parser = Parser::new_ext(&md, opts);
                 let mut html = String::new();
                 push_html(&mut html, parser);
 
@@ -529,6 +531,13 @@ fn push_escaped_char(out: &mut String, ch: char) {
     }
 }
 
+/// Rewrite relative `.md` links to `.html` in markdown text.
+/// Converts `](something.md)` to `](something.html)` for cross-notebook links.
+fn rewrite_md_links(md: &str) -> String {
+    md.replace(".md)", ".html)")
+      .replace(".md#", ".html#")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -909,5 +918,41 @@ mod tests {
         assert!(html.contains("heading-2"));
         assert!(html.contains("Section One"));
         assert!(html.contains("Sub Section"));
+    }
+
+    // ── rewrite_md_links ──
+
+    #[test]
+    fn rewrite_md_links_basic() {
+        assert_eq!(rewrite_md_links("See [filter](filter.md) for details"),
+                   "See [filter](filter.html) for details");
+    }
+
+    #[test]
+    fn rewrite_md_links_with_anchor() {
+        assert_eq!(rewrite_md_links("[section](other.md#intro)"),
+                   "[section](other.html#intro)");
+    }
+
+    #[test]
+    fn rewrite_md_links_no_md() {
+        let input = "No links here.";
+        assert_eq!(rewrite_md_links(input), input);
+    }
+
+    #[test]
+    fn rewrite_md_links_multiple() {
+        assert_eq!(rewrite_md_links("[a](a.md) and [b](b.md)"),
+                   "[a](a.html) and [b](b.html)");
+    }
+
+    #[test]
+    fn render_html_rewrites_md_links() {
+        let blocks = vec![
+            Rendered::Markdown("See [other](other.md) for details".to_string()),
+        ];
+        let html = render_html("Test", &blocks);
+        assert!(html.contains("other.html"));
+        assert!(!html.contains("other.md"));
     }
 }

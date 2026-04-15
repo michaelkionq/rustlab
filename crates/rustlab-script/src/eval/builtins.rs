@@ -225,6 +225,8 @@ impl BuiltinRegistry {
         r.register("fieldnames", builtin_fieldnames);
         r.register("isfield",   builtin_isfield);
         r.register("rmfield",   builtin_rmfield);
+        // Cell / string arrays
+        r.register("iscell",    builtin_iscell);
         // ML / activation functions
         r.register("softmax",   builtin_softmax);
         r.register("relu",      builtin_relu);
@@ -1162,6 +1164,7 @@ fn builtin_len(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Matrix(m) => Ok(Value::Scalar(m.nrows() as f64)),
         Value::Str(s) => Ok(Value::Scalar(s.len() as f64)),
         Value::Tuple(t) => Ok(Value::Scalar(t.len() as f64)),
+        Value::StringArray(v) => Ok(Value::Scalar(v.len() as f64)),
         other => Err(ScriptError::type_err(format!("len: unsupported type {}", other))),
     }
 }
@@ -1172,6 +1175,7 @@ fn builtin_numel(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Vector(v) => v.len(),
         Value::Matrix(m) => m.nrows() * m.ncols(),
         Value::Scalar(_) | Value::Complex(_) => 1,
+        Value::StringArray(v) => v.len(),
         other => return Err(ScriptError::type_err(format!("numel: unsupported type {}", other))),
     };
     Ok(Value::Scalar(n as f64))
@@ -1185,6 +1189,7 @@ fn builtin_size(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Scalar(_) | Value::Complex(_) => (1, 1),
         Value::SparseVector(sv) => (1, sv.len),
         Value::SparseMatrix(sm) => (sm.rows, sm.cols),
+        Value::StringArray(v) => (1, v.len()),
         other => return Err(ScriptError::type_err(format!("size: unsupported type {}", other.type_name()))),
     };
     if args.len() == 2 {
@@ -3695,6 +3700,11 @@ fn builtin_roots(args: Vec<Value>) -> Result<Value, ScriptError> {
     Ok(Value::Vector(Array1::from_vec(rs)))
 }
 
+fn builtin_iscell(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("iscell", &args, 1)?;
+    Ok(Value::Bool(matches!(args[0], Value::StringArray(_))))
+}
+
 fn builtin_isstruct(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("isstruct", &args, 1)?;
     Ok(Value::Bool(matches!(args[0], Value::Struct(_))))
@@ -4669,11 +4679,45 @@ fn builtin_layernorm(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 /// bar(y)  or  bar(x, y)  or  bar(x, y, "title")  or  bar(y, "title")
 /// bar(M)  or  bar(x, M)  or  bar(x, M, "title")  — grouped bar chart (each column = group)
+/// bar(labels, y)  or  bar(labels, y, "title")  — categorical bar chart with string array labels
 fn builtin_bar(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.is_empty() || args.len() > 3 {
         return Err(ScriptError::type_err(
-            "bar: expected bar(y), bar(x,y), bar(M), bar(x,M), bar(x,y,title), or bar(x,M,title)".to_string()
+            "bar: expected bar(y), bar(x,y), bar(labels,y), bar(M), bar(x,M), or bar(...,title)".to_string()
         ));
+    }
+    // Categorical bar chart: bar({"A","B","C"}, [10,20,30]) or bar(labels, y, "title")
+    if let Value::StringArray(labels) = &args[0] {
+        if args.len() < 2 {
+            return Err(ScriptError::type_err("bar: string array labels require a y-data argument".to_string()));
+        }
+        let y_data: Vec<f64> = to_real_vector(&args[1])?.to_vec();
+        if labels.len() != y_data.len() {
+            return Err(ScriptError::type_err(format!(
+                "bar: labels length ({}) must match y-data length ({})", labels.len(), y_data.len()
+            )));
+        }
+        let title = if args.len() > 2 { args[2].to_str().unwrap_or_default() } else { String::new() };
+        let x_data: Vec<f64> = (1..=labels.len()).map(|i| i as f64).collect();
+        FIGURE.with(|fig| {
+            let mut fig = fig.borrow_mut();
+            if !fig.hold { fig.current_mut().series.clear(); fig.current_mut().title.clear(); }
+            let color = fig.next_color();
+            let sp = fig.current_mut();
+            if !title.is_empty() && sp.title.is_empty() { sp.title = title; }
+            sp.x_labels = Some(labels.clone());
+            sp.series.push(rustlab_plot::Series {
+                label: "bar".to_string(),
+                x_data,
+                y_data,
+                color,
+                style: LineStyle::Solid,
+                kind: rustlab_plot::PlotKind::Bar,
+            });
+        });
+        render_figure_terminal().map_err(|e| ScriptError::runtime(e.to_string()))?;
+        sync_figure_outputs();
+        return Ok(Value::None);
     }
     // Check if the y-data argument is a matrix (grouped bar chart)
     let y_arg_idx = if args.len() >= 2 && !matches!(&args[1], Value::Str(_)) { 1 } else { 0 };

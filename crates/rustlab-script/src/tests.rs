@@ -6458,3 +6458,148 @@ x = 30
         let _ = std::fs::remove_file(&path);
     }
 }
+
+// ── String array / cell array tests ───────────────────────────────────────
+
+#[cfg(test)]
+mod string_array_tests {
+    use crate::{lexer, parser, Evaluator};
+    use crate::eval::value::Value;
+
+    fn run(src: &str) -> Evaluator {
+        let tokens = lexer::tokenize(src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts { ev.exec_stmt(stmt).unwrap(); }
+        ev
+    }
+
+    #[test]
+    fn string_array_literal() {
+        let ev = run("s = {\"a\", \"b\", \"c\"};");
+        match ev.get("s").unwrap() {
+            Value::StringArray(v) => {
+                assert_eq!(v, &["a", "b", "c"]);
+            }
+            other => panic!("expected string_array, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn string_array_single_quote() {
+        let ev = run("s = {'hello', 'world'};");
+        match ev.get("s").unwrap() {
+            Value::StringArray(v) => assert_eq!(v, &["hello", "world"]),
+            other => panic!("expected string_array, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn string_array_empty() {
+        let ev = run("s = {};");
+        match ev.get("s").unwrap() {
+            Value::StringArray(v) => assert!(v.is_empty()),
+            other => panic!("expected empty string_array, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn string_array_index_scalar() {
+        let ev = run("s = {'x', 'y', 'z'}; v = s(2);");
+        match ev.get("v").unwrap() {
+            Value::Str(s) => assert_eq!(s, "y"),
+            other => panic!("expected string, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn string_array_index_end() {
+        let ev = run("s = {'a', 'b', 'c'}; v = s(end);");
+        match ev.get("v").unwrap() {
+            Value::Str(s) => assert_eq!(s, "c"),
+            other => panic!("expected string, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn string_array_index_vector() {
+        let ev = run("s = {'a', 'b', 'c', 'd'}; v = s([1, 3]);");
+        match ev.get("v").unwrap() {
+            Value::StringArray(v) => assert_eq!(v, &["a", "c"]),
+            other => panic!("expected string_array, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn string_array_length() {
+        let ev = run("s = {'a', 'b', 'c'}; n = length(s);");
+        match ev.get("n").unwrap() {
+            Value::Scalar(n) => assert_eq!(*n, 3.0),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn string_array_size() {
+        let ev = run("s = {'x', 'y'}; sz = size(s);");
+        match ev.get("sz").unwrap() {
+            Value::Vector(v) => {
+                assert_eq!(v[0].re, 1.0);
+                assert_eq!(v[1].re, 2.0);
+            }
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn string_array_numel() {
+        let ev = run("s = {'a', 'b', 'c', 'd'}; n = numel(s);");
+        match ev.get("n").unwrap() {
+            Value::Scalar(n) => assert_eq!(*n, 4.0),
+            other => panic!("expected scalar, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn iscell_true() {
+        let ev = run("s = {'a'}; b = iscell(s);");
+        match ev.get("b").unwrap() {
+            Value::Bool(b) => assert!(*b),
+            other => panic!("expected bool, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn iscell_false() {
+        let ev = run("b = iscell(42);");
+        match ev.get("b").unwrap() {
+            Value::Bool(b) => assert!(!*b),
+            other => panic!("expected bool, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn string_array_display() {
+        let ev = run("s = {'Jan', 'Feb', 'Mar'};");
+        let s = ev.get("s").unwrap();
+        let display = format!("{s}");
+        assert!(display.contains("Jan"));
+        assert!(display.contains("Feb"));
+        assert!(display.contains("Mar"));
+    }
+
+    #[test]
+    fn string_array_type_name() {
+        let ev = run("s = {'x'};");
+        assert_eq!(ev.get("s").unwrap().type_name(), "string_array");
+    }
+
+    #[test]
+    fn string_array_rejects_non_strings() {
+        let tokens = lexer::tokenize("{1, 2, 3}").unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        let result = ev.exec_stmt(&stmts[0]);
+        assert!(result.is_err());
+    }
+}

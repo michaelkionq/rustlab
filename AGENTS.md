@@ -153,6 +153,8 @@ together whenever a phase finishes.
 | Real-Time Audio Streaming | `dev/plans/audio_streaming.md` | Complete — all 3 phases (while loop, FirState, audio I/O) |
 | Live Plot & Spectrum Monitor | `dev/plans/live_plot.md` | Complete — all 3 phases (LiveFigure, builtins, mag2db) |
 | Sparse Vectors and Matrices | `dev/plans/sparse.md` | Complete — all 4 phases (types, conversion, arithmetic, solver/utilities) |
+| Notebook System | `dev/plans/notebook_report.md` | Complete through Phase 6 (parse, execute, KaTeX, LaTeX/PDF, polish, multi-notebook) |
+| Notebook Future Features | `dev/plans/notebook_future.md` | Complete — template interpolation, string arrays, categorical bar charts |
 
 ---
 
@@ -338,9 +340,9 @@ cargo install --path crates/rustlab-cli   # → ~/.cargo/bin/rustlab
 **Key files:**
 - `src/lexer.rs` — hand-written lexer → `Vec<Spanned<Token>>`
 - `src/parser.rs` — recursive-descent parser → `Vec<Stmt>`
-- `src/ast.rs` — `Stmt` (Assign, Expr, FunctionDef, FieldAssign, Return, Hold, Grid, Viewer, For, While, IndexAssign, ...), `Expr` (Number, Str, Var, BinOp, UnaryMinus, Call, Matrix, Range, Transpose, Field, Lambda, FuncHandle), `BinOp`
+- `src/ast.rs` — `Stmt` (Assign, Expr, FunctionDef, FieldAssign, Return, Hold, Grid, Viewer, For, While, IndexAssign, ...), `Expr` (Number, Str, Var, BinOp, UnaryMinus, Call, Matrix, Range, Transpose, Field, Lambda, FuncHandle, CellArray), `BinOp`
 - `src/eval/mod.rs` — `Evaluator` struct: holds `env`, `builtins`, `user_fns`, `in_function`, `profiler: profile::Profiler`; public API: `run()`, `run_script()`, `enable_profiling()`, `has_profile_data()`, `take_profile()`
-- `src/eval/value.rs` — `Value` enum: `Scalar(f64)`, `Complex(C64)`, `Vector(CVector)`, `Matrix(CMatrix)`, `Str(String)`, `Struct(HashMap<String,Value>)`, `Bool(bool)`, `Lambda { params, body, captured_env }`, `FuncHandle(String)`, `QFmt`, `FirState(Arc<Mutex<Vec<C64>>>)`, `AudioIn { sample_rate, frame_size }`, `AudioOut { sample_rate, frame_size }`, `LiveFigure(Arc<Mutex<Option<Box<dyn rustlab_plot::LivePlot>>>>)`, `All`, `None`
+- `src/eval/value.rs` — `Value` enum: `Scalar(f64)`, `Complex(C64)`, `Vector(CVector)`, `Matrix(CMatrix)`, `Str(String)`, `StringArray(Vec<String>)`, `Struct(HashMap<String,Value>)`, `Bool(bool)`, `Lambda { params, body, captured_env }`, `FuncHandle(String)`, `QFmt`, `FirState(Arc<Mutex<Vec<C64>>>)`, `AudioIn { sample_rate, frame_size }`, `AudioOut { sample_rate, frame_size }`, `LiveFigure(Arc<Mutex<Option<Box<dyn rustlab_plot::LivePlot>>>>)`, `All`, `None`
 - `src/eval/builtins.rs` — `BuiltinRegistry`: `HashMap<String, BuiltinFn>` where `BuiltinFn = fn(Vec<Value>) -> Result<Value, ScriptError>`
 - `src/eval/toml_io.rs` — TOML import/export: `save_toml()`, `load_toml()`, and `Value ↔ toml::Value` converters
 - `src/eval/profile.rs` — `Profiler` struct (opt-in, zero overhead when disabled); `print_report()` prints table to stderr
@@ -424,6 +426,7 @@ postfix     = primary ("'" | ".'" | "." IDENT ["(" arglist ")"] | "(" arglist ")
 primary     = NUMBER | STRING | IDENT
             | IDENT "(" range_arglist ")"       # call or 1-based index
             | "[" range_row (";" range_row)* "]"
+            | "{" expr ("," expr)* "}"          # string array literal
             | "(" range_expr ")"
             | "-" primary
             | "@" "(" params ")" expr           # anonymous function (lambda)
@@ -463,6 +466,7 @@ primary     = NUMBER | STRING | IDENT
 | Element-wise | `.*` `./` `.^` | Always element-wise on vectors/matrices |
 | Matrix literal | `[1,2; 3,4]` | `;` separates rows |
 | Sparse types | `SparseVector`, `SparseMatrix` | COO format; 0-based internal, 1-based in script; auto-promote to dense in binops |
+| String array | `{"a", "b", "c"}` | `Value::StringArray`; all elements must be strings; 1-based indexing |
 | Underscore literals | `1_000_000`, `3.141_592` | Digit separators stripped at lex time; like Rust/Python/C++ |
 | Format mode | `format commas` / `format default` | Bare command; toggles thousands separators in auto-print output |
 
@@ -533,6 +537,7 @@ primary     = NUMBER | STRING | IDENT
 | `spzeros` | `spzeros(m, n)` | m×n all-zero sparse matrix |
 | `full` | `full(S)` | Convert sparse to dense; identity for dense inputs |
 | `nnz` | `nnz(S)` | Number of stored non-zero entries; numel for dense |
+| `iscell` | `iscell(x)` | `true` if x is a string array, `false` otherwise |
 | `issparse` | `issparse(x)` | 1 if sparse, 0 otherwise |
 | `nonzeros` | `nonzeros(S)` | Vector of non-zero values in storage order |
 | `find` | `find(S)` | `[I,J,V]` tuple for sparse matrix, `[I,V]` for sparse vector (1-based) |

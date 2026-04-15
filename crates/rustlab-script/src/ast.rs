@@ -84,6 +84,8 @@ pub enum Expr {
     Call { name: String, args: Vec<Expr> },
     /// `[rows]` literal — rows separated by `;`, elements by `,`
     Matrix(Vec<Vec<Expr>>),
+    /// `{expr, expr, ...}` — cell/string array literal
+    CellArray(Vec<Expr>),
     /// `start:stop` or `start:step:stop` — produces a vector
     Range { start: Box<Expr>, step: Option<Box<Expr>>, stop: Box<Expr> },
     /// `expr'` — conjugate transpose

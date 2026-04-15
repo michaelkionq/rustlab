@@ -111,8 +111,16 @@ pub fn render_figure_plotly_div(fig: &FigureState, div_id: &str) -> String {
 
         // Axis layout
         let show_grid = if panel.grid { "true" } else { "false" };
+        // Categorical tick labels for x-axis
+        let xtick_extra = if let Some(labels) = &panel.x_labels {
+            let tickvals: Vec<String> = (1..=labels.len()).map(|i| i.to_string()).collect();
+            let ticktext: Vec<String> = labels.iter().map(|l| format!("\"{}\"", escape_js(l))).collect();
+            format!(", tickvals: [{}], ticktext: [{}]", tickvals.join(","), ticktext.join(","))
+        } else {
+            String::new()
+        };
         layout_axes.push_str(&format!(
-            r#"xaxis{ax}: {{ domain: [{x0:.4}, {x1:.4}], title: {{ text: "{xlabel}" }}{xrange}, showgrid: {grid}, gridcolor: "rgba(150,150,180,0.3)" }},
+            r#"xaxis{ax}: {{ domain: [{x0:.4}, {x1:.4}], title: {{ text: "{xlabel}" }}{xrange}, showgrid: {grid}, gridcolor: "rgba(150,150,180,0.3)"{xtick} }},
 yaxis{ax}: {{ domain: [{y0:.4}, {y1:.4}], title: {{ text: "{ylabel}" }}{yrange}, showgrid: {grid}, gridcolor: "rgba(150,150,180,0.3)" }},
 "#,
             ax = axis_suffix,
@@ -123,6 +131,7 @@ yaxis{ax}: {{ domain: [{y0:.4}, {y1:.4}], title: {{ text: "{ylabel}" }}{yrange},
             ylabel = escape_js(&panel.ylabel),
             xrange = format_range(panel.xlim),
             yrange = format_range(panel.ylim),
+            xtick = xtick_extra,
         ));
 
         // Title as annotation

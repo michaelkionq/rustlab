@@ -7,7 +7,16 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
-#[command(name = "rustlab-notebook", about = "Render Markdown notebooks with rustlab code blocks")]
+#[command(
+    name = "rustlab-notebook",
+    version = env!("CARGO_PKG_VERSION"),
+    about = "Render Markdown notebooks with rustlab code blocks",
+    long_about = "Render Markdown notebooks with rustlab code blocks.\n\n\
+        Executes ```rustlab fenced code blocks through the evaluator, captures\n\
+        text output and plots, and produces self-contained HTML, LaTeX, or PDF.\n\
+        Supports template interpolation (${expr}), KaTeX math, syntax highlighting,\n\
+        and multi-notebook directory rendering with index generation."
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -22,11 +31,11 @@ enum Format {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Render a notebook to HTML, LaTeX, or PDF
+    /// Render a notebook (or directory of notebooks) to HTML, LaTeX, or PDF
     Render {
-        /// Input .md file
+        /// Input .md file or directory of .md files
         input: PathBuf,
-        /// Output file (default: <input_stem>.<ext>)
+        /// Output file or directory (default: <input_stem>.<ext> or same directory)
         #[arg(short, long)]
         output: Option<PathBuf>,
         /// Output format
@@ -38,7 +47,13 @@ enum Command {
 fn main() {
     let cli = Cli::parse();
     match cli.command {
-        Command::Render { input, output, format } => cmd_render(input, output, format),
+        Command::Render { input, output, format } => {
+            if input.is_dir() {
+                cmd_render_dir(input, output, format);
+            } else {
+                cmd_render(input, output, format);
+            }
+        }
     }
 }
 
@@ -79,28 +94,110 @@ fn cmd_render(input: PathBuf, output: Option<PathBuf>, format: Format) {
     });
 
     // Render to chosen format
+    render_output(&out_path, &format, &title, &rendered);
+
+    // Count results
+    print_summary(&input, &out_path, &rendered);
+}
+
+fn cmd_render_dir(dir: PathBuf, output: Option<PathBuf>, format: Format) {
+    let out_dir = output.unwrap_or_else(|| dir.clone());
+
+    // Collect all .md files in the directory (non-recursive)
+    let mut md_files: Vec<PathBuf> = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().map_or(false, |ext| ext == "md"))
+            .collect(),
+        Err(e) => {
+            eprintln!("error: cannot read directory {}: {e}", dir.display());
+            std::process::exit(1);
+        }
+    };
+    md_files.sort();
+
+    if md_files.is_empty() {
+        eprintln!("warning: no .md files found in {}", dir.display());
+        return;
+    }
+
+    let ext = match format {
+        Format::Html => "html",
+        Format::Latex => "tex",
+        Format::Pdf => "pdf",
+    };
+
+    let mut index_entries: Vec<(String, String)> = Vec::new();
+
+    for md_path in &md_files {
+        let source = match std::fs::read_to_string(md_path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("warning: cannot read {}: {e}", md_path.display());
+                continue;
+            }
+        };
+
+        let title = extract_title(&source, md_path);
+        let stem = md_path.file_stem().unwrap_or_default().to_string_lossy();
+        let out_file = out_dir.join(format!("{stem}.{ext}"));
+
+        // Set working dir to the notebook's directory for relative paths
+        let _ = std::env::set_current_dir(&dir);
+
+        let blocks = parse::parse_notebook(&source);
+        let rendered = execute::execute_notebook(&blocks);
+
+        render_output(&out_file, &format, &title, &rendered);
+        print_summary(md_path, &out_file, &rendered);
+
+        index_entries.push((title, format!("{stem}.{ext}")));
+    }
+
+    // Generate index page (HTML only)
+    if matches!(format, Format::Html) {
+        let dir_name = dir.file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let index_html = generate_index_html(&dir_name, &index_entries);
+        let index_path = out_dir.join("index.html");
+        write_output(&index_path, index_html.as_bytes());
+        println!("Generated {} ({} notebooks)", index_path.display(), index_entries.len());
+    }
+}
+
+/// Render executed blocks to the chosen output format.
+fn render_output(
+    out_path: &PathBuf,
+    format: &Format,
+    title: &str,
+    rendered: &[execute::Rendered],
+) {
     match format {
         Format::Html => {
-            let html = render::render_html(&title, &rendered);
-            write_output(&out_path, html.as_bytes());
+            let html = render::render_html(title, rendered);
+            write_output(out_path, html.as_bytes());
         }
         Format::Latex => {
-            let plot_dir = plot_dir_for(&out_path);
-            let tex = render_latex::render_latex(&title, &rendered, &plot_dir);
-            write_output(&out_path, tex.as_bytes());
+            let plot_dir = plot_dir_for(out_path);
+            let tex = render_latex::render_latex(title, rendered, &plot_dir);
+            write_output(out_path, tex.as_bytes());
         }
         Format::Pdf => {
             // Generate .tex first, then compile with pdflatex
             let tex_path = out_path.with_extension("tex");
             let plot_dir = plot_dir_for(&tex_path);
-            let tex = render_latex::render_latex(&title, &rendered, &plot_dir);
+            let tex = render_latex::render_latex(title, rendered, &plot_dir);
             write_output(&tex_path, tex.as_bytes());
-
-            compile_pdf(&tex_path, &out_path);
+            compile_pdf(&tex_path, out_path);
         }
     }
+}
 
-    // Count results
+/// Print a summary line for a rendered notebook.
+fn print_summary(input: &PathBuf, out_path: &PathBuf, rendered: &[execute::Rendered]) {
     let n_code = rendered.iter().filter(|b| matches!(b, execute::Rendered::Code { .. })).count();
     let n_plots = rendered.iter().filter(|b| matches!(b, execute::Rendered::Code { figure: Some(_), .. })).count();
     let n_errors = rendered.iter().filter(|b| matches!(b, execute::Rendered::Code { error: Some(_), .. })).count();
@@ -209,4 +306,173 @@ fn extract_title(source: &str, path: &PathBuf) -> String {
         .unwrap_or_default()
         .to_string_lossy()
         .to_string()
+}
+
+/// Generate an index HTML page linking to all rendered notebooks.
+fn generate_index_html(dir_name: &str, entries: &[(String, String)]) -> String {
+    let mut links = String::new();
+    for (title, filename) in entries {
+        links.push_str(&format!(
+            "  <li><a href=\"{filename}\">{title}</a></li>\n",
+            filename = escape_html(filename),
+            title = escape_html(title),
+        ));
+    }
+
+    format!(
+        r##"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title} — Notebook Index</title>
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    display: flex;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 3rem 1.5rem;
+  }}
+  main {{
+    max-width: 720px;
+    width: 100%;
+  }}
+  h1 {{
+    font-size: 2rem;
+    color: #cba6f7;
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #313244;
+  }}
+  .subtitle {{
+    color: #a6adc8;
+    font-size: 0.9rem;
+    margin-bottom: 2rem;
+  }}
+  ul {{
+    list-style: none;
+    padding: 0;
+  }}
+  li {{
+    margin-bottom: 0.5rem;
+  }}
+  a {{
+    display: block;
+    padding: 0.8rem 1.2rem;
+    background: #181825;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    color: #89b4fa;
+    text-decoration: none;
+    font-size: 1.05rem;
+    transition: background 0.15s, border-color 0.15s;
+  }}
+  a:hover {{
+    background: #313244;
+    border-color: #89b4fa;
+  }}
+  footer {{
+    color: #585b70;
+    font-size: 0.8rem;
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 1px solid #313244;
+  }}
+</style>
+</head>
+<body>
+<main>
+<h1>{title}</h1>
+<p class="subtitle">{count} notebook{plural}</p>
+<ul>
+{links}</ul>
+<footer>Generated by rustlab-notebook</footer>
+</main>
+</body>
+</html>
+"##,
+        title = escape_html(dir_name),
+        count = entries.len(),
+        plural = if entries.len() == 1 { "" } else { "s" },
+        links = links,
+    )
+}
+
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+     .replace('<', "&lt;")
+     .replace('>', "&gt;")
+     .replace('"', "&quot;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_title_from_heading() {
+        let source = "# My Analysis\n\nSome text.";
+        let title = extract_title(source, &PathBuf::from("analysis.md"));
+        assert_eq!(title, "My Analysis");
+    }
+
+    #[test]
+    fn extract_title_fallback_to_filename() {
+        let source = "No heading here.";
+        let title = extract_title(source, &PathBuf::from("my_report.md"));
+        assert_eq!(title, "my_report");
+    }
+
+    #[test]
+    fn extract_title_ignores_h2() {
+        let source = "## Sub Heading\n\nText.";
+        let title = extract_title(source, &PathBuf::from("test.md"));
+        assert_eq!(title, "test");
+    }
+
+    #[test]
+    fn generate_index_basic() {
+        let entries = vec![
+            ("Filter Analysis".to_string(), "filter.html".to_string()),
+            ("Quick Look".to_string(), "quick.html".to_string()),
+        ];
+        let html = generate_index_html("notebooks", &entries);
+        assert!(html.contains("notebooks"));
+        assert!(html.contains("2 notebooks"));
+        assert!(html.contains("href=\"filter.html\""));
+        assert!(html.contains("Filter Analysis"));
+        assert!(html.contains("href=\"quick.html\""));
+        assert!(html.contains("Quick Look"));
+        assert!(html.contains("Generated by rustlab-notebook"));
+    }
+
+    #[test]
+    fn generate_index_single() {
+        let entries = vec![
+            ("Solo".to_string(), "solo.html".to_string()),
+        ];
+        let html = generate_index_html("test", &entries);
+        assert!(html.contains("1 notebook"));
+        assert!(!html.contains("notebooks")); // singular
+    }
+
+    #[test]
+    fn generate_index_empty() {
+        let html = generate_index_html("empty", &[]);
+        assert!(html.contains("0 notebooks"));
+    }
+
+    #[test]
+    fn generate_index_escapes_html() {
+        let entries = vec![
+            ("A <script> & \"test\"".to_string(), "test.html".to_string()),
+        ];
+        let html = generate_index_html("dir", &entries);
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("&amp;"));
+    }
 }

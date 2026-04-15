@@ -61,6 +61,8 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `place(A, B, poles)` | Ackermann pole placement (SISO) → K |
 | `freqresp(A, B, C, D, w)` | H(jω) from state-space at each frequency ω |
 | `svd(A)` | Jacobi SVD → Tuple [U, sigma_vector, V] |
+| `{"a", "b", "c"}` | String array literal (all elements must be strings) |
+| `sa(i)` | String array indexing (1-based); `end` supported |
 | `s.field` | Struct field access |
 | `s.field = val` | Struct field assignment (auto-creates struct) |
 
@@ -283,6 +285,20 @@ Mixed sparse+dense pairs auto-promote to dense.
 
 ---
 
+## Cell Arrays (String Arrays)
+
+| Syntax / Function | Description |
+|---|---|
+| `{"a", "b", "c"}` | String array literal — all elements must be strings |
+| `sa(i)` | 1-based indexing — returns a string |
+| `sa(2:4)` | Slice indexing — returns a new string array |
+| `length(sa)` / `numel(sa)` | Number of elements |
+| `size(sa)` | `[1, n]` — row vector shape |
+| `iscell(x)` | `true` if x is a string array, `false` otherwise |
+| `bar(labels, y)` | Categorical bar chart with string array x-axis labels |
+
+---
+
 ## Output & I/O
 
 | Function | Description |
@@ -314,6 +330,7 @@ Mixed sparse+dense pairs auto-promote to dense.
 | `plot(v, "color", "r", "label", "name", "style", "dashed")` | Key-value options; colors: `r g b c m y k w` or full names |
 | `stem(v)` / `stem(v, "title")` | Stem plot |
 | `bar(y)` / `bar(x, y)` / `bar(y, "title")` | Bar chart |
+| `bar(labels, y)` / `bar(labels, y, "title")` | Categorical bar chart (labels is a string array) |
 | `bar(M)` / `bar(x, M)` / `bar(x, M, "title")` | Grouped bar chart (each column = group) |
 | `scatter(x, y)` / `scatter(x, y, "title")` | Scatter plot |
 | `hline(y)` / `hline(y, color, label)` | Horizontal reference line (dashed); `yline()` alias |
