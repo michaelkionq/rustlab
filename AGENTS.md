@@ -153,7 +153,7 @@ together whenever a phase finishes.
 | Real-Time Audio Streaming | `dev/plans/audio_streaming.md` | Complete — all 3 phases (while loop, FirState, audio I/O) |
 | Live Plot & Spectrum Monitor | `dev/plans/live_plot.md` | Complete — all 3 phases (LiveFigure, builtins, mag2db) |
 | Sparse Vectors and Matrices | `dev/plans/sparse.md` | Complete — all 4 phases (types, conversion, arithmetic, solver/utilities) |
-| Notebook System | `dev/plans/notebook_report.md` | Complete through Phase 6 (parse, execute, KaTeX, LaTeX/PDF, polish, multi-notebook) |
+| Notebook System | `dev/plans/notebook_report.md` | Complete through Phase 6 (parse, execute, KaTeX, LaTeX/PDF, polish, multi-notebook) + light/dark theme support |
 | Notebook Future Features | `dev/plans/notebook_future.md` | Complete — template interpolation, string arrays, categorical bar charts |
 
 ---
@@ -378,8 +378,25 @@ cargo install --path crates/rustlab-cli   # → ~/.cargo/bin/rustlab
 - `src/commands/convolve.rs` — reads CSV signals, calls `convolve` or `overlap_add`
 - `src/commands/window.rs` — generates window, prints values, optional `--plot`
 - `src/commands/plot.rs` — reads CSV, dispatches to plot functions
+- `src/commands/notebook.rs` — `rustlab notebook render` subcommand, delegates to `rustlab_notebook`
 
 **Default behaviour:** `rustlab` with no arguments starts the REPL.
+
+### `rustlab-notebook`
+
+**Purpose:** Library + binary crate. Renders Markdown notebooks with \`\`\`rustlab code blocks into self-contained HTML, LaTeX, or PDF.
+
+**Key files:**
+- `src/lib.rs` — public API: `cmd_render`, `cmd_render_dir`, `Format`, `generate_index_html`
+- `src/main.rs` — thin CLI wrapper (`rustlab-notebook render`)
+- `src/parse.rs` — parse notebook markdown into `Block` enum (Markdown / Code)
+- `src/execute.rs` — execute code blocks through `Evaluator`, produce `Rendered` blocks
+- `src/render.rs` — HTML rendering with themed CSS (Catppuccin Mocha/Latte)
+- `src/render_latex.rs` — LaTeX/PDF rendering with themed colors
+
+**Theme support:** `--theme dark|light` flag (default: dark). Dark = Catppuccin Mocha, Light = Catppuccin Latte. Theme colors are defined in `rustlab-plot/src/theme.rs` (`Theme` enum + `ThemeColors` struct) and shared with the plot crate for consistent Plotly chart styling.
+
+**Accessible via:** `rustlab-notebook render ...` (standalone binary) or `rustlab notebook render ...` (main CLI subcommand).
 
 ---
 

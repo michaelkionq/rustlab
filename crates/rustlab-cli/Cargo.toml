@@ -17,10 +17,11 @@ name = "rustlab"
 path = "src/main.rs"
 
 [dependencies]
-rustlab-core.workspace   = true
-rustlab-dsp.workspace    = true
-rustlab-plot.workspace   = true
-rustlab-script.workspace = true
+rustlab-core.workspace     = true
+rustlab-dsp.workspace      = true
+rustlab-notebook.workspace = true
+rustlab-plot.workspace     = true
+rustlab-script.workspace   = true
 clap                     = { version = "4", features = ["derive"] }
 rustyline                = { version = "14", features = ["derive"] }
 anyhow.workspace         = true

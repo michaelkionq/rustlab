@@ -28,6 +28,9 @@ pub enum Commands {
     Window(crate::commands::window::WindowArgs),
     /// Plot a signal from a CSV file (one value per line)
     Plot(crate::commands::plot::PlotArgs),
+    /// Render Markdown notebooks with rustlab code blocks
+    #[command(subcommand)]
+    Notebook(crate::commands::notebook::NotebookCommands),
     /// Show version and feature information
     Info,
 }
@@ -41,6 +44,7 @@ impl Cli {
             Commands::Convolve(args) => crate::commands::convolve::execute(args),
             Commands::Window(args)   => crate::commands::window::execute(args),
             Commands::Plot(args)     => crate::commands::plot::execute(args),
+            Commands::Notebook(cmd)  => crate::commands::notebook::execute(cmd),
             Commands::Info           => crate::commands::info::execute(),
         }
     }

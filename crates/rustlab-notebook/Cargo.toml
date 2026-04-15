@@ -7,6 +7,10 @@ license.workspace     = true
 repository.workspace  = true
 description = "Render Markdown notebooks with rustlab code blocks into HTML reports"
 
+[lib]
+name = "rustlab_notebook"
+path = "src/lib.rs"
+
 [[bin]]
 name = "rustlab-notebook"
 path = "src/main.rs"

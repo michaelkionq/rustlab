@@ -1,11 +1,12 @@
 use std::path::Path;
 use pulldown_cmark::{Parser, Options, Event, Tag, TagEnd, HeadingLevel};
+use rustlab_plot::theme::{Theme, ThemeColors};
 use crate::execute::Rendered;
 
 /// Render executed notebook blocks into a LaTeX document string.
-/// Plot images are written to `plot_dir` as PNG files and referenced
-/// via \includegraphics.
-pub fn render_latex(title: &str, blocks: &[Rendered], plot_dir: &Path) -> String {
+/// Plot images are written to `plot_dir` as SVG files and referenced
+/// via \includesvg.
+pub fn render_latex(title: &str, blocks: &[Rendered], plot_dir: &Path, theme: &ThemeColors) -> String {
     let mut body = String::new();
     let mut plot_idx = 0;
 
@@ -35,7 +36,10 @@ pub fn render_latex(title: &str, blocks: &[Rendered], plot_dir: &Path) -> String
 
                 // Error
                 if let Some(err) = error {
-                    body.push_str("\\begin{quote}\n{\\color{red}\\ttfamily\\small\n\\begin{verbatim}\n");
+                    body.push_str(&format!(
+                        "\\begin{{quote}}\n{{\\color[HTML]{{{error_hex}}}\\ttfamily\\small\n\\begin{{verbatim}}\n",
+                        error_hex = &theme.error_text[1..], // strip leading '#'
+                    ));
                     body.push_str(err);
                     body.push_str("\n\\end{verbatim}\n}\\end{quote}\n\n");
                 }
@@ -62,6 +66,21 @@ pub fn render_latex(title: &str, blocks: &[Rendered], plot_dir: &Path) -> String
         }
     }
 
+    let is_dark = theme as *const ThemeColors == Theme::Dark.colors() as *const ThemeColors;
+    let link_hex = &theme.accent_secondary[1..]; // strip leading '#'
+
+    let dark_preamble = if is_dark {
+        let bg_hex = &theme.bg[1..];
+        let text_hex = &theme.text[1..];
+        format!(
+            "\\usepackage{{pagecolor}}\n\
+             \\pagecolor[HTML]{{{bg_hex}}}\n\
+             \\color[HTML]{{{text_hex}}}\n"
+        )
+    } else {
+        String::new()
+    };
+
     format!(
         r#"\documentclass[11pt,a4paper]{{article}}
 \usepackage[utf8]{{inputenc}}
@@ -74,8 +93,8 @@ pub fn render_latex(title: &str, blocks: &[Rendered], plot_dir: &Path) -> String
 \usepackage{{xcolor}}
 \usepackage{{booktabs}}
 \usepackage{{hyperref}}
-\hypersetup{{colorlinks=true,linkcolor=blue,urlcolor=blue}}
-
+\hypersetup{{colorlinks=true,linkcolor=[HTML]{{{link_hex}}},urlcolor=[HTML]{{{link_hex}}}}}
+{dark_preamble}
 \title{{{title}}}
 \date{{\today}}
 
@@ -87,6 +106,8 @@ pub fn render_latex(title: &str, blocks: &[Rendered], plot_dir: &Path) -> String
 "#,
         title = escape_latex(title),
         body = body,
+        link_hex = link_hex,
+        dark_preamble = dark_preamble,
     )
 }
 
@@ -283,6 +304,10 @@ mod tests {
     use super::*;
     use crate::execute::Rendered;
 
+    fn light() -> &'static ThemeColors {
+        Theme::Light.colors()
+    }
+
     // ── escape_latex ──
 
     #[test]
@@ -458,7 +483,7 @@ mod tests {
 
     #[test]
     fn render_latex_preamble() {
-        let tex = render_latex("Test Title", &[], std::path::Path::new("/tmp/test_plots"));
+        let tex = render_latex("Test Title", &[], std::path::Path::new("/tmp/test_plots"), light());
         assert!(tex.contains("\\documentclass"));
         assert!(tex.contains("\\usepackage{graphicx}"));
         assert!(tex.contains("\\usepackage{svg}"));
@@ -471,7 +496,7 @@ mod tests {
 
     #[test]
     fn render_latex_title_escaped() {
-        let tex = render_latex("A & B", &[], std::path::Path::new("/tmp/test_plots"));
+        let tex = render_latex("A & B", &[], std::path::Path::new("/tmp/test_plots"), light());
         assert!(tex.contains("\\title{A \\& B}"));
     }
 
@@ -486,7 +511,7 @@ mod tests {
                 hidden: false,
             },
         ];
-        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"));
+        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"), light());
         assert!(tex.contains("\\begin{verbatim}\nx = 42\n\\end{verbatim}"));
     }
 
@@ -501,7 +526,7 @@ mod tests {
                 hidden: true,
             },
         ];
-        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"));
+        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"), light());
         // Source should not appear in verbatim
         assert!(!tex.contains("secret = 42"));
         // But text output should
@@ -519,7 +544,7 @@ mod tests {
                 hidden: false,
             },
         ];
-        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"));
+        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"), light());
         assert!(tex.contains("\\begin{quote}"));
         assert!(tex.contains("ans = 1"));
     }
@@ -535,7 +560,7 @@ mod tests {
                 hidden: false,
             },
         ];
-        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"));
+        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"), light());
         // Only one verbatim (source), no quote block for output
         let verbatim_count = tex.matches("\\begin{verbatim}").count();
         assert_eq!(verbatim_count, 1);
@@ -553,8 +578,8 @@ mod tests {
                 hidden: false,
             },
         ];
-        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"));
-        assert!(tex.contains("\\color{red}"));
+        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"), light());
+        assert!(tex.contains("\\color[HTML]{"));
         assert!(tex.contains("undefined variable"));
     }
 
@@ -563,7 +588,7 @@ mod tests {
         let blocks = vec![
             Rendered::Markdown("## Analysis\n\nSome text with $x^2$ math.".to_string()),
         ];
-        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"));
+        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"), light());
         assert!(tex.contains("\\subsection{Analysis}"));
         assert!(tex.contains("$x^2$"));
     }

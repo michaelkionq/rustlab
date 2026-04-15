@@ -1,9 +1,10 @@
 use pulldown_cmark::{Parser, Options, html::push_html};
 use rustlab_plot::render_figure_plotly_div;
+use rustlab_plot::ThemeColors;
 use crate::execute::Rendered;
 
 /// Render executed notebook blocks into a self-contained HTML string.
-pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
+pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> String {
     let mut nav_items = String::new();
     let mut body = String::new();
     let mut heading_idx = 0;
@@ -58,7 +59,7 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
                 if let Some(fig) = figure {
                     plot_idx += 1;
                     let div_id = format!("plot-{plot_idx}");
-                    let plotly_div = render_figure_plotly_div(fig, &div_id);
+                    let plotly_div = render_figure_plotly_div(fig, &div_id, theme);
                     body.push_str("<div class=\"plot-container\">\n");
                     body.push_str(&plotly_div);
                     body.push_str("\n</div>\n");
@@ -69,6 +70,7 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
         }
     }
 
+    let c = theme;
     format!(
         r##"<!DOCTYPE html>
 <html lang="en">
@@ -90,8 +92,8 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
   body {{
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background: #1e1e2e;
-    color: #cdd6f4;
+    background: {bg};
+    color: {text};
     display: flex;
     min-height: 100vh;
   }}
@@ -102,8 +104,8 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
     left: 0;
     width: 220px;
     height: 100vh;
-    background: #181825;
-    border-right: 1px solid #313244;
+    background: {bg_secondary};
+    border-right: 1px solid {border};
     padding: 1.5rem 0;
     overflow-y: auto;
     z-index: 100;
@@ -112,22 +114,22 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
   nav .nav-title {{
     font-size: 1.1rem;
     font-weight: 700;
-    color: #cba6f7;
+    color: {accent_primary};
     padding: 0 1rem 1rem;
-    border-bottom: 1px solid #313244;
+    border-bottom: 1px solid {border};
     margin-bottom: 0.5rem;
   }}
   nav a {{
     display: block;
     padding: 0.4rem 1rem;
-    color: #a6adc8;
+    color: {text_dim};
     text-decoration: none;
     font-size: 0.9rem;
     transition: background 0.15s, color 0.15s;
   }}
   nav a:hover {{
-    background: #313244;
-    color: #cdd6f4;
+    background: {border};
+    color: {text};
   }}
   nav a.h2 {{
     padding-left: 1.8rem;
@@ -144,10 +146,10 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
     top: 0.7rem;
     left: 0.7rem;
     z-index: 200;
-    background: #313244;
-    border: 1px solid #45475a;
+    background: {border};
+    border: 1px solid {border_subtle};
     border-radius: 6px;
-    color: #cdd6f4;
+    color: {text};
     font-size: 1.3rem;
     width: 2.4rem;
     height: 2.4rem;
@@ -168,26 +170,26 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
   }}
   .prose h1 {{
     font-size: 1.8rem;
-    color: #cba6f7;
+    color: {accent_primary};
     margin: 2rem 0 1rem;
     padding-bottom: 0.4rem;
-    border-bottom: 1px solid #313244;
+    border-bottom: 1px solid {border};
   }}
   .prose h2 {{
     font-size: 1.4rem;
-    color: #89b4fa;
+    color: {accent_secondary};
     margin: 1.8rem 0 0.8rem;
   }}
   .prose h3 {{
     font-size: 1.15rem;
-    color: #74c7ec;
+    color: {accent_tertiary};
     margin: 1.4rem 0 0.6rem;
   }}
   .prose p {{
     margin-bottom: 1rem;
   }}
   .prose code {{
-    background: #313244;
+    background: {inline_code_bg};
     padding: 0.15rem 0.4rem;
     border-radius: 3px;
     font-size: 0.9em;
@@ -197,13 +199,13 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
     margin: 1rem 0;
   }}
   .prose th, .prose td {{
-    border: 1px solid #45475a;
+    border: 1px solid {border_subtle};
     padding: 0.5rem 0.8rem;
     text-align: left;
   }}
   .prose th {{
-    background: #313244;
-    color: #cba6f7;
+    background: {border};
+    color: {accent_primary};
     font-weight: 600;
   }}
   .prose ul, .prose ol {{
@@ -213,51 +215,51 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
     margin-bottom: 0.3rem;
   }}
   .prose blockquote {{
-    border-left: 3px solid #cba6f7;
+    border-left: 3px solid {accent_primary};
     padding-left: 1rem;
-    color: #a6adc8;
+    color: {text_dim};
     margin: 1rem 0;
   }}
   .code-block {{
     margin-bottom: 1.5rem;
   }}
   .source {{
-    background: #11111b;
-    border: 1px solid #313244;
+    background: {code_bg};
+    border: 1px solid {border};
     border-radius: 6px;
     padding: 1rem;
     overflow-x: auto;
     font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
     font-size: 0.85rem;
     line-height: 1.5;
-    color: #cdd6f4;
+    color: {text};
   }}
   .output {{
-    background: #181825;
-    border: 1px solid #313244;
+    background: {output_bg};
+    border: 1px solid {border};
     border-radius: 6px;
     padding: 0.8rem 1rem;
     margin-top: 0.5rem;
-    color: #a6adc8;
+    color: {text_dim};
     font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
     font-size: 0.85rem;
     white-space: pre-wrap;
     line-height: 1.5;
   }}
   .error {{
-    background: #1e0a0a;
-    border: 1px solid #f38ba8;
+    background: {error_bg};
+    border: 1px solid {error_text};
     border-radius: 6px;
     padding: 0.8rem 1rem;
     margin-top: 0.5rem;
-    color: #f38ba8;
+    color: {error_text};
     font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
     font-size: 0.85rem;
     white-space: pre-wrap;
   }}
   .plot-container {{
-    background: #1e1e2e;
-    border: 1px solid #313244;
+    background: {bg};
+    border: 1px solid {border};
     border-radius: 8px;
     margin-top: 0.5rem;
     height: 450px;
@@ -267,19 +269,19 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
     height: 100%;
   }}
   footer {{
-    color: #585b70;
+    color: {footer_text};
     font-size: 0.8rem;
     margin-top: 3rem;
     padding-top: 1rem;
-    border-top: 1px solid #313244;
+    border-top: 1px solid {border};
   }}
-  /* ── Syntax highlighting (Catppuccin Mocha) ── */
-  .syn-kw  {{ color: #cba6f7; }}           /* keywords: if, for, function, ... */
-  .syn-fn  {{ color: #89b4fa; }}           /* function calls */
-  .syn-num {{ color: #fab387; }}           /* numbers */
-  .syn-str {{ color: #a6e3a1; }}           /* strings */
-  .syn-com {{ color: #6c7086; font-style: italic; }}  /* comments */
-  .syn-op  {{ color: #89dceb; }}           /* operators */
+  /* ── Syntax highlighting ── */
+  .syn-kw  {{ color: {syn_keyword}; }}
+  .syn-fn  {{ color: {syn_function}; }}
+  .syn-num {{ color: {syn_number}; }}
+  .syn-str {{ color: {syn_string}; }}
+  .syn-com {{ color: {syn_comment}; font-style: italic; }}
+  .syn-op  {{ color: {syn_operator}; }}
   /* ── Responsive: collapse sidebar on narrow screens ── */
   @media (max-width: 768px) {{
     nav {{
@@ -314,6 +316,27 @@ pub fn render_html(title: &str, blocks: &[Rendered]) -> String {
         title = escape_html(title),
         nav = nav_items,
         body = body,
+        bg = c.bg,
+        bg_secondary = c.bg_secondary,
+        text = c.text,
+        text_dim = c.text_dim,
+        border = c.border,
+        border_subtle = c.border_subtle,
+        accent_primary = c.accent_primary,
+        accent_secondary = c.accent_secondary,
+        accent_tertiary = c.accent_tertiary,
+        code_bg = c.code_bg,
+        output_bg = c.output_bg,
+        inline_code_bg = c.inline_code_bg,
+        error_bg = c.error_bg,
+        error_text = c.error_text,
+        footer_text = c.footer_text,
+        syn_keyword = c.syn_keyword,
+        syn_function = c.syn_function,
+        syn_number = c.syn_number,
+        syn_string = c.syn_string,
+        syn_comment = c.syn_comment,
+        syn_operator = c.syn_operator,
     )
 }
 
@@ -542,6 +565,11 @@ fn rewrite_md_links(md: &str) -> String {
 mod tests {
     use super::*;
     use crate::execute::Rendered;
+    use rustlab_plot::Theme;
+
+    fn test_theme() -> &'static ThemeColors {
+        Theme::Dark.colors()
+    }
 
     // ── escape_html ──
 
@@ -790,7 +818,7 @@ mod tests {
         let blocks = vec![
             Rendered::Markdown("# Hello".to_string()),
         ];
-        let html = render_html("Test", &blocks);
+        let html = render_html("Test", &blocks, test_theme());
         assert!(html.contains("<!DOCTYPE html>"));
         assert!(html.contains("<title>Test</title>"));
         assert!(html.contains("class=\"prose\""));
@@ -808,7 +836,7 @@ mod tests {
                 hidden: false,
             },
         ];
-        let html = render_html("Test", &blocks);
+        let html = render_html("Test", &blocks, test_theme());
         assert!(html.contains("class=\"source\""));
         assert!(html.contains("class=\"output\""));
         assert!(html.contains("ans = 42"));
@@ -825,7 +853,7 @@ mod tests {
                 hidden: false,
             },
         ];
-        let html = render_html("Test", &blocks);
+        let html = render_html("Test", &blocks, test_theme());
         assert!(html.contains("class=\"error\""));
         assert!(html.contains("undefined variable"));
     }
@@ -841,7 +869,7 @@ mod tests {
                 hidden: true,
             },
         ];
-        let html = render_html("Test", &blocks);
+        let html = render_html("Test", &blocks, test_theme());
         // Source should not appear
         assert!(!html.contains("secret = 42"));
         assert!(!html.contains("class=\"source\""));
@@ -860,7 +888,7 @@ mod tests {
                 hidden: false,
             },
         ];
-        let html = render_html("Test", &blocks);
+        let html = render_html("Test", &blocks, test_theme());
         // Source shown, but no output div
         assert!(html.contains("class=\"source\""));
         assert!(!html.contains("class=\"output\""));
@@ -868,26 +896,26 @@ mod tests {
 
     #[test]
     fn render_html_katex_included() {
-        let html = render_html("Test", &[]);
+        let html = render_html("Test", &[], test_theme());
         assert!(html.contains("katex"));
         assert!(html.contains("auto-render"));
     }
 
     #[test]
     fn render_html_plotly_included() {
-        let html = render_html("Test", &[]);
+        let html = render_html("Test", &[], test_theme());
         assert!(html.contains("plotly"));
     }
 
     #[test]
     fn render_html_nav_toggle() {
-        let html = render_html("Test", &[]);
+        let html = render_html("Test", &[], test_theme());
         assert!(html.contains("nav-toggle"));
     }
 
     #[test]
     fn render_html_title_escaped() {
-        let html = render_html("A <script> & \"test\"", &[]);
+        let html = render_html("A <script> & \"test\"", &[], test_theme());
         assert!(html.contains("A &lt;script&gt; &amp; &quot;test&quot;"));
     }
 
@@ -902,7 +930,7 @@ mod tests {
                 hidden: false,
             },
         ];
-        let html = render_html("Test", &blocks);
+        let html = render_html("Test", &blocks, test_theme());
         assert!(html.contains("syn-kw"));
         assert!(html.contains("syn-fn"));
         assert!(html.contains("syn-num"));
@@ -913,7 +941,7 @@ mod tests {
         let blocks = vec![
             Rendered::Markdown("# Section One\n\n## Sub Section".to_string()),
         ];
-        let html = render_html("Test", &blocks);
+        let html = render_html("Test", &blocks, test_theme());
         assert!(html.contains("heading-1"));
         assert!(html.contains("heading-2"));
         assert!(html.contains("Section One"));
@@ -951,7 +979,7 @@ mod tests {
         let blocks = vec![
             Rendered::Markdown("See [other](other.md) for details".to_string()),
         ];
-        let html = render_html("Test", &blocks);
+        let html = render_html("Test", &blocks, test_theme());
         assert!(html.contains("other.html"));
         assert!(!html.contains("other.md"));
     }

@@ -5,6 +5,7 @@ use std::cell::RefCell;
 
 use crate::error::PlotError;
 use crate::figure::{FigureState, LineStyle, PlotKind, SeriesColor, FIGURE};
+use crate::theme::{Theme, ThemeColors};
 
 thread_local! {
     /// When set, every FIGURE mutation re-writes the HTML file at this path.
@@ -51,24 +52,29 @@ pub fn render_figure_html(path: &str) -> Result<(), PlotError> {
     })
 }
 
-/// Render a `FigureState` to an HTML file with Plotly.
+/// Render a `FigureState` to an HTML file with Plotly (default dark theme).
 pub fn render_figure_state_html(fig: &FigureState, path: &str) -> Result<(), PlotError> {
-    let div_content = render_figure_plotly_div(fig, "plot");
+    render_figure_state_html_themed(fig, path, Theme::default().colors())
+}
+
+/// Render a `FigureState` to an HTML file with Plotly using the given theme.
+pub fn render_figure_state_html_themed(fig: &FigureState, path: &str, theme: &ThemeColors) -> Result<(), PlotError> {
+    let div_content = render_figure_plotly_div(fig, "plot", theme);
 
     let mut html = String::with_capacity(4096 + div_content.len());
-    html.push_str(r##"<!DOCTYPE html>
+    html.push_str(&format!(r##"<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <title>RustLab Plot</title>
 <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
 <style>
-  body { margin: 0; background: #1e1e2e; }
-  #plot { width: 100vw; height: 100vh; }
+  body {{ margin: 0; background: {bg}; }}
+  #plot {{ width: 100vw; height: 100vh; }}
 </style>
 </head>
 <body>
-"##);
+"##, bg = theme.bg));
     html.push_str(&div_content);
     html.push_str(r##"</body>
 </html>
@@ -81,7 +87,7 @@ pub fn render_figure_state_html(fig: &FigureState, path: &str) -> Result<(), Plo
 /// The `div_id` is used as the element ID for `Plotly.newPlot()`.
 /// This is the shared building block for both single-file HTML export
 /// and multi-figure report generation.
-pub fn render_figure_plotly_div(fig: &FigureState, div_id: &str) -> String {
+pub fn render_figure_plotly_div(fig: &FigureState, div_id: &str, theme: &ThemeColors) -> String {
     let rows = fig.subplot_rows;
     let cols = fig.subplot_cols;
     let n_panels = rows * cols;
@@ -120,13 +126,14 @@ pub fn render_figure_plotly_div(fig: &FigureState, div_id: &str) -> String {
             String::new()
         };
         layout_axes.push_str(&format!(
-            r#"xaxis{ax}: {{ domain: [{x0:.4}, {x1:.4}], title: {{ text: "{xlabel}" }}{xrange}, showgrid: {grid}, gridcolor: "rgba(150,150,180,0.3)"{xtick} }},
-yaxis{ax}: {{ domain: [{y0:.4}, {y1:.4}], title: {{ text: "{ylabel}" }}{yrange}, showgrid: {grid}, gridcolor: "rgba(150,150,180,0.3)" }},
+            r#"xaxis{ax}: {{ domain: [{x0:.4}, {x1:.4}], title: {{ text: "{xlabel}" }}{xrange}, showgrid: {grid}, gridcolor: "{plot_grid}"{xtick} }},
+yaxis{ax}: {{ domain: [{y0:.4}, {y1:.4}], title: {{ text: "{ylabel}" }}{yrange}, showgrid: {grid}, gridcolor: "{plot_grid}" }},
 "#,
             ax = axis_suffix,
             x0 = x_start, x1 = x_end,
             y0 = y_start, y1 = y_end,
             grid = show_grid,
+            plot_grid = theme.plot_grid,
             xlabel = escape_js(&panel.xlabel),
             ylabel = escape_js(&panel.ylabel),
             xrange = format_range(panel.xlim),
@@ -245,10 +252,10 @@ var data_{js_var} = ["#, div_id = div_id, js_var = js_var));
     out.push_str(&traces);
     out.push_str(&format!(r##"];
 var layout_{js_var} = {{
-  paper_bgcolor: "#1e1e2e",
-  plot_bgcolor: "#1e1e2e",
-  font: {{ color: "#cdd6f4" }},
-  "##, js_var = js_var));
+  paper_bgcolor: "{plot_bg}",
+  plot_bgcolor: "{plot_bg}",
+  font: {{ color: "{text}" }},
+  "##, js_var = js_var, plot_bg = theme.plot_bg, text = theme.text));
     out.push_str(&layout_axes);
     out.push_str("  annotations: [");
     out.push_str(&annotations);

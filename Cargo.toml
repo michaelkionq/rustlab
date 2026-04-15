@@ -38,6 +38,7 @@ rustlab-core   = { path = "crates/rustlab-core",   version = "0.1.5" }
 rustlab-dsp    = { path = "crates/rustlab-dsp",    version = "0.1.5" }
 rustlab-plot   = { path = "crates/rustlab-plot",    version = "0.1.5" }
 rustlab-script = { path = "crates/rustlab-script",  version = "0.1.5" }
+rustlab-notebook = { path = "crates/rustlab-notebook", version = "0.1.5" }
 rustlab-proto  = { path = "crates/rustlab-proto",   version = "0.1.5" }
 serde          = { version = "1", features = ["derive"] }
 rmp-serde      = "1"

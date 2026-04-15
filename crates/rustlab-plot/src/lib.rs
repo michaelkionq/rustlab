@@ -9,6 +9,7 @@ pub mod viewer_client;
 pub mod viewer_live;
 pub mod html;
 pub mod report;
+pub mod theme;
 
 pub use ascii::{
     imagesc_terminal,
@@ -36,6 +37,7 @@ pub use figure::{
 };
 pub use html::{render_figure_html, render_figure_plotly_div, set_html_figure_path, clear_html_figure_path, sync_html_file};
 pub use report::{report_start, report_active, report_add, report_auto_capture, report_save, report_end, report_len};
+pub use theme::{Theme, ThemeColors};
 
 use rustlab_core::RVector;
 
