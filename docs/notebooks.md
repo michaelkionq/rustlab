@@ -186,7 +186,66 @@ my-project/
     preprocess.r           # standalone rustlab scripts
 ```
 
-Render all notebooks: `for f in notebooks/*.md; do rustlab-notebook render "$f"; done`
+## Multi-Notebook Rendering
+
+Render an entire directory of notebooks at once:
+
+```
+rustlab-notebook render notebooks/           # → *.html + index.html
+rustlab-notebook render notebooks/ -f pdf    # → *.pdf
+```
+
+This produces one output file per `.md` file plus an `index.html` linking
+to all notebooks (HTML format only). Each notebook gets its own independent
+evaluator — variables do not leak between notebooks.
+
+### Cross-notebook links
+
+Links to other `.md` files are automatically rewritten to `.html` in
+the rendered output:
+
+```markdown
+See [Filter Design](filter_design.md) for details.
+```
+
+becomes `<a href="filter_design.html">` in the HTML output.
+
+## Template Interpolation
+
+Embed computed values in markdown prose using `${expr}` syntax:
+
+```markdown
+```rustlab
+n = 1024;
+fs = 16000;
+```
+
+This analysis uses **${n}** samples at ${fs} Hz,
+giving a duration of ${n / fs:%.3f} seconds.
+```
+
+- `${expr}` — evaluates expression and inserts its value
+- `${expr:format}` — applies `sprintf`-style formatting (e.g. `%,.2f`)
+- `\${...}` — escape for literal output
+
+Expressions are evaluated against the shared notebook environment, so
+any variable defined in a prior code block is available.
+
+## String Arrays
+
+String arrays use brace syntax and enable categorical bar chart labels:
+
+````markdown
+```rustlab
+months = {"Jan", "Feb", "Mar"};
+sales = [120, 95, 140];
+bar(months, sales, "Monthly Sales")
+```
+
+Total sales: ${sum(sales):%,.0f} units.
+````
+
+See `docs/functions.md` → Cell Arrays for full reference.
 
 ## Examples
 
@@ -195,3 +254,6 @@ See `examples/notebooks/` for working examples:
 - **quick_look.md** — minimal one-block notebook (random signal + plot)
 - **filter_analysis.md** — FIR filter design with frequency response plots
 - **spectral_estimation.md** — periodogram vs. windowed PSD, tables, display math
+- **template_interpolation.md** — embedding computed values with `${expr}` and format specs
+- **string_arrays.md** — string arrays, categorical bar charts, `iscell()`
+- **multi_notebook.md** — directory rendering and cross-notebook links

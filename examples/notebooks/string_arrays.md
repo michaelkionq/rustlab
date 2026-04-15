@@ -1,0 +1,67 @@
+# String Arrays and Categorical Charts
+
+String arrays are ordered collections of strings created with brace syntax.
+They enable categorical axis labels on bar charts and other data labeling.
+
+## String Array Basics
+
+```rustlab
+months = {"Jan", "Feb", "Mar", "Apr", "May", "Jun"};
+disp(months)
+disp(length(months))
+```
+
+String arrays support 1-based indexing:
+
+```rustlab
+disp(months(1))
+disp(months(end))
+disp(months(2:4))
+```
+
+## Categorical Bar Charts
+
+When the first argument to `bar()` is a string array, it becomes the
+x-axis labels:
+
+```rustlab
+sales = [120, 95, 140, 110, 165, 130];
+bar(months, sales, "Monthly Sales")
+```
+
+## Grouped Comparison
+
+```rustlab
+regions = {"North", "South", "East", "West"};
+q1 = [45, 32, 58, 41];
+q2 = [52, 38, 61, 47];
+
+figure()
+subplot(1,2,1)
+bar(regions, q1, "Q1 Revenue")
+subplot(1,2,2)
+bar(regions, q2, "Q2 Revenue")
+```
+
+## Type Checking
+
+```rustlab
+labels = {"a", "b", "c"};
+numbers = [1, 2, 3];
+disp(iscell(labels))
+disp(iscell(numbers))
+```
+
+`iscell()` returns `true` for string arrays, `false` for everything else.
+
+## Summary
+
+```rustlab
+n_months = length(months);
+total = sum(sales);
+avg = total / n_months;
+best_month = months(argmax(sales));
+```
+
+Across ${n_months} months, total sales were **${total:%,.0f}** units
+(average ${avg:%.1f}/month). Best month: **${best_month}**.

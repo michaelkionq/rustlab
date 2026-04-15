@@ -12,8 +12,13 @@ A matrix algebra and DSP toolkit written in Rust — scriptable from the command
 make install
 ```
 
-Builds a release binary and copies it to `~/.local/bin/rustlab`. No `sudo` required.
-On macOS, `codesign` is run automatically. On Linux, it is skipped.
+Builds release binaries and installs three tools to `~/.local/bin`:
+
+- **`rustlab`** — REPL, script runner, and CLI toolkit
+- **`rustlab-notebook`** — render Markdown notebooks to HTML, LaTeX, or PDF
+- **`rustlab-viewer`** — standalone interactive plot viewer (egui)
+
+No `sudo` required. On macOS, `codesign` is run automatically.
 
 To install to a different location, override `INSTALL_DIR`:
 
@@ -68,7 +73,7 @@ rustlab
 ```
 
 ```
-rustlab 0.1.4 — type 'exit' or press Ctrl+D to quit
+rustlab 0.1.5 — type 'exit' or press Ctrl+D to quit
 Tip: end a line with ; to suppress output
 
 >> a = 1:5
@@ -278,6 +283,18 @@ s.z = 3                    # add field
 fieldnames(s)              # prints: x, y, z
 ```
 
+### String Arrays
+
+Brace syntax creates ordered collections of strings:
+
+```
+labels = {"Jan", "Feb", "Mar"}
+labels(2)                  # "Feb"
+iscell(labels)             # true
+
+bar(labels, [10, 20, 30])  # categorical bar chart
+```
+
 > **Full language reference:** See [`docs/quickref.md`](docs/quickref.md) for a concise cheat sheet of all syntax and functions.
 
 ### Builtin Functions (highlights)
@@ -301,6 +318,8 @@ rustlab ships with 180+ builtins. Here are the most commonly used; see [`docs/qu
 | **I/O** | `print`, `disp`, `fprintf`, `save`, `load`, `whos` |
 | **Streaming** | `state_init`, `filter_stream`, `audio_in`, `audio_out`, `audio_read`, `audio_write` |
 | **Structs** | `struct`, `isstruct`, `fieldnames`, `isfield`, `rmfield` |
+| **String arrays** | `{"a","b","c"}`, `iscell`, 1-based indexing, categorical `bar()` labels |
+| **Sparse** | `sparse`, `sparsevec`, `speye`, `spzeros`, `spdiags`, `sprand`, `spsolve`, `full`, `nnz`, `issparse`, `find` |
 | **Higher-order** | `arrayfun`, `feval`, `@(x) expr` (lambdas), `@name` (function handles) |
 | **Special** | `laguerre`, `legendre`, `factor`, `rk4`, `lyap`, `gram`, `freqresp` |
 | **Profiling** | `profile`, `profile_report` |
@@ -492,6 +511,32 @@ rustlab info
 
 ---
 
+## Notebooks
+
+`rustlab-notebook` renders Markdown files with `` ```rustlab `` code blocks
+into self-contained HTML reports, LaTeX documents, or PDF.
+
+```sh
+rustlab-notebook render analysis.md              # → analysis.html
+rustlab-notebook render analysis.md -f pdf       # → analysis.pdf
+rustlab-notebook render notebooks/               # render all → *.html + index.html
+```
+
+**Features:**
+- Interactive Plotly charts (HTML) or static SVG (LaTeX/PDF)
+- KaTeX math rendering ($...$, $$...$$)
+- Syntax-highlighted code blocks
+- Template interpolation: `${expr}` embeds computed values in prose
+- `<!-- hide -->` directive to suppress setup code
+- Multi-notebook directory rendering with index generation
+- Cross-notebook `.md` → `.html` link rewriting
+- Variables persist across code blocks within a notebook
+
+See [`docs/notebooks.md`](docs/notebooks.md) for full documentation and
+`examples/notebooks/` for working examples.
+
+---
+
 ## Examples
 
 The `examples/` directory contains annotated scripts demonstrating common workflows. See [`docs/examples.md`](docs/examples.md) for step-by-step walkthroughs.
@@ -574,6 +619,23 @@ sox -d -r 44100 -c 1 -b 32 -e float -t raw - \
 **Hardware-free test:**
 ```sh
 bash examples/audio/test_filter.sh
+```
+
+### Notebooks (`examples/notebooks/`)
+
+| File | Description |
+|------|-------------|
+| `examples/notebooks/quick_look.md` | Minimal one-block notebook (random signal + plot) |
+| `examples/notebooks/filter_analysis.md` | FIR filter design with frequency response plots |
+| `examples/notebooks/spectral_estimation.md` | Periodogram vs. windowed PSD, tables, display math |
+| `examples/notebooks/template_interpolation.md` | `${expr}` interpolation with format specs |
+| `examples/notebooks/string_arrays.md` | String arrays, categorical bar charts, `iscell()` |
+| `examples/notebooks/multi_notebook.md` | Directory rendering and cross-notebook links |
+
+Render all notebooks at once:
+
+```sh
+rustlab-notebook render examples/notebooks/
 ```
 
 See `docs/examples.md` for annotated walkthroughs.

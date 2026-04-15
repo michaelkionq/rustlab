@@ -17,6 +17,9 @@
 # Project prompts (internal)
 prompts/
 
+# Local issue tracking
+dev/issues/
+
 # Environment files
 .env
 

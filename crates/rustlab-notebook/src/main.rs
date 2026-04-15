@@ -32,13 +32,25 @@ enum Format {
 #[derive(Subcommand)]
 enum Command {
     /// Render a notebook (or directory of notebooks) to HTML, LaTeX, or PDF
+    #[command(
+        long_about = "Render a notebook (or directory of notebooks) to HTML, LaTeX, or PDF.\n\n\
+            Examples:\n  \
+            rustlab-notebook render analysis.md              # → analysis.html\n  \
+            rustlab-notebook render analysis.md -f pdf       # → analysis.pdf\n  \
+            rustlab-notebook render analysis.md -f latex     # → analysis.tex\n  \
+            rustlab-notebook render analysis.md -o out.html  # custom output path\n  \
+            rustlab-notebook render notebooks/               # render all .md → .html + index.html\n  \
+            rustlab-notebook render notebooks/ -f pdf        # render all .md → .pdf\n\n\
+            HTML output is self-contained with interactive Plotly charts and KaTeX math.\n\
+            PDF output requires pdflatex or tectonic installed."
+    )]
     Render {
         /// Input .md file or directory of .md files
         input: PathBuf,
         /// Output file or directory (default: <input_stem>.<ext> or same directory)
         #[arg(short, long)]
         output: Option<PathBuf>,
-        /// Output format
+        /// Output format: html (default), latex, pdf
         #[arg(short, long, value_enum, default_value = "html")]
         format: Format,
     },
@@ -101,7 +113,13 @@ fn cmd_render(input: PathBuf, output: Option<PathBuf>, format: Format) {
 }
 
 fn cmd_render_dir(dir: PathBuf, output: Option<PathBuf>, format: Format) {
-    let out_dir = output.unwrap_or_else(|| dir.clone());
+    // Canonicalize paths upfront — code blocks may change the working
+    // directory via set_current_dir, which would break relative paths
+    // for subsequent notebooks.
+    let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
+    let out_dir = output
+        .map(|o| std::path::absolute(&o).unwrap_or(o))
+        .unwrap_or_else(|| dir.clone());
 
     // Collect all .md files in the directory (non-recursive)
     let mut md_files: Vec<PathBuf> = match std::fs::read_dir(&dir) {
