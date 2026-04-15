@@ -6,10 +6,17 @@ reports, LaTeX documents, or PDF.
 ## Quick Start
 
 ```
-rustlab-notebook render analysis.md              # → analysis.html (default)
-rustlab-notebook render analysis.md -f latex     # → analysis.tex + SVG plots
-rustlab-notebook render analysis.md -f pdf       # → analysis.pdf (requires pdflatex)
-rustlab-notebook render analysis.md -o out.html  # explicit output path
+rustlab notebook render analysis.md              # → analysis.html (default, dark theme)
+rustlab notebook render analysis.md -t light     # → analysis.html (light theme)
+rustlab notebook render analysis.md -f latex     # → analysis.tex + SVG plots
+rustlab notebook render analysis.md -f pdf       # → analysis.pdf (requires pdflatex)
+rustlab notebook render analysis.md -o out.html  # explicit output path
+```
+
+The standalone `rustlab-notebook` binary accepts the same arguments:
+
+```
+rustlab-notebook render analysis.md -t light -f pdf
 ```
 
 ## Notebook Format
@@ -122,11 +129,11 @@ from the hidden block (if any) still appears.
 ### HTML (default)
 
 Self-contained HTML with:
-- Catppuccin dark theme
-- Interactive Plotly charts (zoom, pan, hover)
+- Catppuccin dark theme (default) or light theme (`-t light`)
+- Interactive Plotly charts (zoom, pan, hover) — chart colors match the theme
 - KaTeX formula rendering
 - Navigation sidebar from headings
-- Syntax-highlighted code blocks
+- Syntax-highlighted code blocks (colors adapt to theme)
 - Responsive layout (sidebar collapses on mobile)
 
 ### LaTeX (`--format latex`)
@@ -143,6 +150,10 @@ The `.tex` file uses `article` class with `amsmath`, `booktabs`,
 `graphicx`, `svg`, `xcolor`, and `hyperref`. Formulas render natively.
 Compile with any LaTeX engine that supports `\includesvg` (e.g.,
 lualatex with inkscape, or pdflatex with the svg package).
+
+With `-t light` (default), the output is standard black-on-white LaTeX.
+With `-t dark`, the document uses `pagecolor` for a dark background with
+light text, matching the Catppuccin Mocha palette.
 
 ### PDF (`--format pdf`)
 
@@ -191,8 +202,9 @@ my-project/
 Render an entire directory of notebooks at once:
 
 ```
-rustlab-notebook render notebooks/           # → *.html + index.html
-rustlab-notebook render notebooks/ -f pdf    # → *.pdf
+rustlab notebook render notebooks/                # → *.html + index.html (dark)
+rustlab notebook render notebooks/ -t light       # → *.html + index.html (light)
+rustlab notebook render notebooks/ -f pdf         # → *.pdf
 ```
 
 This produces one output file per `.md` file plus an `index.html` linking
