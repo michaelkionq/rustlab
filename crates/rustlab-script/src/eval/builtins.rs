@@ -149,7 +149,7 @@ impl BuiltinRegistry {
         r.register("subplot",     builtin_subplot);
         r.register("legend",      builtin_legend);
         r.register("hline",       builtin_hline);
-        r.register("yline",       builtin_hline);  // MATLAB alias
+        r.register("yline",       builtin_hline);  // common alias
         r.register("imagesc",     builtin_imagesc);
         r.register("saveimagesc", builtin_saveimagesc);
         // Import / export

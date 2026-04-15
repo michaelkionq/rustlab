@@ -1193,7 +1193,7 @@ bar(categories, counts, "Vote Counts")
 ```
 
 #### Grouped bar charts: `bar(M)` / `bar(x, M)` / `bar(x, M, title)`
-When `y` is a matrix, each column becomes a separate bar group rendered side-by-side. This is the MATLAB-style grouped bar chart.
+When `y` is a matrix, each column becomes a separate bar group rendered side-by-side. This is the grouped bar chart style.
 ```
 A = [10, 20; 15, 25; 12, 18]
 bar(A)                        % 3 positions, 2 groups

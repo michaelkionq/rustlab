@@ -25,7 +25,7 @@ that includes `total_tax` formatted with commas).
 ## 6. Cell arrays / string arrays
 
 **Problem:** `{'Jan','Feb','Mar',...}` syntax is not supported.  Users must
-use `switch`/`case` blocks for string lookups that MATLAB handles with cell
+use `switch`/`case` blocks for string lookups that other tools handle with cell
 arrays.
 
 **Proposed approach — phased:**

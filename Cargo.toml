@@ -15,7 +15,7 @@ resolver = "2"
 version = "0.1.4"
 edition = "2021"
 authors     = ["Michael Kreeger"]
-license     = "MIT"
+license     = "MIT OR Apache-2.0"
 repository  = "https://github.com/mkreeger/rustlab"
 description = "A matrix algebra and DSP toolkit — scriptable from the command line or embedded in applications"
 
