@@ -22,7 +22,7 @@ pub use live::LiveFigure;
 #[cfg(feature = "viewer")]
 pub use viewer_live::ViewerFigure;
 #[cfg(feature = "viewer")]
-pub use viewer_live::{connect_viewer, disconnect_viewer, viewer_active, viewer_new_figure, sync_viewer};
+pub use viewer_live::{connect_viewer, connect_viewer_named, disconnect_viewer, viewer_active, viewer_new_figure, sync_viewer};
 pub use file::{
     render_figure_file, render_figure_state_to_file,
     save_db, save_histogram, save_imagesc_cmap, save_plot, save_stem,

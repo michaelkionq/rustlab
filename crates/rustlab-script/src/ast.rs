@@ -48,8 +48,8 @@ pub enum StmtKind {
     Hold { on: bool },
     /// `grid on` / `grid off` — toggle grid on current subplot
     Grid { on: bool },
-    /// `viewer on` / `viewer off` — connect/disconnect external viewer
-    Viewer { on: bool },
+    /// `viewer on` / `viewer on <name>` / `viewer off` — connect/disconnect external viewer
+    Viewer { on: bool, name: Option<String> },
     /// `[a, b, c] = expr` — multi-value assignment (unpacks a Tuple)
     MultiAssign { names: Vec<String>, expr: Expr, suppress: bool },
     /// `for VAR = iter_expr ... end` — iterate over elements of a vector

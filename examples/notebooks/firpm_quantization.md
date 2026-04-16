@@ -74,6 +74,7 @@ hold on
 plot(Hz_naive(1,:), 20*log10(abs(Hz_naive(2,:))), 'r')
 plot(Hz_q(1,:), 20*log10(abs(Hz_q(2,:))), 'g')
 hold off
+legend("firpm (float)", "Naive 10-bit", "firpmq 10-bit")
 title("Full Response")
 xlabel("Frequency (Hz)")
 ylabel("dB")
@@ -87,6 +88,7 @@ hold on
 plot(Hz_naive(1,:), 20*log10(abs(Hz_naive(2,:))), 'r')
 plot(Hz_q(1,:), 20*log10(abs(Hz_q(2,:))), 'g')
 hold off
+legend("firpm (float)", "Naive 10-bit", "firpmq 10-bit")
 title("Passband Detail")
 xlabel("Frequency (Hz)")
 ylabel("dB")
@@ -101,6 +103,7 @@ hold on
 plot(Hz_naive(1,:), 20*log10(abs(Hz_naive(2,:))), 'r')
 plot(Hz_q(1,:), 20*log10(abs(Hz_q(2,:))), 'g')
 hold off
+legend("firpm (float)", "Naive 10-bit", "firpmq 10-bit")
 title("Stopband Detail")
 xlabel("Frequency (Hz)")
 ylabel("dB")

@@ -2,6 +2,7 @@
 
 use egui_plot::{Plot, PlotBounds};
 use rustlab_proto::WireSeries;
+use std::sync::Arc;
 
 use crate::render;
 
@@ -46,7 +47,8 @@ impl FigureWindow {
     }
 
     /// Render this figure's subplot grid into the given `Ui`.
-    pub fn render(&mut self, ui: &mut egui::Ui) {
+    /// `fig_id` is used to generate unique egui widget IDs across figures.
+    pub fn render(&mut self, ui: &mut egui::Ui, fig_id: u32) {
         let avail = ui.available_size();
         let cell_w = avail.x / self.cols as f32;
         let cell_h = avail.y / self.rows as f32;
@@ -67,7 +69,7 @@ impl FigureWindow {
                         });
                     }
 
-                    let plot_id = format!("fig_panel_{}_{}", row, col);
+                    let plot_id = format!("fig_{}_panel_{}_{}", fig_id, row, col);
                     let mut plot = Plot::new(&plot_id)
                         .width(cell_w - 8.0)
                         .height(cell_h - 8.0 - title_h)
@@ -86,8 +88,29 @@ impl FigureWindow {
                             }
                         });
 
+                    // Apply categorical x-axis labels if present
+                    let cat_labels: Option<Arc<Vec<(f64, String)>>> = panel.series.iter()
+                        .find_map(|s| s.x_labels.as_ref())
+                        .map(|labels| {
+                            Arc::new(labels.iter().enumerate()
+                                .map(|(i, l)| (i as f64, l.clone()))
+                                .collect())
+                        });
+                    if let Some(labels) = cat_labels {
+                        plot = plot.x_axis_formatter(move |mark, _range| {
+                            let idx = mark.value.round() as usize;
+                            labels.iter()
+                                .find(|(x, _)| (*x - mark.value).abs() < 0.5)
+                                .map(|(_, l)| l.clone())
+                                .unwrap_or_else(|| {
+                                    if idx < labels.len() { String::new() } else { String::new() }
+                                })
+                        });
+                    }
+
                     // Set fixed bounds when limits are specified
-                    let has_bounds = panel.xlim.0.is_some() || panel.ylim.0.is_some();
+                    let has_bounds = panel.xlim.0.is_some() || panel.xlim.1.is_some()
+                        || panel.ylim.0.is_some() || panel.ylim.1.is_some();
                     if has_bounds {
                         // Auto-fit is disabled when explicit bounds are set
                         plot = plot.auto_bounds([

@@ -517,7 +517,7 @@ impl Parser {
         let line = self.current_line();
         self.advance(); // consume keyword
 
-        // Bare form: `hold on` / `grid off`
+        // Bare form: `hold on` / `grid off` / `viewer on <name>`
         if let Token::Ident(s) = self.peek_token() {
             let val = match s.as_str() {
                 "on"  => true,
@@ -528,11 +528,23 @@ impl Parser {
                 }),
             };
             self.advance();
+            // For `viewer on`, optionally read a session name
+            let viewer_name = if cmd == "viewer" && val {
+                if let Token::Ident(name) = self.peek_token() {
+                    let name = name.clone();
+                    self.advance();
+                    Some(name)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
             let _ = self.consume_stmt_end()?;
             return match cmd {
                 "hold"   => Ok(Stmt::new(StmtKind::Hold { on: val }, line)),
                 "grid"   => Ok(Stmt::new(StmtKind::Grid { on: val }, line)),
-                "viewer" => Ok(Stmt::new(StmtKind::Viewer { on: val }, line)),
+                "viewer" => Ok(Stmt::new(StmtKind::Viewer { on: val, name: viewer_name }, line)),
                 _ => unreachable!(),
             };
         }

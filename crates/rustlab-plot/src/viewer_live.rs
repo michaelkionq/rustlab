@@ -11,7 +11,16 @@ use rustlab_proto::{ViewerMsg, WireColor, WireLineStyle, WirePlotKind, WireSerie
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-static NEXT_FIG_ID: AtomicU32 = AtomicU32::new(1);
+static NEXT_FIG_ID: AtomicU32 = AtomicU32::new(0);
+
+/// Initialize figure ID counter with a PID-based prefix to avoid collisions
+/// when multiple rustlab processes connect to the same viewer.
+/// Layout: upper 16 bits = PID (truncated), lower 16 bits = local counter.
+fn next_fig_id() -> u32 {
+    let local = NEXT_FIG_ID.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id() as u32;
+    (pid << 16) | (local & 0xFFFF)
+}
 
 /// A live figure backed by the external `rustlab-viewer` process.
 #[derive(Debug)]
@@ -25,7 +34,7 @@ impl ViewerFigure {
     /// Returns `None` if the viewer is not running.
     pub fn connect(rows: usize, cols: usize) -> Option<Self> {
         let mut client = ViewerClient::connect()?;
-        let fig_id = NEXT_FIG_ID.fetch_add(1, Ordering::Relaxed);
+        let fig_id = next_fig_id();
         let msg = ViewerMsg::FigureOpen {
             id:    fig_id,
             rows:  rows as u16,
@@ -49,6 +58,7 @@ impl LivePlot for ViewerFigure {
                 color: WireColor::Named("cyan".into()),
                 style: WireLineStyle::Solid,
                 kind:  WirePlotKind::Line,
+                x_labels: None,
             }],
         };
         let _ = self.client.send_nowait(&msg);
@@ -138,7 +148,16 @@ thread_local! {
 /// Try to connect to a running viewer. Returns Ok(true) if connected,
 /// Ok(false) if the viewer is not running.
 pub fn connect_viewer() -> Result<bool, PlotError> {
-    let Some(mut client) = ViewerClient::connect() else {
+    connect_viewer_impl(ViewerClient::connect())
+}
+
+/// Connect to a named viewer session (e.g. `viewer on work`).
+pub fn connect_viewer_named(name: &str) -> Result<bool, PlotError> {
+    connect_viewer_impl(ViewerClient::connect_named(name))
+}
+
+fn connect_viewer_impl(client: Option<ViewerClient>) -> Result<bool, PlotError> {
+    let Some(mut client) = client else {
         return Ok(false);
     };
     // Verify the connection is live
@@ -146,7 +165,7 @@ pub fn connect_viewer() -> Result<bool, PlotError> {
         Ok(rustlab_proto::ViewerReply::Pong) => {}
         _ => return Ok(false),
     }
-    let fig_id = NEXT_FIG_ID.fetch_add(1, Ordering::Relaxed);
+    let fig_id = next_fig_id();
     VIEWER_CONN.with(|c| *c.borrow_mut() = Some(ViewerConn {
         client,
         fig_id,
@@ -171,7 +190,7 @@ pub fn viewer_new_figure() {
     VIEWER_CONN.with(|c| {
         let mut guard = c.borrow_mut();
         if let Some(ref mut conn) = *guard {
-            conn.fig_id = NEXT_FIG_ID.fetch_add(1, Ordering::Relaxed);
+            conn.fig_id = next_fig_id();
             conn.layout = (0, 0); // forces FigureOpen on next sync
         }
     });
@@ -199,7 +218,7 @@ pub fn set_viewer_fig_id(id: u32) {
 
 /// Allocate a new viewer figure ID without changing VIEWER_CONN state.
 pub fn allocate_viewer_fig_id() -> u32 {
-    NEXT_FIG_ID.fetch_add(1, Ordering::Relaxed)
+    next_fig_id()
 }
 
 /// Send the current FIGURE state to the viewer. No-op if not connected.
@@ -237,7 +256,7 @@ fn send_figure_state(
 
     for (idx, panel) in fig.subplots.iter().enumerate().take(n_panels) {
         // Convert series
-        let wire_series: Vec<WireSeries> = panel.series.iter().map(|s| {
+        let wire_series: Vec<WireSeries> = panel.series.iter().enumerate().map(|(i, s)| {
             WireSeries {
                 label: s.label.clone(),
                 x: s.x_data.clone(),
@@ -245,6 +264,8 @@ fn send_figure_state(
                 color: color_to_wire(&s.color),
                 style: style_to_wire(&s.style),
                 kind:  kind_to_wire(&s.kind),
+                // Attach categorical labels to the first series
+                x_labels: if i == 0 { panel.x_labels.clone() } else { None },
             }
         }).collect();
 

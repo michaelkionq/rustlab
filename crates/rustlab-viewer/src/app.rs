@@ -99,12 +99,12 @@ impl eframe::App for ViewerApp {
 
         // Render each figure in an egui Window (or central panel if only one)
         if self.figures.len() == 1 {
-            let (_, fig) = self.figures.iter_mut().next().unwrap();
+            let (&id, fig) = self.figures.iter_mut().next().unwrap();
             egui::CentralPanel::default().show(ctx, |ui| {
                 if !fig.title.is_empty() {
                     ui.heading(&fig.title);
                 }
-                fig.render(ui);
+                fig.render(ui, id);
             });
         } else {
             egui::CentralPanel::default().show(ctx, |_ui| {});
@@ -120,7 +120,7 @@ impl eframe::App for ViewerApp {
                     .id(egui::Id::new(format!("fig_{}", id)))
                     .resizable(true)
                     .show(ctx, |ui| {
-                        fig.render(ui);
+                        fig.render(ui, id);
                     });
             }
         }

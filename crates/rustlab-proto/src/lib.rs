@@ -64,6 +64,9 @@ pub struct WireSeries {
     pub color: WireColor,
     pub style: WireLineStyle,
     pub kind:  WirePlotKind,
+    /// Categorical x-axis tick labels (e.g. for bar charts with string categories).
+    #[serde(default)]
+    pub x_labels: Option<Vec<String>>,
 }
 
 /// Color on the wire.
@@ -137,6 +140,22 @@ pub fn default_socket_path() -> PathBuf {
     }
 }
 
+/// Socket path for a named viewer session.
+///
+/// Returns `/tmp/rustlab-viewer-{uid}-{name}.sock` (Unix) or
+/// `/tmp/rustlab-viewer-{name}.sock` (non-Unix).
+pub fn socket_path_for_name(name: &str) -> PathBuf {
+    #[cfg(unix)]
+    {
+        let uid = unsafe { libc::getuid() };
+        PathBuf::from(format!("/tmp/rustlab-viewer-{}-{}.sock", uid, name))
+    }
+    #[cfg(not(unix))]
+    {
+        PathBuf::from(format!("/tmp/rustlab-viewer-{}.sock", name))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,6 +172,7 @@ mod tests {
                 color: WireColor::Named("cyan".into()),
                 style: WireLineStyle::Solid,
                 kind:  WirePlotKind::Line,
+                x_labels: None,
             }],
         };
         let mut buf = Vec::new();

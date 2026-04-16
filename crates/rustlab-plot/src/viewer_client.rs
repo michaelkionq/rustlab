@@ -1,6 +1,6 @@
 //! Thin socket client for communicating with `rustlab-viewer`.
 
-use rustlab_proto::{ViewerMsg, ViewerReply, default_socket_path, read_msg, write_msg};
+use rustlab_proto::{ViewerMsg, ViewerReply, default_socket_path, socket_path_for_name, read_msg, write_msg};
 use std::io::BufWriter;
 
 /// Connection to a running `rustlab-viewer` process.
@@ -21,10 +21,18 @@ impl ViewerClient {
     /// Try to connect to a running viewer.  Returns `None` if the viewer
     /// socket does not exist or the connection is refused.
     pub fn connect() -> Option<Self> {
-        let path = default_socket_path();
+        Self::connect_to_path(&default_socket_path())
+    }
+
+    /// Connect to a named viewer session (e.g. `viewer on work`).
+    pub fn connect_named(name: &str) -> Option<Self> {
+        Self::connect_to_path(&socket_path_for_name(name))
+    }
+
+    fn connect_to_path(path: &std::path::Path) -> Option<Self> {
         #[cfg(unix)]
         {
-            let stream = std::os::unix::net::UnixStream::connect(&path).ok()?;
+            let stream = std::os::unix::net::UnixStream::connect(path).ok()?;
             stream.set_nonblocking(false).ok()?;
             Some(Self { stream })
         }

@@ -11,7 +11,27 @@ use rustlab_plot::Theme;
         Executes ```rustlab fenced code blocks through the evaluator, captures\n\
         text output and plots, and produces self-contained HTML, LaTeX, or PDF.\n\
         Supports template interpolation (${expr}), KaTeX math, syntax highlighting,\n\
-        and multi-notebook directory rendering with index generation."
+        and multi-notebook directory rendering with index generation.\n\n\
+        Examples:\n  \
+        rustlab-notebook render analysis.md                    # → analysis.html (dark theme)\n  \
+        rustlab-notebook render analysis.md -t light           # → analysis.html (light theme)\n  \
+        rustlab-notebook render analysis.md -f pdf             # → analysis.pdf\n  \
+        rustlab-notebook render analysis.md -f latex           # → analysis.tex + SVG plots\n  \
+        rustlab-notebook render analysis.md -f pdf -t light    # light-themed PDF\n  \
+        rustlab-notebook render analysis.md -o out.html        # custom output path\n  \
+        rustlab-notebook render notebooks/                     # render all .md → .html + index\n  \
+        rustlab-notebook render notebooks/ -f pdf -t light     # all notebooks → light PDF\n\n\
+        Options:\n  \
+        -o, --output <PATH>    Output file or directory (default: <input_stem>.<ext>)\n  \
+        -f, --format <FMT>     html (default), latex, pdf\n  \
+        -t, --theme  <THEME>   dark (default), light\n\n\
+        Formats:\n  \
+        html   Self-contained HTML with Plotly charts and KaTeX math (default)\n  \
+        latex  LaTeX .tex file + SVG plots in <name>_plots/ directory\n  \
+        pdf    Compile LaTeX to PDF (requires pdflatex or tectonic)\n\n\
+        Themes:\n  \
+        dark   Catppuccin Mocha — dark background, light text (default)\n  \
+        light  Catppuccin Latte — light background, dark text"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -37,15 +57,25 @@ enum Command {
     #[command(
         long_about = "Render a notebook (or directory of notebooks) to HTML, LaTeX, or PDF.\n\n\
             Examples:\n  \
-            rustlab-notebook render analysis.md              # → analysis.html\n  \
-            rustlab-notebook render analysis.md -f pdf       # → analysis.pdf\n  \
-            rustlab-notebook render analysis.md -f latex     # → analysis.tex\n  \
-            rustlab-notebook render analysis.md -o out.html  # custom output path\n  \
-            rustlab-notebook render notebooks/               # render all .md → .html + index.html\n  \
-            rustlab-notebook render notebooks/ -f pdf        # render all .md → .pdf\n  \
-            rustlab-notebook render analysis.md -t light     # light theme\n\n\
-            HTML output is self-contained with interactive Plotly charts and KaTeX math.\n\
-            PDF output requires pdflatex or tectonic installed."
+            rustlab-notebook render analysis.md                    # → analysis.html (dark theme)\n  \
+            rustlab-notebook render analysis.md -t light           # → analysis.html (light theme)\n  \
+            rustlab-notebook render analysis.md -f pdf             # → analysis.pdf\n  \
+            rustlab-notebook render analysis.md -f latex           # → analysis.tex + SVG plots\n  \
+            rustlab-notebook render analysis.md -f pdf -t light    # light-themed PDF\n  \
+            rustlab-notebook render analysis.md -o out.html        # custom output path\n  \
+            rustlab-notebook render notebooks/                     # render all .md → .html + index\n  \
+            rustlab-notebook render notebooks/ -f pdf -t light     # all notebooks → light PDF\n\n\
+            Options:\n  \
+            -o, --output <PATH>    Output file or directory (default: <input_stem>.<ext>)\n  \
+            -f, --format <FMT>     html (default), latex, pdf\n  \
+            -t, --theme  <THEME>   dark (default), light\n\n\
+            Formats:\n  \
+            html   Self-contained HTML with Plotly charts and KaTeX math (default)\n  \
+            latex  LaTeX .tex file + SVG plots in <name>_plots/ directory\n  \
+            pdf    Compile LaTeX to PDF (requires pdflatex or tectonic)\n\n\
+            Themes:\n  \
+            dark   Catppuccin Mocha — dark background, light text (default)\n  \
+            light  Catppuccin Latte — light background, dark text"
     )]
     Render {
         /// Input .md file or directory of .md files

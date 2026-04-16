@@ -267,22 +267,34 @@ impl Evaluator {
                 rustlab_plot::FIGURE.with(|fig| fig.borrow_mut().current_mut().grid = *on);
                 rustlab_plot::sync_figure_outputs();
             }
-            StmtKind::Viewer { on } => {
+            StmtKind::Viewer { on, name } => {
                 #[cfg(feature = "viewer")]
                 {
                     if *on {
-                        match rustlab_plot::connect_viewer() {
+                        let connect_result = if let Some(name) = name {
+                            rustlab_plot::connect_viewer_named(name)
+                        } else {
+                            rustlab_plot::connect_viewer()
+                        };
+                        match connect_result {
                             Ok(true)  => {
                                 let fig_id = rustlab_plot::viewer_live::get_viewer_fig_id()
                                     .unwrap_or(1);
                                 rustlab_plot::set_current_figure_output(
                                     rustlab_plot::FigureOutput::Viewer(fig_id),
                                 );
-                                eprintln!("viewer: connected — plots will render in rustlab-viewer");
+                                if let Some(n) = name {
+                                    eprintln!("viewer: connected to session '{}' — plots will render in rustlab-viewer", n);
+                                } else {
+                                    eprintln!("viewer: connected — plots will render in rustlab-viewer");
+                                }
                             }
                             Ok(false) => {
-                                eprintln!("viewer: could not connect — is rustlab-viewer running?");
-                                eprintln!("  start it with:  cargo run --bin rustlab-viewer --features viewer");
+                                if let Some(n) = name {
+                                    eprintln!("viewer: could not connect to session '{}' — is rustlab-viewer --name {} running?", n, n);
+                                } else {
+                                    eprintln!("viewer: could not connect — is rustlab-viewer running?");
+                                }
                                 eprintln!("  plots will continue to render in the terminal");
                             }
                             Err(e)    => {
@@ -300,7 +312,7 @@ impl Evaluator {
                 }
                 #[cfg(not(feature = "viewer"))]
                 {
-                    let _ = on;
+                    let _ = (on, name);
                     eprintln!("viewer: not available in this build");
                     eprintln!("  rebuild with:  cargo build --features viewer");
                 }

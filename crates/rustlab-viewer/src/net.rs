@@ -24,8 +24,22 @@ pub fn start_listener() -> mpsc::Receiver<ViewerMsg> {
 fn run_listener(tx: mpsc::Sender<ViewerMsg>) -> std::io::Result<()> {
     let path = default_socket_path();
 
-    // Clean up stale socket file
+    // Check for existing socket — if a live viewer is listening, refuse to start
     if path.exists() {
+        #[cfg(unix)]
+        {
+            if let Ok(mut stream) = std::os::unix::net::UnixStream::connect(&path) {
+                // Try a ping to see if it's alive
+                if write_msg(&mut stream, &ViewerMsg::Ping).is_ok() {
+                    if let Ok(Some(ViewerReply::Pong)) = read_msg::<_, ViewerReply>(&mut stream) {
+                        eprintln!("rustlab-viewer: another viewer is already running on {}", path.display());
+                        eprintln!("  use --name <NAME> to start a separate session");
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
+        // Stale socket — remove it
         std::fs::remove_file(&path)?;
     }
 
