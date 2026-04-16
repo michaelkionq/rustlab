@@ -305,4 +305,184 @@ mod tests {
         let b = socket_path_for_name("beta");
         assert_ne!(a, b);
     }
+
+    #[test]
+    fn round_trip_heatmap() {
+        let msg = ViewerMsg::PanelHeatmap {
+            fig_id: 5,
+            panel:  0,
+            heatmap: WireHeatmap {
+                width:  2,
+                height: 2,
+                rgba:   vec![255, 0, 0, 255, 0, 255, 0, 255,
+                             0, 0, 255, 255, 128, 128, 128, 255],
+            },
+        };
+        let mut buf = Vec::new();
+        write_msg(&mut buf, &msg).unwrap();
+        let mut cursor = std::io::Cursor::new(&buf);
+        let decoded: ViewerMsg = read_msg(&mut cursor).unwrap().unwrap();
+        match decoded {
+            ViewerMsg::PanelHeatmap { fig_id, panel, heatmap } => {
+                assert_eq!(fig_id, 5);
+                assert_eq!(panel, 0);
+                assert_eq!(heatmap.width, 2);
+                assert_eq!(heatmap.height, 2);
+                assert_eq!(heatmap.rgba.len(), 16);
+                assert_eq!(heatmap.rgba[0], 255); // red channel of first pixel
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn round_trip_panel_labels() {
+        let msg = ViewerMsg::PanelLabels {
+            fig_id: 3,
+            panel:  1,
+            title:  "Frequency Response".into(),
+            xlabel: "Hz".into(),
+            ylabel: "dB".into(),
+        };
+        let mut buf = Vec::new();
+        write_msg(&mut buf, &msg).unwrap();
+        let mut cursor = std::io::Cursor::new(&buf);
+        let decoded: ViewerMsg = read_msg(&mut cursor).unwrap().unwrap();
+        match decoded {
+            ViewerMsg::PanelLabels { fig_id, panel, title, xlabel, ylabel } => {
+                assert_eq!(fig_id, 3);
+                assert_eq!(panel, 1);
+                assert_eq!(title, "Frequency Response");
+                assert_eq!(xlabel, "Hz");
+                assert_eq!(ylabel, "dB");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn round_trip_panel_limits() {
+        let msg = ViewerMsg::PanelLimits {
+            fig_id: 2,
+            panel:  0,
+            xlim:   (Some(0.0), Some(100.0)),
+            ylim:   (None, Some(50.0)),
+        };
+        let mut buf = Vec::new();
+        write_msg(&mut buf, &msg).unwrap();
+        let mut cursor = std::io::Cursor::new(&buf);
+        let decoded: ViewerMsg = read_msg(&mut cursor).unwrap().unwrap();
+        match decoded {
+            ViewerMsg::PanelLimits { fig_id, panel, xlim, ylim } => {
+                assert_eq!(fig_id, 2);
+                assert_eq!(panel, 0);
+                assert_eq!(xlim, (Some(0.0), Some(100.0)));
+                assert_eq!(ylim, (None, Some(50.0)));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn round_trip_figure_open() {
+        let msg = ViewerMsg::FigureOpen {
+            id: 10, rows: 2, cols: 3, title: "Multi-panel".into(),
+        };
+        let mut buf = Vec::new();
+        write_msg(&mut buf, &msg).unwrap();
+        let mut cursor = std::io::Cursor::new(&buf);
+        let decoded: ViewerMsg = read_msg(&mut cursor).unwrap().unwrap();
+        match decoded {
+            ViewerMsg::FigureOpen { id, rows, cols, title } => {
+                assert_eq!(id, 10);
+                assert_eq!(rows, 2);
+                assert_eq!(cols, 3);
+                assert_eq!(title, "Multi-panel");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn round_trip_close_and_redraw() {
+        for msg in [ViewerMsg::Close { fig_id: 7 }, ViewerMsg::Redraw { fig_id: 8 }] {
+            let mut buf = Vec::new();
+            write_msg(&mut buf, &msg).unwrap();
+            let mut cursor = std::io::Cursor::new(&buf);
+            let decoded: ViewerMsg = read_msg(&mut cursor).unwrap().unwrap();
+            match (&msg, &decoded) {
+                (ViewerMsg::Close { fig_id: a }, ViewerMsg::Close { fig_id: b }) => assert_eq!(a, b),
+                (ViewerMsg::Redraw { fig_id: a }, ViewerMsg::Redraw { fig_id: b }) => assert_eq!(a, b),
+                _ => panic!("variant mismatch"),
+            }
+        }
+    }
+
+    #[test]
+    fn round_trip_ping_pong() {
+        let msg = ViewerMsg::Ping;
+        let mut buf = Vec::new();
+        write_msg(&mut buf, &msg).unwrap();
+        let mut cursor = std::io::Cursor::new(&buf);
+        let decoded: ViewerMsg = read_msg(&mut cursor).unwrap().unwrap();
+        assert!(matches!(decoded, ViewerMsg::Ping));
+
+        let reply = ViewerReply::Pong;
+        buf.clear();
+        write_msg(&mut buf, &reply).unwrap();
+        let mut cursor = std::io::Cursor::new(&buf);
+        let decoded: ViewerReply = read_msg(&mut cursor).unwrap().unwrap();
+        assert!(matches!(decoded, ViewerReply::Pong));
+    }
+
+    #[test]
+    fn round_trip_rgb_color() {
+        let msg = ViewerMsg::PanelUpdate {
+            fig_id: 1,
+            panel:  0,
+            series: vec![WireSeries {
+                label: "rgb".into(),
+                x: vec![0.0],
+                y: vec![1.0],
+                color: WireColor::Rgb(128, 64, 32),
+                style: WireLineStyle::Dashed,
+                kind:  WirePlotKind::Scatter,
+                x_labels: None,
+            }],
+        };
+        let mut buf = Vec::new();
+        write_msg(&mut buf, &msg).unwrap();
+        let mut cursor = std::io::Cursor::new(&buf);
+        let decoded: ViewerMsg = read_msg(&mut cursor).unwrap().unwrap();
+        match decoded {
+            ViewerMsg::PanelUpdate { series, .. } => {
+                assert!(matches!(series[0].color, WireColor::Rgb(128, 64, 32)));
+                assert!(matches!(series[0].style, WireLineStyle::Dashed));
+                assert!(matches!(series[0].kind, WirePlotKind::Scatter));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn multiple_messages_in_stream() {
+        let msgs = vec![
+            ViewerMsg::FigureOpen { id: 1, rows: 1, cols: 1, title: "fig".into() },
+            ViewerMsg::PanelLabels {
+                fig_id: 1, panel: 0,
+                title: "t".into(), xlabel: "x".into(), ylabel: "y".into(),
+            },
+            ViewerMsg::Redraw { fig_id: 1 },
+        ];
+        let mut buf = Vec::new();
+        for m in &msgs { write_msg(&mut buf, m).unwrap(); }
+        let mut cursor = std::io::Cursor::new(&buf);
+        for _ in 0..3 {
+            let decoded: Option<ViewerMsg> = read_msg(&mut cursor).unwrap();
+            assert!(decoded.is_some());
+        }
+        // Next read should be EOF
+        let eof: Option<ViewerMsg> = read_msg(&mut cursor).unwrap();
+        assert!(eof.is_none());
+    }
 }

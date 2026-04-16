@@ -361,4 +361,35 @@ mod tests {
         assert_eq!(low_b, low_a + 1,
             "lower 16 bits should increment");
     }
+
+    #[test]
+    fn color_to_wire_named_colors() {
+        assert!(matches!(color_to_wire(&SeriesColor::Blue), WireColor::Named(s) if s == "blue"));
+        assert!(matches!(color_to_wire(&SeriesColor::Red), WireColor::Named(s) if s == "red"));
+        assert!(matches!(color_to_wire(&SeriesColor::Green), WireColor::Named(s) if s == "green"));
+        assert!(matches!(color_to_wire(&SeriesColor::Cyan), WireColor::Named(s) if s == "cyan"));
+        assert!(matches!(color_to_wire(&SeriesColor::Magenta), WireColor::Named(s) if s == "magenta"));
+        assert!(matches!(color_to_wire(&SeriesColor::Yellow), WireColor::Named(s) if s == "yellow"));
+        assert!(matches!(color_to_wire(&SeriesColor::Black), WireColor::Named(s) if s == "black"));
+        assert!(matches!(color_to_wire(&SeriesColor::White), WireColor::Named(s) if s == "white"));
+    }
+
+    #[test]
+    fn color_to_wire_rgb() {
+        assert!(matches!(color_to_wire(&SeriesColor::Rgb(10, 20, 30)), WireColor::Rgb(10, 20, 30)));
+    }
+
+    #[test]
+    fn style_to_wire_variants() {
+        assert!(matches!(style_to_wire(&LineStyle::Solid), WireLineStyle::Solid));
+        assert!(matches!(style_to_wire(&LineStyle::Dashed), WireLineStyle::Dashed));
+    }
+
+    #[test]
+    fn kind_to_wire_variants() {
+        assert!(matches!(kind_to_wire(&PlotKind::Line), WirePlotKind::Line));
+        assert!(matches!(kind_to_wire(&PlotKind::Stem), WirePlotKind::Stem));
+        assert!(matches!(kind_to_wire(&PlotKind::Bar), WirePlotKind::Bar));
+        assert!(matches!(kind_to_wire(&PlotKind::Scatter), WirePlotKind::Scatter));
+    }
 }

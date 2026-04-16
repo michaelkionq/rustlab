@@ -604,4 +604,188 @@ mod tests {
     #[test] fn boundary_001()   { assert_eq!(fmt_g(0.001), "0.00"); }
     #[test] fn boundary_10000() { assert!(fmt_g(10000.0).contains("e")); }
     #[test] fn pi()             { assert_eq!(fmt_g(std::f64::consts::PI), "3.14"); }
+
+    // ── FIGURE state tests ──────────────────────────────────────────────
+
+    use crate::figure::{FIGURE, LineStyle, PlotKind};
+
+    /// Helper: reset FIGURE to clean state before each test.
+    fn reset_figure() {
+        FIGURE.with(|f| {
+            let mut fig = f.borrow_mut();
+            fig.reset();
+        });
+    }
+
+    /// Helper: read current subplot title from FIGURE.
+    fn figure_title() -> String {
+        FIGURE.with(|f| f.borrow().current().title.clone())
+    }
+
+    /// Helper: read current subplot xlabel from FIGURE.
+    fn figure_xlabel() -> String {
+        FIGURE.with(|f| f.borrow().current().xlabel.clone())
+    }
+
+    /// Helper: read current subplot series count from FIGURE.
+    fn figure_series_count() -> usize {
+        FIGURE.with(|f| f.borrow().current().series.len())
+    }
+
+    /// Helper: check if FIGURE has heatmap data.
+    fn figure_has_heatmap() -> bool {
+        FIGURE.with(|f| f.borrow().current().heatmap.is_some())
+    }
+
+    #[test]
+    fn push_line_sets_title() {
+        reset_figure();
+        super::push_xy_line(
+            vec![1.0, 2.0], vec![3.0, 4.0],
+            "s1", "My Title", None, LineStyle::Solid,
+        );
+        assert_eq!(figure_title(), "My Title");
+        assert_eq!(figure_series_count(), 1);
+    }
+
+    #[test]
+    fn push_line_clears_title_when_hold_off() {
+        reset_figure();
+        // First plot sets title
+        super::push_xy_line(
+            vec![1.0], vec![2.0], "", "First", None, LineStyle::Solid,
+        );
+        assert_eq!(figure_title(), "First");
+        // Second plot (hold off) should clear old title and set new one
+        super::push_xy_line(
+            vec![1.0], vec![2.0], "", "Second", None, LineStyle::Solid,
+        );
+        assert_eq!(figure_title(), "Second");
+    }
+
+    #[test]
+    fn push_line_preserves_title_when_hold_on() {
+        reset_figure();
+        super::push_xy_line(
+            vec![1.0], vec![2.0], "", "Original", None, LineStyle::Solid,
+        );
+        FIGURE.with(|f| f.borrow_mut().hold = true);
+        super::push_xy_line(
+            vec![3.0], vec![4.0], "", "Ignored", None, LineStyle::Solid,
+        );
+        // Title should stay as "Original" because hold is on
+        assert_eq!(figure_title(), "Original");
+        assert_eq!(figure_series_count(), 2);
+    }
+
+    #[test]
+    fn push_stem_clears_title_when_hold_off() {
+        reset_figure();
+        super::push_xy_stem(vec![1.0], vec![2.0], "", "Stem1", None);
+        assert_eq!(figure_title(), "Stem1");
+        super::push_xy_stem(vec![1.0], vec![2.0], "", "Stem2", None);
+        assert_eq!(figure_title(), "Stem2");
+    }
+
+    #[test]
+    fn push_bar_clears_title_when_hold_off() {
+        reset_figure();
+        super::push_xy_bar(vec![0.0], vec![5.0], "", "Bar1", None);
+        assert_eq!(figure_title(), "Bar1");
+        super::push_xy_bar(vec![0.0], vec![3.0], "", "Bar2", None);
+        assert_eq!(figure_title(), "Bar2");
+    }
+
+    #[test]
+    fn push_scatter_clears_title_when_hold_off() {
+        reset_figure();
+        super::push_xy_scatter(vec![1.0], vec![2.0], "", "Scatter1", None);
+        assert_eq!(figure_title(), "Scatter1");
+        super::push_xy_scatter(vec![3.0], vec![4.0], "", "Scatter2", None);
+        assert_eq!(figure_title(), "Scatter2");
+    }
+
+    #[test]
+    fn plot_db_clears_title_when_hold_off() {
+        reset_figure();
+        // Manually set a title via push_line to simulate a prior plot
+        super::push_xy_line(
+            vec![1.0], vec![2.0], "", "Old Title", None, LineStyle::Solid,
+        );
+        assert_eq!(figure_title(), "Old Title");
+
+        // plot_db should clear title and set new one
+        // We can't call plot_db directly (it renders to terminal), so test
+        // the FIGURE state manipulation inline, matching the plot_db pattern:
+        let x = vec![100.0, 200.0];
+        let y = vec![-3.0, -6.0];
+        FIGURE.with(|fig| {
+            let mut fig = fig.borrow_mut();
+            if !fig.hold {
+                let sp = fig.current_mut();
+                sp.series.clear();
+                sp.title.clear();
+                sp.xlabel.clear();
+                sp.ylabel.clear();
+            }
+            let color = fig.next_color();
+            let sp = fig.current_mut();
+            let title = "dB Response";
+            if !title.is_empty() && sp.title.is_empty() { sp.title = title.to_string(); }
+            if sp.xlabel.is_empty() { sp.xlabel = "Frequency (Hz)".to_string(); }
+            if sp.ylabel.is_empty() { sp.ylabel = "Magnitude (dB)".to_string(); }
+            sp.series.push(crate::figure::Series {
+                label: "dB".to_string(), x_data: x, y_data: y,
+                color, style: LineStyle::Solid, kind: PlotKind::Line,
+            });
+        });
+        assert_eq!(figure_title(), "dB Response");
+        assert_eq!(figure_xlabel(), "Frequency (Hz)");
+    }
+
+    #[test]
+    fn imagesc_pushes_heatmap_to_figure() {
+        use rustlab_core::CMatrix;
+        use num_complex::Complex;
+        reset_figure();
+
+        // Set notebook context so imagesc_terminal returns early without
+        // trying to render to terminal
+        crate::figure::set_plot_context(crate::figure::PlotContext::Notebook);
+        let data = vec![
+            Complex::new(1.0, 0.0), Complex::new(2.0, 0.0),
+            Complex::new(3.0, 0.0), Complex::new(4.0, 0.0),
+        ];
+        let matrix = CMatrix::from_shape_vec((2, 2), data).unwrap();
+        super::imagesc_terminal(&matrix, "Heat", "viridis").unwrap();
+        // Restore default context
+        crate::figure::set_plot_context(crate::figure::PlotContext::Terminal);
+
+        assert!(figure_has_heatmap());
+        assert_eq!(figure_title(), "Heat");
+    }
+
+    #[test]
+    fn imagesc_clears_title_when_hold_off() {
+        use rustlab_core::CMatrix;
+        use num_complex::Complex;
+        reset_figure();
+
+        // Set an initial title via push_line
+        super::push_xy_line(
+            vec![1.0], vec![2.0], "", "Line Title", None, LineStyle::Solid,
+        );
+        assert_eq!(figure_title(), "Line Title");
+
+        crate::figure::set_plot_context(crate::figure::PlotContext::Notebook);
+        let data = vec![
+            Complex::new(1.0, 0.0), Complex::new(0.0, 0.0),
+            Complex::new(0.0, 0.0), Complex::new(1.0, 0.0),
+        ];
+        let matrix = CMatrix::from_shape_vec((2, 2), data).unwrap();
+        super::imagesc_terminal(&matrix, "Heatmap", "viridis").unwrap();
+        crate::figure::set_plot_context(crate::figure::PlotContext::Terminal);
+
+        assert_eq!(figure_title(), "Heatmap");
+    }
 }
