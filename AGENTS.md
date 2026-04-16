@@ -324,12 +324,50 @@ cargo install --path crates/rustlab-cli   # → ~/.cargo/bin/rustlab
 - `src/live.rs` — `LiveFigure` struct implementing the `LivePlot` trait: `new(rows, cols)`, `update_panel(idx, x, y)`, `set_panel_labels(idx, title, xlabel, ylabel)`, `redraw()`. `Drop` impl restores the terminal.
 - `src/figure.rs` — `FigureState`, `FIGURE` thread-local, and the multi-figure store (`FigureStore`). `figure_new()`, `figure_new_html(path)`, `figure_switch(id)` manage figure handles. Each figure tracks its own `FigureOutput` mode (Terminal, Html, or Viewer). The swap approach keeps a single active `FIGURE` workspace with inactive figures stored in a HashMap.
 - `src/html.rs` — `render_figure_html(path)`: exports current FIGURE state to a self-contained HTML file with Plotly.js (CDN). Also provides HTML figure mode (`set_html_figure_path`, `sync_html_file`, `html_figure_active`) where `figure("file.html")` causes all subsequent plot commands to auto-update the HTML file instead of rendering to the terminal.
-- `src/viewer_client.rs` — (feature `viewer`) thin Unix socket client for communicating with `rustlab-viewer`.
-- `src/viewer_live.rs` — (feature `viewer`) `ViewerFigure` implementing `LivePlot`, routes live plot data to the viewer over IPC. Also provides `connect_viewer()`, `disconnect_viewer()`, `viewer_active()`, `sync_viewer()` for routing regular (non-live) plot commands to the viewer when `viewer on` is active.
+- `src/viewer_client.rs` — (feature `viewer`) thin Unix socket client for communicating with `rustlab-viewer`. Supports `connect()` (default socket) and `connect_named(name)` (named session socket).
+- `src/viewer_live.rs` — (feature `viewer`) `ViewerFigure` implementing `LivePlot`, routes live plot data to the viewer over IPC. Also provides `connect_viewer()`, `connect_viewer_named(name)`, `disconnect_viewer()`, `viewer_active()`, `sync_viewer()` for routing regular (non-live) plot commands to the viewer when `viewer on` is active. Figure IDs use PID-based prefixes (`(pid << 16) | counter`) to avoid collisions when multiple rustlab processes connect to the same viewer.
 
 **Trait:** `LivePlot` (in `lib.rs`) — backend-agnostic interface for live plots. Implemented by `LiveFigure` (ratatui) and `ViewerFigure` (egui viewer). The script engine stores `Box<dyn LivePlot>` in `Value::LiveFigure`.
 
 **Behavior:** Static plot functions enter the ratatui alternate screen, draw a braille-pixel chart, wait for a keypress, then restore the terminal. `LiveFigure` keeps the alternate screen open across multiple `redraw()` calls and only restores on `Drop`. When the `viewer` feature is enabled and `rustlab-viewer` is running, `figure_live()` automatically connects to the viewer instead of using ratatui. Neither should be called in non-TTY contexts (`render_figure_terminal` silently skips; `LiveFigure::new` returns `Err(PlotError::NotATty)`).
+
+---
+
+### `rustlab-proto`
+
+**Purpose:** Wire protocol for rustlab ↔ rustlab-viewer IPC. Messages are length-prefixed msgpack.
+
+**Key types:**
+- `ViewerMsg` — client→viewer messages: `FigureOpen`, `PanelUpdate`, `PanelLabels`, `PanelLimits`, `Redraw`, `Close`, `Ping`
+- `ViewerReply` — viewer→client replies: `Ok`, `Error`, `Pong`
+- `WireSeries` — data series with `x`, `y`, `color`, `style`, `kind`, and optional `x_labels` for categorical bar charts
+- `default_socket_path()` — `/tmp/rustlab-viewer-{uid}.sock` (overridden by `$RUSTLAB_VIEWER_SOCK`)
+- `socket_path_for_name(name)` — `/tmp/rustlab-viewer-{uid}-{name}.sock` for named sessions
+
+---
+
+### `rustlab-viewer`
+
+**Purpose:** Standalone egui plot viewer. Receives plot data from rustlab over a Unix socket and renders interactive charts with zoom, pan, crosshairs, and point readout.
+
+**Usage:**
+```
+rustlab-viewer                  # default session
+rustlab-viewer --name work      # named session (separate socket)
+rustlab-viewer --socket PATH    # custom socket path
+```
+
+**Key files:**
+- `src/main.rs` — CLI arg parsing, eframe GUI launch, `--name`/`--socket` support
+- `src/app.rs` — `ViewerApp` eframe application, drains messages from socket, renders figures in egui windows
+- `src/figure.rs` — `FigureWindow` and `PanelState`, subplot grid rendering with `egui_plot`, categorical x-axis label support
+- `src/net.rs` — Unix socket listener, spawns per-connection threads, liveness check prevents clobbering an active viewer's socket
+- `src/render.rs` — converts `WireSeries` to egui_plot items (Line, Points, BarChart, Stem)
+
+**Multi-instance design:**
+- Multiple viewers can run simultaneously using `--name` (each gets its own socket)
+- Multiple rustlab processes can connect to the same viewer — PID-based figure IDs prevent collisions
+- Starting a second viewer on the same socket is blocked with a liveness ping check
 
 ---
 

@@ -1059,15 +1059,27 @@ hold off
 #### `grid on` / `grid off`
 Show or hide grid lines on the current subplot. Also accepts function-call form: `grid("on")`, `grid(1)`. Default is on.
 
-#### `viewer on` / `viewer off`
+#### `viewer on` / `viewer on <name>` / `viewer off`
 Connect to a running `rustlab-viewer` process. When connected, all plot commands (`plot`, `stem`, `bar`, `bode`, etc.) render in the external egui viewer with zoom/pan/crosshairs instead of the terminal. `viewer off` disconnects and returns to terminal plotting.
 
 Requires the `viewer` feature (included in `make install`). Start `rustlab-viewer` before typing `viewer on`.
 ```
-viewer on          % connect to viewer
+viewer on          % connect to default viewer
 plot(x, sin(x))   % renders in viewer window
 viewer off         % back to terminal
 ```
+
+**Named sessions** allow multiple viewers to run simultaneously, each receiving plots from different rustlab instances:
+```
+% Terminal 1:                    % Terminal 2:
+rustlab-viewer --name filters    rustlab-viewer --name analysis
+
+% REPL 1:                        % REPL 2:
+viewer on filters                viewer on analysis
+plot(h)                          plot(spectrum)
+```
+
+Multiple rustlab instances can also send plots to the same viewer — each process gets unique figure IDs so plots don't interfere.
 
 #### `subplot(rows, cols, idx)`
 Switch to subplot panel. `rows` and `cols` define the grid; `idx` is 1-based (row-major order).

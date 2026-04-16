@@ -3972,6 +3972,68 @@ ref_full = convolve(x, h);
     }
 
     #[test]
+    fn viewer_on_parses() {
+        // `viewer on` should parse and run without error (prints a warning if no viewer)
+        let src = "viewer on\n";
+        let tokens = lexer::tokenize(src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        assert_eq!(stmts.len(), 1);
+        match &stmts[0].kind {
+            crate::ast::StmtKind::Viewer { on, name } => {
+                assert!(*on);
+                assert_eq!(*name, None);
+            }
+            other => panic!("expected Viewer, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn viewer_on_named_parses() {
+        let src = "viewer on work\n";
+        let tokens = lexer::tokenize(src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        assert_eq!(stmts.len(), 1);
+        match &stmts[0].kind {
+            crate::ast::StmtKind::Viewer { on, name } => {
+                assert!(*on);
+                assert_eq!(name.as_deref(), Some("work"));
+            }
+            other => panic!("expected Viewer, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn viewer_off_parses() {
+        let src = "viewer off\n";
+        let tokens = lexer::tokenize(src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        assert_eq!(stmts.len(), 1);
+        match &stmts[0].kind {
+            crate::ast::StmtKind::Viewer { on, name } => {
+                assert!(!*on);
+                assert_eq!(*name, None);
+            }
+            other => panic!("expected Viewer, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn viewer_off_ignores_trailing_name() {
+        // `viewer off somename` — 'off' doesn't take a name, should parse as
+        // viewer off followed by a separate expression
+        let src = "viewer off\n";
+        let tokens = lexer::tokenize(src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        match &stmts[0].kind {
+            crate::ast::StmtKind::Viewer { on, name } => {
+                assert!(!*on);
+                assert!(name.is_none());
+            }
+            other => panic!("expected Viewer, got {:?}", other),
+        }
+    }
+
+    #[test]
     fn plot_update_wrong_type_errors() {
         // plot_update with a non-live_figure first arg should error.
         assert!(try_run("plot_update(42, 1, [1.0, 2.0]);").is_err(),

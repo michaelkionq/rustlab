@@ -363,7 +363,7 @@ Mixed sparse+dense pairs auto-promote to dense.
 | `figure(N)` | Switch to figure N (creates if it doesn't exist) |
 | `hold on` / `hold off` | Overlay series on current subplot (also `hold("on")`) |
 | `grid on` / `grid off` | Show / hide grid lines (also `grid("on")`) |
-| `viewer on` / `viewer off` | Route plots to external rustlab-viewer (requires `viewer` feature) |
+| `viewer on` / `viewer on <name>` / `viewer off` | Route plots to external rustlab-viewer; optional name for multi-session (requires `viewer` feature) |
 | `title("text")` | Set subplot title |
 | `xlabel("text")` | Set x-axis label |
 | `ylabel("text")` | Set y-axis label |

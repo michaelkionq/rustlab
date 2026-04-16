@@ -211,4 +211,81 @@ mod tests {
         let result: Option<ViewerMsg> = read_msg(&mut cursor).unwrap();
         assert!(result.is_none());
     }
+
+    #[test]
+    fn round_trip_series_with_x_labels() {
+        let msg = ViewerMsg::PanelUpdate {
+            fig_id: 42,
+            panel:  0,
+            series: vec![WireSeries {
+                label: "sales".into(),
+                x: vec![0.0, 1.0, 2.0],
+                y: vec![100.0, 200.0, 150.0],
+                color: WireColor::Named("blue".into()),
+                style: WireLineStyle::Solid,
+                kind:  WirePlotKind::Bar,
+                x_labels: Some(vec!["Jan".into(), "Feb".into(), "Mar".into()]),
+            }],
+        };
+        let mut buf = Vec::new();
+        write_msg(&mut buf, &msg).unwrap();
+        let mut cursor = std::io::Cursor::new(&buf);
+        let decoded: ViewerMsg = read_msg(&mut cursor).unwrap().unwrap();
+        match decoded {
+            ViewerMsg::PanelUpdate { series, .. } => {
+                assert_eq!(series[0].x_labels, Some(vec!["Jan".into(), "Feb".into(), "Mar".into()]));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn x_labels_default_none_for_backwards_compat() {
+        // Serialize without x_labels, verify it deserializes as None
+        let msg = ViewerMsg::PanelUpdate {
+            fig_id: 1,
+            panel:  0,
+            series: vec![WireSeries {
+                label: "test".into(),
+                x: vec![1.0],
+                y: vec![2.0],
+                color: WireColor::Named("red".into()),
+                style: WireLineStyle::Solid,
+                kind:  WirePlotKind::Line,
+                x_labels: None,
+            }],
+        };
+        let mut buf = Vec::new();
+        write_msg(&mut buf, &msg).unwrap();
+        let mut cursor = std::io::Cursor::new(&buf);
+        let decoded: ViewerMsg = read_msg(&mut cursor).unwrap().unwrap();
+        match decoded {
+            ViewerMsg::PanelUpdate { series, .. } => {
+                assert_eq!(series[0].x_labels, None);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn socket_path_for_name_contains_name() {
+        let path = socket_path_for_name("work");
+        let path_str = path.to_string_lossy();
+        assert!(path_str.contains("work"), "path should contain session name: {}", path_str);
+        assert!(path_str.ends_with(".sock"), "path should end with .sock: {}", path_str);
+    }
+
+    #[test]
+    fn socket_path_for_name_differs_from_default() {
+        let default = default_socket_path();
+        let named = socket_path_for_name("test");
+        assert_ne!(default, named);
+    }
+
+    #[test]
+    fn different_names_get_different_paths() {
+        let a = socket_path_for_name("alpha");
+        let b = socket_path_for_name("beta");
+        assert_ne!(a, b);
+    }
 }

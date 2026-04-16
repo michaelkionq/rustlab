@@ -294,3 +294,34 @@ fn send_figure_state(
     conn.client.send(&ViewerMsg::Redraw { fig_id })?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn next_fig_id_is_unique() {
+        let a = next_fig_id();
+        let b = next_fig_id();
+        assert_ne!(a, b, "consecutive figure IDs should differ");
+    }
+
+    #[test]
+    fn next_fig_id_embeds_pid() {
+        let id = next_fig_id();
+        let pid = std::process::id() as u32;
+        let embedded_pid = id >> 16;
+        assert_eq!(embedded_pid, pid & 0xFFFF,
+            "upper 16 bits should contain truncated PID");
+    }
+
+    #[test]
+    fn next_fig_id_increments_lower_bits() {
+        let a = next_fig_id();
+        let b = next_fig_id();
+        let low_a = a & 0xFFFF;
+        let low_b = b & 0xFFFF;
+        assert_eq!(low_b, low_a + 1,
+            "lower 16 bits should increment");
+    }
+}

@@ -242,7 +242,7 @@ const HELP: &[HelpEntry] = &[
     HelpEntry { name: "grid",     brief: "Show or hide grid lines",
         detail: "grid(\"on\")   — enable grid lines (default)\ngrid(\"off\")  — disable grid lines\ngrid(1) / grid(0) also accepted" },
     HelpEntry { name: "viewer",   brief: "Connect/disconnect external rustlab-viewer",
-        detail: "viewer on   — connect to a running rustlab-viewer\nviewer off  — disconnect, return to terminal plotting\n\nWhen connected, all plot commands render in the external\nviewer window (egui) with zoom/pan/crosshairs instead of\nthe terminal. Start rustlab-viewer first, then type 'viewer on'.\n\nRequires the 'viewer' feature (included in 'make install')." },
+        detail: "viewer on         — connect to the default rustlab-viewer\nviewer on <name>  — connect to a named session (e.g. viewer on work)\nviewer off        — disconnect, return to terminal plotting\n\nWhen connected, all plot commands render in the external\nviewer window (egui) with zoom/pan/crosshairs instead of\nthe terminal. Start rustlab-viewer first, then type 'viewer on'.\n\nNamed sessions allow multiple viewers to run simultaneously:\n  Terminal 1:  rustlab-viewer --name filters\n  Terminal 2:  rustlab-viewer --name analysis\n  REPL 1:     viewer on filters\n  REPL 2:     viewer on analysis\n\nRequires the 'viewer' feature (included in 'make install')." },
     HelpEntry { name: "xlabel",   brief: "Set x-axis label",
         detail: "xlabel(\"text\")  — sets the x-axis label on the current subplot" },
     HelpEntry { name: "ylabel",   brief: "Set y-axis label",
