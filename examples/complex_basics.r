@@ -19,4 +19,5 @@ print(v)
 # Plot magnitude and save to file
 mag = abs(v)
 print(mag)
-savefig(mag, "complex_magnitude.svg", "Complex Vector Magnitudes")
+plot(mag, "Complex Vector Magnitudes")
+savefig("complex_magnitude.svg")

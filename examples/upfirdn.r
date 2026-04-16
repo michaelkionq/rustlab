@@ -15,7 +15,8 @@ tone = 300.0     # test tone frequency (Hz)
 t = linspace(0.0, (n - 1) / sr, n);
 x = real(cos(2.0 * pi * tone * t));
 
-savefig(x, "upfirdn_input.svg", "Input — 300 Hz at 8 kHz")
+plot(x, "Input — 300 Hz at 8 kHz")
+savefig("upfirdn_input.svg")
 
 # ── 1. Interpolation by 4 ─────────────────────────────────────────────────────
 # Anti-imaging filter: cutoff at sr/2/4 = 1 kHz (new Nyquist after 4x upsample)
@@ -28,7 +29,8 @@ y_up = upfirdn(x, h_interp, p, q);
 print("Input length:        ", len(x))
 print("Interpolated length: ", len(y_up))
 
-savefig(real(y_up), "upfirdn_interp4.svg", "Interpolated x4 (32 kHz)")
+plot(real(y_up), "Interpolated x4 (32 kHz)")
+savefig("upfirdn_interp4.svg")
 
 # ── 2. Decimation by 4 ───────────────────────────────────────────────────────
 # Anti-aliasing filter: cutoff at sr/2/4 = 1 kHz (new Nyquist after 4x decimate)
@@ -41,7 +43,8 @@ y_down = upfirdn(x, h_decim, p, q);
 print("Input length:      ", len(x))
 print("Decimated length:  ", len(y_down))
 
-savefig(real(y_down), "upfirdn_decim4.svg", "Decimated x4 (2 kHz)")
+plot(real(y_down), "Decimated x4 (2 kHz)")
+savefig("upfirdn_decim4.svg")
 
 # ── 3. Rational SRC: 2 kHz → 3 kHz  (p=3, q=2) ───────────────────────────────
 # Cutoff at min(sr/2/p, sr/2/q) = sr/2/3 ≈ 1333 Hz
@@ -55,4 +58,5 @@ y_src = upfirdn(x, h_src, p, q);
 print("Input length:    ", len(x))
 print("SRC 3/2 length:  ", len(y_src))
 
-savefig(real(y_src), "upfirdn_src32.svg", "Rate conversion 3/2")
+plot(real(y_src), "Rate conversion 3/2")
+savefig("upfirdn_src32.svg")

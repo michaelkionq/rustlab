@@ -125,9 +125,16 @@ pub fn render_figure_plotly_div(fig: &FigureState, div_id: &str, theme: &ThemeCo
         } else {
             String::new()
         };
+        // Square aspect ratio for heatmaps
+        let yaxis_extra = if panel.heatmap.is_some() {
+            let anchor = if axis_suffix.is_empty() { "x".to_string() } else { format!("x{axis_suffix}") };
+            format!(r#", scaleanchor: "{anchor}""#)
+        } else {
+            String::new()
+        };
         layout_axes.push_str(&format!(
             r#"xaxis{ax}: {{ domain: [{x0:.4}, {x1:.4}], title: {{ text: "{xlabel}" }}{xrange}, showgrid: {grid}, gridcolor: "{plot_grid}"{xtick} }},
-yaxis{ax}: {{ domain: [{y0:.4}, {y1:.4}], title: {{ text: "{ylabel}" }}{yrange}, showgrid: {grid}, gridcolor: "{plot_grid}" }},
+yaxis{ax}: {{ domain: [{y0:.4}, {y1:.4}], title: {{ text: "{ylabel}" }}{yrange}, showgrid: {grid}, gridcolor: "{plot_grid}"{yextra} }},
 "#,
             ax = axis_suffix,
             x0 = x_start, x1 = x_end,
@@ -139,6 +146,7 @@ yaxis{ax}: {{ domain: [{y0:.4}, {y1:.4}], title: {{ text: "{ylabel}" }}{yrange},
             xrange = format_range(panel.xlim),
             yrange = format_range(panel.ylim),
             xtick = xtick_extra,
+            yextra = yaxis_extra,
         ));
 
         // Title as annotation
@@ -149,6 +157,29 @@ yaxis{ax}: {{ domain: [{y0:.4}, {y1:.4}], title: {{ text: "{ylabel}" }}{yrange},
                 title = escape_js(&panel.title),
                 cx = (x_start + x_end) / 2.0,
                 ty = y_end + 0.03,
+            ));
+        }
+
+        // Heatmap trace (takes precedence when present)
+        if let Some(hm) = &panel.heatmap {
+            let plotly_cmap = match hm.colorscale.as_str() {
+                "jet"  => "Jet",
+                "hot"  => "Hot",
+                "gray" => "Greys",
+                _      => "Viridis",
+            };
+            // Build z as JSON 2D array
+            let z_rows: Vec<String> = hm.z.iter()
+                .map(|row| json_f64_array(row))
+                .collect();
+            let z_json = format!("[{}]", z_rows.join(","));
+            traces.push_str(&format!(
+                r#"{{ z: {z}, type: "heatmap", colorscale: "{cmap}", showscale: true, xaxis: "{xa}", yaxis: "{ya}" }},
+"#,
+                z = z_json,
+                cmap = plotly_cmap,
+                xa = xaxis_ref,
+                ya = yaxis_ref,
             ));
         }
 

@@ -35,7 +35,8 @@ print(max(abs(real(theta_atan) - angles_rad)))   # → ≈ 0  (for θ ∈ [0, π
 # Save the round-trip residual across a wider angle sweep
 theta_wide = linspace(-pi/2.0, pi/2.0, 200)
 residual   = real(asin(sin(theta_wide))) - real(theta_wide)
-savefig(residual, "asin_roundtrip_error.svg", "asin(sin(θ)) − θ  round-trip error")
+plot(residual, "asin(sin(θ)) − θ  round-trip error")
+savefig("asin_roundtrip_error.svg")
 
 # ── Laguerre polynomials ──────────────────────────────────────────────────────
 # laguerre(n, alpha, x) — generalised Laguerre polynomial L_n^alpha(x).
@@ -54,12 +55,15 @@ x_spot = 2.5
 print(laguerre(1, 0.0, x_spot))           # → 1 − 2.5 = -1.5
 print(laguerre(0, 0.0, x_spot))           # → 1.0
 
-savefig(real(L2), "laguerre_L2.svg", "Laguerre L₂(x)  [0, 8]")
-savefig(real(L3), "laguerre_L3.svg", "Laguerre L₃(x)  [0, 8]")
+plot(real(L2), "Laguerre L₂(x)  [0, 8]")
+savefig("laguerre_L2.svg")
+plot(real(L3), "Laguerre L₃(x)  [0, 8]")
+savefig("laguerre_L3.svg")
 
 # Generalised Laguerre with alpha=0.5: used in quantum harmonic oscillator
 L2a = laguerre(2, 0.5, x_lag)
-savefig(real(L2a), "laguerre_L2_alpha05.svg", "Generalised Laguerre L₂^(0.5)(x)")
+plot(real(L2a), "Generalised Laguerre L₂^(0.5)(x)")
+savefig("laguerre_L2_alpha05.svg")
 
 # ── Legendre polynomials ──────────────────────────────────────────────────────
 # legendre(l, m, x) — associated Legendre polynomial P_l^m(x).
@@ -80,9 +84,12 @@ print(integral_12)                        # → ≈ 0.0
 norm_P20 = trapz(x_leg, real(P20) .^ 2)
 print(norm_P20)                           # → ≈ 0.4
 
-savefig(real(P20), "legendre_P20.svg", "Legendre P₂⁰(x)  (l=2, m=0)")
-savefig(real(P30), "legendre_P30.svg", "Legendre P₃⁰(x)  (l=3, m=0)")
+plot(real(P20), "Legendre P₂⁰(x)  (l=2, m=0)")
+savefig("legendre_P20.svg")
+plot(real(P30), "Legendre P₃⁰(x)  (l=3, m=0)")
+savefig("legendre_P30.svg")
 
 # Associated Legendre: P₂¹(x) — appears in spherical harmonics Y_l^m
 P21 = legendre(2, 1, x_leg)
-savefig(real(P21), "legendre_P21.svg", "Associated Legendre P₂¹(x)")
+plot(real(P21), "Associated Legendre P₂¹(x)")
+savefig("legendre_P21.svg")

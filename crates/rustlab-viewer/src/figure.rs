@@ -1,10 +1,19 @@
 //! Figure and panel state for the viewer application.
 
-use egui_plot::{Plot, PlotBounds};
+use egui_plot::{Plot, PlotBounds, PlotImage};
 use rustlab_proto::WireSeries;
 use std::sync::Arc;
 
 use crate::render;
+
+/// Pre-rendered heatmap image ready for egui display.
+pub struct HeatmapImage {
+    pub width:  u32,
+    pub height: u32,
+    pub rgba:   Vec<u8>,
+    /// Cached egui texture handle; created on first render.
+    pub texture: Option<egui::TextureHandle>,
+}
 
 /// State for a single subplot panel.
 pub struct PanelState {
@@ -14,6 +23,7 @@ pub struct PanelState {
     pub series: Vec<WireSeries>,
     pub xlim:   (Option<f64>, Option<f64>),
     pub ylim:   (Option<f64>, Option<f64>),
+    pub heatmap: Option<HeatmapImage>,
 }
 
 impl PanelState {
@@ -25,6 +35,7 @@ impl PanelState {
             series: Vec::new(),
             xlim:   (None, None),
             ylim:   (None, None),
+            heatmap: None,
         }
     }
 }
@@ -58,7 +69,7 @@ impl FigureWindow {
                 for col in 0..self.cols {
                     let idx = row * self.cols + col;
                     if idx >= self.panels.len() { continue; }
-                    let panel = &self.panels[idx];
+                    let panel = &mut self.panels[idx];
 
                     let title_h = if panel.title.is_empty() { 0.0 } else { 20.0 };
 
@@ -119,6 +130,28 @@ impl FigureWindow {
                         ]);
                     }
 
+                    // Ensure heatmap texture is created before entering plot closure
+                    if let Some(ref mut hm) = panel.heatmap {
+                        if hm.texture.is_none() && !hm.rgba.is_empty() {
+                            let image = egui::ColorImage::from_rgba_unmultiplied(
+                                [hm.width as usize, hm.height as usize],
+                                &hm.rgba,
+                            );
+                            hm.texture = Some(ui.ctx().load_texture(
+                                "heatmap",
+                                image,
+                                egui::TextureOptions::NEAREST,
+                            ));
+                        }
+                    }
+
+                    // Collect texture info before the closure borrows panel immutably
+                    let hm_info = panel.heatmap.as_ref().and_then(|hm| {
+                        hm.texture.as_ref().map(|tex| {
+                            (tex.id(), hm.width as f64, hm.height as f64)
+                        })
+                    });
+
                     plot.show(ui, |plot_ui| {
                         // Apply explicit bounds (x and y independently)
                         let cur = plot_ui.plot_bounds();
@@ -141,6 +174,13 @@ impl FigureWindow {
                                 ));
                             }
                             _ => {}
+                        }
+
+                        // Render heatmap as a texture image if present
+                        if let Some((tex_id, w, h)) = hm_info {
+                            let center = egui_plot::PlotPoint::new(w / 2.0, h / 2.0);
+                            let size = egui::Vec2::new(w as f32, h as f32);
+                            plot_ui.image(PlotImage::new(tex_id, center, size));
                         }
 
                         for series in &panel.series {

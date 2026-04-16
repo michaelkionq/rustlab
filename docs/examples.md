@@ -30,7 +30,8 @@ print(v)
 # Plot magnitude and save to file
 mag = abs(v)
 print(mag)
-savefig(mag, "complex_magnitude.svg", "Complex Vector Magnitudes")
+plot(mag, "Complex Vector Magnitudes")
+savefig("complex_magnitude.svg")
 ```
 
 **Step-by-step explanation:**
@@ -51,7 +52,7 @@ savefig(mag, "complex_magnitude.svg", "Complex Vector Magnitudes")
 
 8. **`abs(v)`** — element-wise magnitude over the whole vector, returning a real `RVector`.
 
-9. **`savefig(mag, "complex_magnitude.svg", "Complex Vector Magnitudes")`** — writes a line chart of the magnitude vector to `complex_magnitude.svg` in the current directory. Use `.png` extension for a raster image.
+9. **`plot(mag, ...); savefig("complex_magnitude.svg")`** — plots the magnitude vector then writes the chart to `complex_magnitude.svg` in the current directory. Use `.png` extension for a raster image.
 
 **Run it:**
 
@@ -109,8 +110,10 @@ print(mag)
 plot(signal, "440 Hz Complex Sinusoid")
 
 # Save magnitude and real part to files
-savefig(real(signal), "sinusoid_real.svg", "440 Hz Sinusoid (Real Part)")
-savefig(mag,          "sinusoid_magnitude.svg", "Sinusoid Magnitude (unit circle)")
+plot(real(signal), "440 Hz Sinusoid (Real Part)")
+savefig("sinusoid_real.svg")
+plot(mag, "Sinusoid Magnitude (unit circle)")
+savefig("sinusoid_magnitude.svg")
 ```
 
 **Step-by-step explanation:**
@@ -129,7 +132,7 @@ savefig(mag,          "sinusoid_magnitude.svg", "Sinusoid Magnitude (unit circle
 
 7. **`plot(signal, ...)`** — renders the complex signal interactively in the terminal (magnitude and phase side by side). The REPL waits for a keypress before returning.
 
-8. **`savefig(...)`** — writes a chart to an SVG or PNG file for use in reports without interrupting a script run.
+8. **`plot(...); savefig(...)`** — plots data then writes the chart to an SVG or PNG file for use in reports without interrupting a script run.
 
 **Run it:**
 
@@ -154,7 +157,8 @@ print(h)
 stem(real(h), "Lowpass Impulse Response")
 
 # Save impulse response to file
-savestem(real(h), "lowpass_impulse.svg", "Lowpass Impulse Response")
+stem(real(h), "Lowpass Impulse Response")
+savefig("lowpass_impulse.svg")
 
 # Frequency response
 Hz = freqz(h, 512, 44100.0)
@@ -163,7 +167,7 @@ Hz = freqz(h, 512, 44100.0)
 plotdb(Hz, "Lowpass Frequency Response")
 
 # Save frequency response to file
-savedb(Hz, "lowpass_response.svg", "Lowpass Frequency Response")
+savefig("lowpass_response.svg")
 ```
 
 **Step-by-step explanation:**
@@ -182,7 +186,7 @@ savedb(Hz, "lowpass_response.svg", "Lowpass Frequency Response")
 
 3. **`stem(real(h), ...)`** — interactive terminal stem plot of the impulse response. Each tap is a vertical bar. The bell-shaped envelope is the Hann window multiplied onto the sinc function.
 
-4. **`savestem(real(h), "lowpass_impulse.svg", ...)`** — saves the same stem plot as a vector SVG file.
+4. **`stem(real(h), ...); savefig("lowpass_impulse.svg")`** — saves the same stem plot as a vector SVG file.
 
 5. **`Hz = freqz(h, 512, 44100.0)`** — evaluates the frequency response at 512 points from 0 to the Nyquist frequency. Returns a 2×512 matrix:
    - Row 1 (`Hz(1)`) — frequency axis in Hz
@@ -190,7 +194,7 @@ savedb(Hz, "lowpass_response.svg", "Lowpass Frequency Response")
 
 6. **`plotdb(Hz, ...)`** — interactive terminal chart showing 20·log₁₀|H(f)| (dB magnitude) on the y-axis and frequency in Hz on the x-axis.
 
-7. **`savedb(Hz, "lowpass_response.svg", ...)`** — saves the dB frequency response chart to an SVG file.
+7. **`savefig("lowpass_response.svg")`** — saves the dB frequency response chart (from the preceding `plotdb`) to an SVG file.
 
 **Using the CLI instead of scripting:**
 
@@ -216,12 +220,13 @@ rustlab run examples/lowpass.r
 h = fir_bandpass(64, 500.0, 2000.0, 44100.0, "hamming")
 
 # Save impulse response
-savestem(real(h), "bandpass_impulse.svg", "Bandpass Impulse Response")
+stem(real(h), "Bandpass Impulse Response")
+savefig("bandpass_impulse.svg")
 
 # Frequency response — interactive and saved
 Hz = freqz(h, 512, 44100.0)
 plotdb(Hz, "Bandpass Frequency Response")
-savedb(Hz, "bandpass_response.svg", "Bandpass Frequency Response")
+savefig("bandpass_response.svg")
 
 # Apply to a test signal: sum of tones
 t  = linspace(0.0, 1.0, 4410)
@@ -234,7 +239,7 @@ y  = convolve(x, h)
 plot(real(y), "Bandpass Output (1 kHz passes, 250 Hz attenuated)")
 
 # Save filtered output to file
-savefig(real(y), "bandpass_output.svg", "Bandpass Output")
+savefig("bandpass_output.svg")
 ```
 
 **Step-by-step explanation:**
@@ -250,7 +255,7 @@ savefig(real(y), "bandpass_output.svg", "Bandpass Output")
 
    Internally the filter is constructed as `h_lp(2000) - h_lp(500)`: the difference of two lowpass filters (spectral subtraction).
 
-2. **`savestem(real(h), "bandpass_impulse.svg", ...)`** — saves the impulse response stem plot to file. For bandpass filters, the stem plot shows the characteristic alternating-sign oscillation of the underlying sinc difference.
+2. **`stem(real(h), ...); savefig("bandpass_impulse.svg")`** — saves the impulse response stem plot to file. For bandpass filters, the stem plot shows the characteristic alternating-sign oscillation of the underlying sinc difference.
 
 3. **`Hz = freqz(h, 512, 44100.0)`** — computes the frequency response. `plotdb` shows the passband (500–2000 Hz) at 0 dB, with the stopband rolling off below and above.
 
@@ -262,7 +267,7 @@ savefig(real(y), "bandpass_output.svg", "Bandpass Output")
 
 7. **`y = convolve(x, h)`** — linearly convolve `x` with the filter kernel `h`. The output `y` has length `len(x) + len(h) - 1 = 4410 + 64 - 1 = 4473`. The 250 Hz component is attenuated; the 1 kHz component survives.
 
-8. **`plot(real(y), ...)` + `savefig(real(y), ...)`** — view the filtered output interactively and save it for a report.
+8. **`plot(real(y), ...)` + `savefig("bandpass_output.svg")`** — view the filtered output interactively and save it for a report.
 
 **Experiment:** change the cutoff frequencies to `[200.0, 800.0]` and observe that the 250 Hz tone now passes while the 1 kHz tone is suppressed.
 
@@ -290,24 +295,26 @@ t = linspace(0.0, (n - 1) / sr, n)
 x = cos(t * 2.0 * pi * 500.0) + cos(t * 2.0 * pi * 1500.0)
 
 # Save the input signal
-savefig(real(x), "fft_input.svg", "Input Signal (500 Hz + 1500 Hz)")
+plot(real(x), "Input Signal (500 Hz + 1500 Hz)")
+savefig("fft_input.svg")
 
 # Forward FFT
 X = fft(x)
 
 # spectrum() applies fftshift and pairs with the Hz frequency axis,
-# returning a 2×n matrix that plugs straight into plotdb / savedb.
+# returning a 2×n matrix that plugs straight into plotdb.
 H = spectrum(X, sr)
 
 # Interactive: dB magnitude spectrum with Hz x-axis
 plotdb(H, "Magnitude Spectrum")
 
 # Save to file
-savedb(H, "fft_spectrum.svg", "Magnitude Spectrum")
+savefig("fft_spectrum.svg")
 
 # Round-trip: reconstruct original signal from spectrum
 x_rec = real(ifft(X))
-savefig(x_rec, "fft_reconstructed.svg", "Reconstructed Signal")
+plot(x_rec, "Reconstructed Signal")
+savefig("fft_reconstructed.svg")
 ```
 
 **Step-by-step explanation:**
@@ -316,7 +323,7 @@ savefig(x_rec, "fft_reconstructed.svg", "Reconstructed Signal")
 
 2. **`x = cos(...500...) + cos(...1500...)`** — sum of a 500 Hz and a 1500 Hz cosine, giving a signal with two spectral peaks.
 
-3. **`savefig(real(x), "fft_input.svg", ...)`** — saves the input signal waveform to SVG.
+3. **`plot(real(x), ...); savefig("fft_input.svg")`** — saves the input signal waveform to SVG.
 
 4. **`X = fft(x)`** — computes the forward FFT. Because `n = 256` is already a power of two, no zero-padding is needed and `len(X) == 256`. For non-power-of-two inputs, `fft` automatically pads to the next power of two.
 
@@ -329,7 +336,7 @@ savefig(x_rec, "fft_reconstructed.svg", "Reconstructed Signal")
 
 6. **`plotdb(H, ...)`** — interactive terminal dB chart with Hz on the x-axis. You will see two symmetric peaks at ±500 Hz and ±1500 Hz sitting above a noise floor.
 
-7. **`savedb(H, "fft_spectrum.svg", ...)`** — saves the dB spectrum chart as an SVG file.
+7. **`savefig("fft_spectrum.svg")`** — saves the dB spectrum chart (from the preceding `plotdb`) as an SVG file.
 
 8. **`real(ifft(X))`** — inverse FFT followed by discarding the (numerically tiny) imaginary parts. The result matches the original signal `x` to within floating-point precision.
 
@@ -394,7 +401,8 @@ Hz_back = load("session.npz", "response")
 print("NPZ signal round-trip max error:", max(abs(real(x_back)  - real(x))))
 print("NPZ filter round-trip max error:", max(abs(real(h_back)  - real(h))))
 
-savedb(Hz_back, "session_response.svg", "Reloaded Frequency Response")
+plotdb(Hz_back, "Reloaded Frequency Response")
+savefig("session_response.svg")
 print("Saved session_response.svg")
 ```
 
@@ -426,7 +434,7 @@ print("Saved session_response.svg")
 
 6. **`load("session.npz", "signal")`** — loads a specific named variable from the archive. Call `load` once per variable you need; the archive is not fully extracted.
 
-7. **`savedb(Hz_back, "session_response.svg", ...)`** — demonstrates that the reloaded `response` matrix feeds directly back into `savedb` or `plotdb`, just as the original `freqz` output would.
+7. **`plotdb(Hz_back, ...); savefig("session_response.svg")`** — demonstrates that the reloaded `response` matrix feeds directly back into `plotdb`, just as the original `freqz` output would.
 
 **Supported formats summary:**
 
@@ -459,37 +467,44 @@ attn = 60.0     # stopband attenuation in dB
 # Lowpass at 1 kHz — auto-designed Kaiser window
 h_lp = fir_lowpass_kaiser(1000.0, tbw, attn, sr)
 print(len(h_lp))     # number of taps chosen by the Kaiser formula
-savestem(real(h_lp), "kaiser_lp_impulse.svg", "Lowpass Kaiser Impulse Response")
+stem(real(h_lp), "Lowpass Kaiser Impulse Response")
+savefig("kaiser_lp_impulse.svg")
 
 # Frequency response of the lowpass
 H_lp = freqz(h_lp, 512, sr)
 plotdb(H_lp, "Lowpass Kaiser Frequency Response")
-savedb(H_lp, "kaiser_lp_response.svg", "Lowpass Kaiser Frequency Response")
+savefig("kaiser_lp_response.svg")
 
 # Highpass at 3 kHz
 h_hp = fir_highpass_kaiser(3000.0, tbw, attn, sr)
-savestem(real(h_hp), "kaiser_hp_impulse.svg", "Highpass Kaiser Impulse Response")
+stem(real(h_hp), "Highpass Kaiser Impulse Response")
+savefig("kaiser_hp_impulse.svg")
 H_hp = freqz(h_hp, 512, sr)
-savedb(H_hp, "kaiser_hp_response.svg", "Highpass Kaiser Frequency Response")
+plotdb(H_hp, "Highpass Kaiser Frequency Response")
+savefig("kaiser_hp_response.svg")
 
 # Bandpass 1 kHz – 2.5 kHz
 h_bp = fir_bandpass_kaiser(1000.0, 2500.0, tbw, attn, sr)
-savestem(real(h_bp), "kaiser_bp_impulse.svg", "Bandpass Kaiser Impulse Response")
+stem(real(h_bp), "Bandpass Kaiser Impulse Response")
+savefig("kaiser_bp_impulse.svg")
 H_bp = freqz(h_bp, 512, sr)
-savedb(H_bp, "kaiser_bp_response.svg", "Bandpass Kaiser Frequency Response")
+plotdb(H_bp, "Bandpass Kaiser Frequency Response")
+savefig("kaiser_bp_response.svg")
 
 # Notch at 1 kHz (200 Hz wide), manual tap count
 h_notch = fir_notch(1000.0, 200.0, sr, 65, "hann")
-savestem(real(h_notch), "kaiser_notch_impulse.svg", "Notch Filter Impulse Response")
+stem(real(h_notch), "Notch Filter Impulse Response")
+savefig("kaiser_notch_impulse.svg")
 H_notch = freqz(h_notch, 512, sr)
-savedb(H_notch, "kaiser_notch_response.svg", "Notch Filter Frequency Response")
+plotdb(H_notch, "Notch Filter Frequency Response")
+savefig("kaiser_notch_response.svg")
 
 # Apply the lowpass to a two-tone signal
 t  = linspace(0.0, 0.5, 4000)
 x  = cos(t * 2.0 * pi * 500.0) + cos(t * 2.0 * pi * 3000.0)
 y  = convolve(x, h_lp)
 plot(real(y), "Lowpass output: 500 Hz passes, 3 kHz attenuated")
-savefig(real(y), "kaiser_lp_output.svg", "Lowpass Output (500 Hz passes, 3 kHz attenuated)")
+savefig("kaiser_lp_output.svg")
 ```
 
 **Step-by-step explanation:**
@@ -506,7 +521,7 @@ savefig(real(y), "kaiser_lp_output.svg", "Lowpass Output (500 Hz passes, 3 kHz a
 
    For `attn = 60 dB` and `tbw = 200 Hz` at 8 kHz: β ≈ 5.65, N ≈ 185 taps.
 
-2. **`savestem(real(h_lp), "kaiser_lp_impulse.svg", ...)`** — saves the impulse response as a stem plot SVG. For Kaiser-windowed filters, the taper is more pronounced than a Hann window, reflecting the higher stopband attenuation.
+2. **`stem(real(h_lp), ...); savefig("kaiser_lp_impulse.svg")`** — saves the impulse response as a stem plot SVG. For Kaiser-windowed filters, the taper is more pronounced than a Hann window, reflecting the higher stopband attenuation.
 
 3. **`H_lp = freqz(h_lp, 512, sr)`** — evaluates `H(f)` at 512 frequency points. Returns a 2×512 matrix:
    - Row 1 (`H_lp(1)`) — frequency axis in Hz
@@ -514,9 +529,9 @@ savefig(real(y), "kaiser_lp_output.svg", "Lowpass Output (500 Hz passes, 3 kHz a
 
 4. **`plotdb(H_lp, ...)`** — interactive terminal dB-magnitude chart with a Hz x-axis. The Kaiser filter's equiripple stopband is visible as a flat floor at −60 dB.
 
-5. **`savedb(H_lp, "kaiser_lp_response.svg", ...)`** — saves the dB frequency response to SVG for reports.
+5. **`savefig("kaiser_lp_response.svg")`** — saves the dB frequency response (from the preceding `plotdb`) to SVG for reports.
 
-6. **Highpass and bandpass** — the same `freqz`/`savedb` pattern is applied to each filter type without an interactive terminal plot, since the saved SVGs are sufficient for analysis.
+6. **Highpass and bandpass** — the same `freqz`/`plotdb`/`savefig` pattern is applied to each filter type. The interactive `plotdb` pushes data to the figure, then `savefig` renders it to SVG.
 
 7. **`fir_notch(1000.0, 200.0, sr, 65, "hann")`** — designs a bandpass at 900–1100 Hz then inverts the spectrum: `h_notch[n] = −h_bp[n]`, `h_notch[center] += 1`. The result passes all frequencies *except* the 200 Hz-wide notch around 1 kHz. Unlike the Kaiser variants, `fir_notch` requires you to specify `num_taps` and `window` explicitly.
 
@@ -574,26 +589,30 @@ tone = 300.0
 t = linspace(0.0, (n - 1) / sr, n);
 x = real(cos(2.0 * pi * tone * t));
 
-savefig(x, "upfirdn_input.svg", "Input — 300 Hz at 8 kHz")
+plot(x, "Input — 300 Hz at 8 kHz")
+savefig("upfirdn_input.svg")
 
 # 1. Interpolation by 4
 h_interp = fir_lowpass(64, sr / 2.0 / 4, sr, "hann");
 y_up = upfirdn(x, h_interp, 4, 1);
 print("Interpolated length: ", len(y_up))
-savefig(real(y_up), "upfirdn_interp4.svg", "Interpolated x4 (32 kHz)")
+plot(real(y_up), "Interpolated x4 (32 kHz)")
+savefig("upfirdn_interp4.svg")
 
 # 2. Decimation by 4
 h_decim = fir_lowpass(64, sr / 2.0 / 4, sr, "hann");
 y_down = upfirdn(x, h_decim, 1, 4);
 print("Decimated length:  ", len(y_down))
-savefig(real(y_down), "upfirdn_decim4.svg", "Decimated x4 (2 kHz)")
+plot(real(y_down), "Decimated x4 (2 kHz)")
+savefig("upfirdn_decim4.svg")
 
 # 3. Rational SRC 3/2
 cutoff = (sr / 2.0) / 3.0
 h_src = fir_lowpass(128, cutoff, sr, "hann");
 y_src = upfirdn(x, h_src, 3, 2);
 print("SRC 3/2 length:  ", len(y_src))
-savefig(real(y_src), "upfirdn_src32.svg", "Rate conversion 3/2")
+plot(real(y_src), "Rate conversion 3/2")
+savefig("upfirdn_src32.svg")
 ```
 
 **Step-by-step explanation:**

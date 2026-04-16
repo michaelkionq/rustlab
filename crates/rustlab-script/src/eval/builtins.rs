@@ -19,12 +19,11 @@ use rustlab_core::{RoundMode, OverflowMode};
 use rustlab_dsp::convolution::convolve;
 use rustlab_plot::{
     plot_db, plot_histogram,
-    save_plot, save_stem, save_db, save_histogram, save_bar, save_scatter,
     compute_histogram, histogram_matrix,
     render_figure_terminal, render_figure_file,
-    imagesc_terminal, save_imagesc_cmap,
+    imagesc_terminal,
     push_xy_line, push_xy_stem, push_xy_bar, push_xy_scatter,
-    LineStyle, SeriesColor, FIGURE, LiveFigure, LivePlot,
+    HeatmapData, LineStyle, SeriesColor, FIGURE, LiveFigure, LivePlot,
     sync_figure_outputs,
 };
 use ndarray::{Array1, Array2};
@@ -872,6 +871,7 @@ fn builtin_histogram(args: Vec<Value>) -> Result<Value, ScriptError> {
     Ok(Value::Matrix(histogram_matrix(&centers, &counts)))
 }
 
+// TODO: consider deprecating savehist — use histogram(v); savefig(path) instead
 fn builtin_savehist(args: Vec<Value>) -> Result<Value, ScriptError> {
     // savehist(v, "file")                  → 10 bins, empty title
     // savehist(v, "file", "title")         → 10 bins
@@ -883,7 +883,6 @@ fn builtin_savehist(args: Vec<Value>) -> Result<Value, ScriptError> {
         ));
     }
     let data = to_real_vector(&args[0])?;
-    // Detect whether arg[1] is n_bins (scalar) or a file path (string)
     let (n_bins, path, title) = if let Value::Str(s) = &args[1] {
         let t = args.get(2).and_then(|a| if let Value::Str(t) = a { Some(t.as_str()) } else { None }).unwrap_or("");
         (10usize, s.as_str(), t)
@@ -896,8 +895,26 @@ fn builtin_savehist(args: Vec<Value>) -> Result<Value, ScriptError> {
         let t = args.get(3).and_then(|a| if let Value::Str(t) = a { Some(t.as_str()) } else { None }).unwrap_or("");
         (n, path, t)
     };
-    save_histogram(&data, n_bins, title, path)
-        .map_err(|e| ScriptError::type_err(e.to_string()))?;
+    if data.is_empty() || n_bins == 0 {
+        return Err(ScriptError::runtime("savehist: empty data or zero bins".to_string()));
+    }
+    let (centers, counts, bin_width) = compute_histogram(&data, n_bins);
+    let mut x: Vec<f64> = Vec::with_capacity(n_bins * 4);
+    let mut y: Vec<f64> = Vec::with_capacity(n_bins * 4);
+    for i in 0..centers.len() {
+        let left  = centers[i] - bin_width / 2.0;
+        let right = centers[i] + bin_width / 2.0;
+        x.extend_from_slice(&[left, left, right, right]);
+        y.extend_from_slice(&[0.0, counts[i], counts[i], 0.0]);
+    }
+    push_xy_line(x, y, "count", title, None, LineStyle::Solid);
+    FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        let sp = fig.current_mut();
+        if sp.xlabel.is_empty() { sp.xlabel = "Value".to_string(); }
+        if sp.ylabel.is_empty() { sp.ylabel = "Count".to_string(); }
+    });
+    render_figure_file(path).map_err(|e| ScriptError::runtime(e.to_string()))?;
     Ok(Value::None)
 }
 
@@ -1732,6 +1749,7 @@ fn builtin_savefig(args: Vec<Value>) -> Result<Value, ScriptError> {
         return Ok(Value::None);
     }
     // 2–3 arg form: savefig(data, path) or savefig(data, path, title)
+    // TODO: consider deprecating 2-3 arg form — use plot(data); savefig(path) instead
     let path  = args[1].to_str().map_err(|e| ScriptError::type_err(e))?;
     let title = if args.len() == 3 {
         args[2].to_str().map_err(|e| ScriptError::type_err(e))?
@@ -1739,10 +1757,14 @@ fn builtin_savefig(args: Vec<Value>) -> Result<Value, ScriptError> {
         "Plot".to_string()
     };
     let real_v = to_real_vector(&args[0])?;
-    save_plot(&real_v, &title, &path).map_err(|e| ScriptError::runtime(e.to_string()))?;
+    let x: Vec<f64> = (0..real_v.len()).map(|i| i as f64).collect();
+    let y: Vec<f64> = real_v.iter().copied().collect();
+    push_xy_line(x, y, "value", &title, None, LineStyle::Solid);
+    render_figure_file(&path).map_err(|e| ScriptError::runtime(e.to_string()))?;
     Ok(Value::None)
 }
 
+// TODO: consider deprecating savestem — use stem(data); savefig(path) instead
 fn builtin_savestem(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("savestem", &args, 2, 3)?;
     let path  = args[1].to_str().map_err(|e| ScriptError::type_err(e))?;
@@ -1752,10 +1774,14 @@ fn builtin_savestem(args: Vec<Value>) -> Result<Value, ScriptError> {
         "Stem Plot".to_string()
     };
     let real_v = to_real_vector(&args[0])?;
-    save_stem(&real_v, &title, &path).map_err(|e| ScriptError::runtime(e.to_string()))?;
+    let x: Vec<f64> = (0..real_v.len()).map(|i| i as f64).collect();
+    let y: Vec<f64> = real_v.iter().copied().collect();
+    push_xy_stem(x, y, "stem", &title, None);
+    render_figure_file(&path).map_err(|e| ScriptError::runtime(e.to_string()))?;
     Ok(Value::None)
 }
 
+// TODO: consider deprecating savedb — use plotdb(h); savefig(path) instead
 fn builtin_savedb(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("savedb", &args, 2, 3)?;
     let path  = args[1].to_str().map_err(|e| ScriptError::type_err(e))?;
@@ -1765,7 +1791,21 @@ fn builtin_savedb(args: Vec<Value>) -> Result<Value, ScriptError> {
         "Frequency Response".to_string()
     };
     let (freqs, h) = extract_freq_response(&args[0])?;
-    save_db(&freqs, &h, &title, &path).map_err(|e| ScriptError::runtime(e.to_string()))?;
+    let n = freqs.len().min(h.len());
+    const FLOOR_DB: f64 = -120.0;
+    let x: Vec<f64> = freqs.iter().take(n).copied().collect();
+    let y: Vec<f64> = h.iter().take(n).map(|c| {
+        let m = c.norm();
+        if m < 1e-12 { FLOOR_DB } else { 20.0 * m.log10() }
+    }).collect();
+    push_xy_line(x, y, "dB", &title, None, LineStyle::Solid);
+    FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        let sp = fig.current_mut();
+        if sp.xlabel.is_empty() { sp.xlabel = "Frequency (Hz)".to_string(); }
+        if sp.ylabel.is_empty() { sp.ylabel = "Magnitude (dB)".to_string(); }
+    });
+    render_figure_file(&path).map_err(|e| ScriptError::runtime(e.to_string()))?;
     Ok(Value::None)
 }
 
@@ -2001,10 +2041,12 @@ fn builtin_imagesc(args: Vec<Value>) -> Result<Value, ScriptError> {
     };
     imagesc_terminal(&matrix, "", &colormap)
         .map_err(|e| ScriptError::runtime(e.to_string()))?;
+    sync_figure_outputs();
     Ok(Value::None)
 }
 
 /// saveimagesc(M, path) / saveimagesc(M, path, title) / saveimagesc(M, path, title, colormap)
+// TODO: consider deprecating saveimagesc — use imagesc(M); savefig(path) instead
 fn builtin_saveimagesc(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("saveimagesc", &args, 2, 4)?;
     let matrix = match &args[0] {
@@ -2018,8 +2060,23 @@ fn builtin_saveimagesc(args: Vec<Value>) -> Result<Value, ScriptError> {
     let path = args[1].to_str().map_err(|e| ScriptError::type_err(e))?;
     let title = if args.len() >= 3 { args[2].to_str().map_err(|e| ScriptError::type_err(e))? } else { String::new() };
     let colormap = if args.len() >= 4 { args[3].to_str().map_err(|e| ScriptError::type_err(e))? } else { "viridis".to_string() };
-    save_imagesc_cmap(&matrix, &title, &colormap, &path)
-        .map_err(|e| ScriptError::runtime(e.to_string()))?;
+    // Push heatmap data into FIGURE state (same as imagesc, without terminal render)
+    let (nrows, ncols) = (matrix.nrows(), matrix.ncols());
+    let vals: Vec<f64> = matrix.iter().map(|c| c.norm()).collect();
+    let z: Vec<Vec<f64>> = (0..nrows)
+        .map(|r| (0..ncols).map(|c| vals[r * ncols + c]).collect())
+        .collect();
+    FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        let sp = fig.current_mut();
+        sp.series.clear();
+        if !title.is_empty() { sp.title = title; }
+        sp.heatmap = Some(HeatmapData {
+            z,
+            colorscale: colormap,
+        });
+    });
+    render_figure_file(&path).map_err(|e| ScriptError::runtime(e.to_string()))?;
     Ok(Value::None)
 }
 
@@ -4763,6 +4820,7 @@ fn builtin_bar(args: Vec<Value>) -> Result<Value, ScriptError> {
 }
 
 /// savebar(y, path)  or  savebar(x, y, path)  or  savebar(x, y, path, title)
+// TODO: consider deprecating savebar — use bar(x,y); savefig(path) instead
 fn builtin_savebar(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.len() < 2 || args.len() > 4 {
         return Err(ScriptError::type_err(
@@ -4770,7 +4828,8 @@ fn builtin_savebar(args: Vec<Value>) -> Result<Value, ScriptError> {
         ));
     }
     let (x_data, y_data, path, title) = extract_xy_path_title(&args, "savebar")?;
-    save_bar(&x_data, &y_data, &title, &path).map_err(|e| ScriptError::runtime(e.to_string()))?;
+    push_xy_bar(x_data, y_data, "bar", &title, None);
+    render_figure_file(&path).map_err(|e| ScriptError::runtime(e.to_string()))?;
     Ok(Value::None)
 }
 
@@ -4795,6 +4854,7 @@ fn builtin_scatter(args: Vec<Value>) -> Result<Value, ScriptError> {
 }
 
 /// savescatter(x, y, path)  or  savescatter(x, y, path, title)
+// TODO: consider deprecating savescatter — use scatter(x,y); savefig(path) instead
 fn builtin_savescatter(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.len() < 3 || args.len() > 4 {
         return Err(ScriptError::type_err(
@@ -4807,7 +4867,8 @@ fn builtin_savescatter(args: Vec<Value>) -> Result<Value, ScriptError> {
     let title = if args.len() == 4 { args[3].to_str().map_err(|e| ScriptError::type_err(e))? } else { String::new() };
     let x_data: Vec<f64> = xv.to_vec();
     let y_data: Vec<f64> = yv.to_vec();
-    save_scatter(&x_data, &y_data, &title, &path).map_err(|e| ScriptError::runtime(e.to_string()))?;
+    push_xy_scatter(x_data, y_data, "scatter", &title, None);
+    render_figure_file(&path).map_err(|e| ScriptError::runtime(e.to_string()))?;
     Ok(Value::None)
 }
 

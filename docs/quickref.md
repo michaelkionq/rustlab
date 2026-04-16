@@ -129,7 +129,7 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `sort(v)` | Sort ascending by real part |
 | `trapz(v)` / `trapz(x, v)` | Trapezoidal integration (unit or explicit spacing) |
 | `hist(v)` / `hist(v, n)` | Histogram; returns 2×n matrix (bin centers, counts). Alias: `histogram()` |
-| `savehist(v, file)` | Save histogram to PNG or SVG |
+| `histogram(v); savefig(file)` | Save histogram to PNG or SVG |
 | `all(v)` | True if all elements nonzero |
 | `any(v)` | True if any element nonzero |
 
@@ -341,16 +341,20 @@ Mixed sparse+dense pairs auto-promote to dense.
 
 ## Plotting — File Output (PNG, SVG, or HTML by extension)
 
-| Function | Description |
+Any interactive plot can be saved to a file by calling `savefig(path)` immediately after:
+
+| Pattern | Description |
 |---|---|
+| `plot(v, "title"); savefig("file.svg")` | Line plot → file |
+| `stem(v, "title"); savefig("file.svg")` | Stem plot → file |
+| `bar(y, "title"); savefig("file.svg")` | Bar chart → file |
+| `scatter(x, y, "title"); savefig("file.svg")` | Scatter plot → file |
+| `plotdb(Hz, "title"); savefig("file.svg")` | dB response → file |
+| `histogram(v); savefig("file.svg")` | Histogram → file |
+| `imagesc(M); savefig("file.svg")` | Heatmap → file |
 | `savefig("file.html")` | Export current figure to interactive HTML (Plotly) |
-| `savefig(v, file)` / `savefig(v, file, "title")` | Line plot → file |
-| `savestem(v, file)` / `savestem(v, file, "title")` | Stem plot → file |
-| `savebar(y, file)` / `savebar(x, y, file, "title")` | Bar chart → file |
-| `savescatter(x, y, file)` / `savescatter(x, y, file, "title")` | Scatter plot → file |
-| `savedb(Hz, file)` / `savedb(Hz, file, "title")` | dB response → file |
-| `savehist(v, file)` / `savehist(v, n, file, "title")` | Histogram → file |
-| `saveimagesc(M, file)` / `saveimagesc(M, file, "title", cmap)` | Heatmap → file |
+
+Supported extensions: `.svg`, `.png`, `.html`. Shorthand `save*` wrappers (`savestem`, `savedb`, etc.) are also available for backwards compatibility.
 
 ---
 

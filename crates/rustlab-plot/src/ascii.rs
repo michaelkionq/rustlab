@@ -288,9 +288,6 @@ pub fn render_figure_terminal() -> Result<(), PlotError> {
 
 /// Render an imagesc heatmap to the terminal using colored block characters.
 pub fn imagesc_terminal(matrix: &CMatrix, title: &str, colormap: &str) -> Result<(), PlotError> {
-    if crate::figure::plot_context() == crate::figure::PlotContext::Notebook {
-        return Ok(());
-    }
     let (nrows, ncols) = (matrix.nrows(), matrix.ncols());
     if nrows == 0 || ncols == 0 { return Err(PlotError::EmptyData); }
 
@@ -299,6 +296,26 @@ pub fn imagesc_terminal(matrix: &CMatrix, title: &str, colormap: &str) -> Result
     let min_v = vals.iter().copied().fold(f64::INFINITY, f64::min);
     let max_v = vals.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let range = (max_v - min_v).max(1e-12);
+
+    // Push heatmap data into FIGURE state so savefig()/viewer/notebook can use it
+    let z: Vec<Vec<f64>> = (0..nrows)
+        .map(|r| (0..ncols).map(|c| vals[r * ncols + c]).collect())
+        .collect();
+    FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        if !fig.hold { fig.current_mut().series.clear(); }
+        let sp = fig.current_mut();
+        if !title.is_empty() && sp.title.is_empty() { sp.title = title.to_string(); }
+        sp.heatmap = Some(crate::figure::HeatmapData {
+            z,
+            colorscale: colormap.to_string(),
+        });
+    });
+
+    // Notebook mode: FIGURE state is set, no terminal render needed
+    if crate::figure::plot_context() == crate::figure::PlotContext::Notebook {
+        return Ok(());
+    }
 
     execute!(stdout(), EnterAlternateScreen)?;
     enable_raw_mode()?;

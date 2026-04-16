@@ -41,5 +41,7 @@ print(mag)
 plot(signal, "440 Hz Complex Sinusoid")
 
 # Save magnitude and real part to files
-savefig(real(signal), "sinusoid_real.svg", "440 Hz Sinusoid (Real Part)")
-savefig(mag,          "sinusoid_magnitude.svg", "Sinusoid Magnitude (unit circle)")
+plot(real(signal), "440 Hz Sinusoid (Real Part)")
+savefig("sinusoid_real.svg")
+plot(mag, "Sinusoid Magnitude (unit circle)")
+savefig("sinusoid_magnitude.svg")

@@ -2,6 +2,7 @@ use pulldown_cmark::{Parser, Options, html::push_html};
 use rustlab_plot::render_figure_plotly_div;
 use rustlab_plot::ThemeColors;
 use crate::execute::Rendered;
+use crate::parse::CalloutKind;
 
 /// Render executed notebook blocks into a self-contained HTML string.
 pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> String {
@@ -9,8 +10,26 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
     let mut body = String::new();
     let mut heading_idx = 0;
     let mut plot_idx = 0;
+    let mut in_solution = false;
+    let mut in_exercise = false;
 
     for block in blocks {
+        // Auto-close solution/exercise when we hit a new exercise or solution marker
+        if matches!(block, Rendered::ExerciseStart { .. }) {
+            if in_solution {
+                body.push_str("</details>\n");
+                in_solution = false;
+            }
+            if in_exercise {
+                body.push_str("</div>\n");
+                in_exercise = false;
+            }
+        }
+        if matches!(block, Rendered::SolutionStart) && in_solution {
+            body.push_str("</details>\n");
+            in_solution = false;
+        }
+
         match block {
             Rendered::Markdown(md) => {
                 // Rewrite .md links to .html for cross-notebook references
@@ -30,7 +49,7 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
                 body.push_str(&html);
                 body.push_str("</div>\n");
             }
-            Rendered::Code { source, text_output, error, figure, hidden } => {
+            Rendered::Code { source, text_output, error, figure, hidden, details, grid_cols } => {
                 body.push_str("<div class=\"code-block\">\n");
 
                 // Source code (unless hidden)
@@ -38,6 +57,12 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
                     body.push_str("<pre class=\"source\"><code>");
                     body.push_str(&highlight_rustlab(source));
                     body.push_str("</code></pre>\n");
+                }
+
+                // If details is set, wrap output section in a disclosure widget
+                if let Some(title) = details {
+                    body.push_str("<details class=\"code-details\">\n");
+                    body.push_str(&format!("<summary>{}</summary>\n", escape_html(title)));
                 }
 
                 // Text output (if any)
@@ -60,14 +85,63 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
                     plot_idx += 1;
                     let div_id = format!("plot-{plot_idx}");
                     let plotly_div = render_figure_plotly_div(fig, &div_id, theme);
-                    body.push_str("<div class=\"plot-container\">\n");
-                    body.push_str(&plotly_div);
-                    body.push_str("\n</div>\n");
+                    if let Some(n) = grid_cols {
+                        body.push_str(&format!(
+                            "<div class=\"image-grid\" style=\"grid-template-columns:repeat({n},1fr)\">\n"
+                        ));
+                        body.push_str(&plotly_div);
+                        body.push_str("\n</div>\n");
+                    } else {
+                        body.push_str("<div class=\"plot-container\">\n");
+                        body.push_str(&plotly_div);
+                        body.push_str("\n</div>\n");
+                    }
+                }
+
+                // Close details if open
+                if details.is_some() {
+                    body.push_str("</details>\n");
                 }
 
                 body.push_str("</div>\n");
             }
+            Rendered::Callout { kind, content } => {
+                let (class, label) = match kind {
+                    CalloutKind::Note    => ("note",    "Note"),
+                    CalloutKind::Tip     => ("tip",     "Tip"),
+                    CalloutKind::Warning => ("warning", "Warning"),
+                };
+                body.push_str(&format!("<div class=\"callout callout-{class}\">\n"));
+                body.push_str(&format!("<div class=\"callout-title\">{label}</div>\n"));
+                let md = rewrite_md_links(content);
+                let mut opts = Options::empty();
+                opts.insert(Options::ENABLE_TABLES);
+                opts.insert(Options::ENABLE_STRIKETHROUGH);
+                let parser = Parser::new_ext(&md, opts);
+                let mut html = String::new();
+                push_html(&mut html, parser);
+                body.push_str(&html);
+                body.push_str("</div>\n");
+            }
+            Rendered::ExerciseStart { number } => {
+                body.push_str(&format!(
+                    "<div class=\"exercise\">\n<div class=\"exercise-title\">Exercise {number}</div>\n"
+                ));
+                in_exercise = true;
+            }
+            Rendered::SolutionStart => {
+                body.push_str("<details class=\"solution\">\n<summary>Show solution</summary>\n");
+                in_solution = true;
+            }
         }
+    }
+
+    // Auto-close any open solution/exercise at end of document
+    if in_solution {
+        body.push_str("</details>\n");
+    }
+    if in_exercise {
+        body.push_str("</div>\n");
     }
 
     let c = theme;
@@ -282,6 +356,69 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
   .syn-str {{ color: {syn_string}; }}
   .syn-com {{ color: {syn_comment}; font-style: italic; }}
   .syn-op  {{ color: {syn_operator}; }}
+  /* ── Callout blocks ── */
+  .callout {{
+    border-left: 4px solid;
+    border-radius: 6px;
+    padding: 1rem 1.2rem;
+    margin: 1rem 0;
+  }}
+  .callout-title {{
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    font-size: 0.95rem;
+  }}
+  .callout-note {{
+    border-color: {accent_secondary};
+    background: {bg_secondary};
+  }}
+  .callout-note .callout-title {{ color: {accent_secondary}; }}
+  .callout-tip {{
+    border-color: {accent_tertiary};
+    background: {bg_secondary};
+  }}
+  .callout-tip .callout-title {{ color: {accent_tertiary}; }}
+  .callout-warning {{
+    border-color: {error_text};
+    background: {bg_secondary};
+  }}
+  .callout-warning .callout-title {{ color: {error_text}; }}
+  /* ── Exercise / solution blocks ── */
+  .exercise {{
+    border: 1px solid {border};
+    border-radius: 8px;
+    padding: 1.2rem;
+    margin: 1.5rem 0;
+    background: {bg_secondary};
+  }}
+  .exercise-title {{
+    font-weight: 700;
+    color: {accent_primary};
+    margin-bottom: 0.8rem;
+    font-size: 1.05rem;
+  }}
+  .solution {{
+    margin-top: 1rem;
+  }}
+  .solution > summary {{
+    cursor: pointer;
+    color: {accent_secondary};
+    font-weight: 600;
+    padding: 0.3rem 0;
+  }}
+  /* ── Collapsible code output ── */
+  .code-details > summary {{
+    cursor: pointer;
+    color: {accent_secondary};
+    font-weight: 600;
+    padding: 0.4rem 0;
+  }}
+  /* ── Image grid ── */
+  .image-grid {{
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }}
   /* ── Responsive: collapse sidebar on narrow screens ── */
   @media (max-width: 768px) {{
     nav {{
@@ -834,6 +971,8 @@ mod tests {
                 error: None,
                 figure: None,
                 hidden: false,
+                details: None,
+                grid_cols: None,
             },
         ];
         let html = render_html("Test", &blocks, test_theme());
@@ -851,6 +990,8 @@ mod tests {
                 error: Some("undefined variable".to_string()),
                 figure: None,
                 hidden: false,
+                details: None,
+                grid_cols: None,
             },
         ];
         let html = render_html("Test", &blocks, test_theme());
@@ -867,6 +1008,8 @@ mod tests {
                 error: None,
                 figure: None,
                 hidden: true,
+                details: None,
+                grid_cols: None,
             },
         ];
         let html = render_html("Test", &blocks, test_theme());
@@ -886,6 +1029,8 @@ mod tests {
                 error: None,
                 figure: None,
                 hidden: false,
+                details: None,
+                grid_cols: None,
             },
         ];
         let html = render_html("Test", &blocks, test_theme());
@@ -928,6 +1073,8 @@ mod tests {
                 error: None,
                 figure: None,
                 hidden: false,
+                details: None,
+                grid_cols: None,
             },
         ];
         let html = render_html("Test", &blocks, test_theme());

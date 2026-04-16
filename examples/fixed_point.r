@@ -92,8 +92,11 @@ Hz_float = freqz(real(h_float), 512, sr);
 Hz_q8    = freqz(real(hq8),     512, sr);
 Hz_q16   = freqz(real(hq16),    512, sr);
 
-savedb(Hz_float, "fir_float.svg",  "Float reference (63-tap LP)");
-savedb(Hz_q8,    "fir_q8coeff.svg",  "Q8 coefficients");
-savedb(Hz_q16,   "fir_q16coeff.svg", "Q16 coefficients");
+plotdb(Hz_float, "Float reference (63-tap LP)");
+savefig("fir_float.svg");
+plotdb(Hz_q8, "Q8 coefficients");
+savefig("fir_q8coeff.svg");
+plotdb(Hz_q16, "Q16 coefficients");
+savefig("fir_q16coeff.svg");
 
 print("Saved frequency response plots.");

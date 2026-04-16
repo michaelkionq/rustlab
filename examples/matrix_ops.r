@@ -17,7 +17,8 @@ print(size(W2))                        # → [2, 4]
 fan_in = 8.0
 W_kaiming = randn(4, 8) * sqrt(2.0 / fan_in)
 
-saveimagesc(W1, "weight_matrix.svg", "Random weight matrix  4×8")
+imagesc(W1)
+savefig("weight_matrix.svg")
 
 # ── reshape ───────────────────────────────────────────────────────────────────
 # Reinterpret data layout without copying values (column-major fill order).
@@ -32,7 +33,8 @@ print(v_again)
 # Partition a 256-sample frame into an 8×32 spectrogram-style layout
 frame = randn(256)
 gram  = reshape(frame, 8, 32)
-saveimagesc(gram, "frame_reshape.svg", "256-sample frame reshaped to 8×32")
+imagesc(gram)
+savefig("frame_reshape.svg")
 
 # ── outer product ─────────────────────────────────────────────────────────────
 # outer(a, b)[i, j] = a[i] * b[j] — rank-1 matrix.
@@ -44,7 +46,8 @@ print(R)
 # Useful in signal processing: outer product of two windows gives a 2-D kernel
 win = window("hann", 8)
 K   = outer(win, win)                 # 8×8 separable 2-D Hann window
-saveimagesc(K, "hann2d.svg", "2-D separable Hann kernel (outer product)")
+imagesc(K)
+savefig("hann2d.svg")
 
 # ── Kronecker product ─────────────────────────────────────────────────────────
 # kron(A, B) tiles B scaled by each element of A — builds block matrices.

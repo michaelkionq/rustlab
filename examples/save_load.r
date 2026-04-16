@@ -40,5 +40,6 @@ print("NPZ signal round-trip max error:", max(abs(real(x_back)  - real(x))))
 print("NPZ filter round-trip max error:", max(abs(real(h_back)  - real(h))))
 
 # Use the reloaded frequency response for a plot
-savedb(Hz_back, "session_response.svg", "Reloaded Frequency Response")
+plotdb(Hz_back, "Reloaded Frequency Response")
+savefig("session_response.svg")
 print("Saved session_response.svg")

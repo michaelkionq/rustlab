@@ -130,4 +130,5 @@ fprintf("  y(4.5) = %.4f   (target 0.5)\n", y_vec(idx_check))
 fprintf("  e(4.5) = %.4f\n", e_vec(idx_check))
 
 # ── Save step-response plot ──────────────────────────────────────────────
-savefig(real(y_vec), "pid_response.svg", "PID Response: y(t) vs setpoint")
+plot(real(y_vec), "PID Response: y(t) vs setpoint")
+savefig("pid_response.svg")

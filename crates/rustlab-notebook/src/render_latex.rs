@@ -2,6 +2,7 @@ use std::path::Path;
 use pulldown_cmark::{Parser, Options, Event, Tag, TagEnd, HeadingLevel};
 use rustlab_plot::theme::{Theme, ThemeColors};
 use crate::execute::Rendered;
+use crate::parse::CalloutKind;
 
 /// Render executed notebook blocks into a LaTeX document string.
 /// Plot images are written to `plot_dir` as SVG files and referenced
@@ -18,12 +19,17 @@ pub fn render_latex(title: &str, blocks: &[Rendered], plot_dir: &Path, theme: &T
             Rendered::Markdown(md) => {
                 body.push_str(&markdown_to_latex(md));
             }
-            Rendered::Code { source, text_output, error, figure, hidden } => {
+            Rendered::Code { source, text_output, error, figure, hidden, details, grid_cols } => {
                 // Source code (unless hidden)
                 if !hidden {
                     body.push_str("\\begin{verbatim}\n");
                     body.push_str(source);
                     body.push_str("\n\\end{verbatim}\n\n");
+                }
+
+                // Details title (LaTeX has no collapsibility — just add a label)
+                if let Some(title) = details {
+                    body.push_str(&format!("\\paragraph{{{}}}\n\n", escape_latex(title)));
                 }
 
                 // Text output
@@ -51,17 +57,40 @@ pub fn render_latex(title: &str, blocks: &[Rendered], plot_dir: &Path, theme: &T
                     if let Err(e) = rustlab_plot::render_figure_state_to_file(fig, &plot_file.to_string_lossy()) {
                         eprintln!("warning: could not render plot-{plot_idx}: {e}");
                     } else {
-                        // Use relative path from the .tex file's perspective
                         let rel_path = plot_dir.file_name()
                             .unwrap_or_default()
                             .to_string_lossy();
+                        let width = if let Some(n) = grid_cols {
+                            let w = 0.9 / *n as f64;
+                            format!("{w:.2}\\textwidth")
+                        } else {
+                            "0.9\\textwidth".to_string()
+                        };
                         body.push_str(&format!(
-                            "\\begin{{center}}\n\\includesvg[width=0.9\\textwidth]{{{}/{}}}\n\\end{{center}}\n\n",
+                            "\\begin{{center}}\n\\includesvg[width={width}]{{{}/{}}}\n\\end{{center}}\n\n",
                             rel_path,
                             format!("plot-{plot_idx}"),
                         ));
                     }
                 }
+            }
+            Rendered::Callout { kind, content } => {
+                let label = match kind {
+                    CalloutKind::Note    => "Note",
+                    CalloutKind::Tip     => "Tip",
+                    CalloutKind::Warning => "Warning",
+                };
+                body.push_str(&format!("\\begin{{quote}}\n\\textbf{{{label}:}} "));
+                body.push_str(&markdown_to_latex(content));
+                body.push_str("\\end{quote}\n\n");
+            }
+            Rendered::ExerciseStart { number } => {
+                body.push_str(&format!(
+                    "\\medskip\\noindent\\textbf{{Exercise~{number}.}}\\quad\n"
+                ));
+            }
+            Rendered::SolutionStart => {
+                body.push_str("\\medskip\\noindent\\textbf{Solution.}\\quad\n");
             }
         }
     }
@@ -509,6 +538,8 @@ mod tests {
                 error: None,
                 figure: None,
                 hidden: false,
+                details: None,
+                grid_cols: None,
             },
         ];
         let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"), light());
@@ -524,6 +555,8 @@ mod tests {
                 error: None,
                 figure: None,
                 hidden: true,
+                details: None,
+                grid_cols: None,
             },
         ];
         let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"), light());
@@ -542,6 +575,8 @@ mod tests {
                 error: None,
                 figure: None,
                 hidden: false,
+                details: None,
+                grid_cols: None,
             },
         ];
         let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"), light());
@@ -558,6 +593,8 @@ mod tests {
                 error: None,
                 figure: None,
                 hidden: false,
+                details: None,
+                grid_cols: None,
             },
         ];
         let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"), light());
@@ -576,6 +613,8 @@ mod tests {
                 error: Some("undefined variable".to_string()),
                 figure: None,
                 hidden: false,
+                details: None,
+                grid_cols: None,
             },
         ];
         let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"), light());

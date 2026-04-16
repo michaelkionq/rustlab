@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::mpsc;
 use rustlab_proto::ViewerMsg;
 
-use crate::figure::FigureWindow;
+use crate::figure::{FigureWindow, HeatmapImage};
 
 /// The viewer application state.
 pub struct ViewerApp {
@@ -57,6 +57,20 @@ impl ViewerApp {
                         if idx < fig.panels.len() {
                             fig.panels[idx].xlim = xlim;
                             fig.panels[idx].ylim = ylim;
+                        }
+                    }
+                }
+                ViewerMsg::PanelHeatmap { fig_id, panel, heatmap } => {
+                    if let Some(fig) = self.figures.get_mut(&fig_id) {
+                        let idx = panel as usize;
+                        if idx < fig.panels.len() {
+                            fig.panels[idx].heatmap = Some(HeatmapImage {
+                                width:  heatmap.width,
+                                height: heatmap.height,
+                                rgba:   heatmap.rgba,
+                                texture: None, // created on first render
+                            });
+                            fig.dirty = true;
                         }
                     }
                 }

@@ -1,7 +1,6 @@
 # Statistical aggregates and numerical integration
 #
-# Demonstrates: sum, cumsum, argmin, argmax, sort, trapz, bar (savebar),
-#               scatter (savescatter)
+# Demonstrates: sum, cumsum, argmin, argmax, sort, trapz, bar, scatter
 
 t  = linspace(0.0, 1.0, 256)
 sr = 256.0
@@ -17,13 +16,15 @@ print(energy)
 # ── cumsum ───────────────────────────────────────────────────────────────────
 # Running total — useful for cumulative energy or CDF estimation
 cs = cumsum(real(sig) .^ 2)
-savefig(real(cs), "cumulative_energy.svg", "Cumulative Signal Energy")
+plot(real(cs), "Cumulative Signal Energy")
+savefig("cumulative_energy.svg")
 
 # Normalised CDF of a randn sample
 n_samp = randn(512)
 bins   = sort(n_samp)               # sort ascending — becomes the x-axis of the CDF
 cdf    = cumsum(ones(512)) / 512.0  # uniform weights → empirical CDF
-savescatter(real(bins), real(cdf), "empirical_cdf.svg", "Empirical CDF of N(0,1)")
+scatter(real(bins), real(cdf), "Empirical CDF of N(0,1)")
+savefig("empirical_cdf.svg")
 
 # ── argmin / argmax ───────────────────────────────────────────────────────────
 # 1-based index of the extreme values
@@ -67,10 +68,12 @@ e2   = sum(real(sig(65:128))  .^ 2)
 e3   = sum(real(sig(129:192)) .^ 2)
 e4   = sum(real(sig(193:256)) .^ 2)
 energies = [e1, e2, e3, e4]
-savebar(energies, "segment_energy.svg", "Energy per 64-sample segment")
+bar(energies, "Energy per 64-sample segment")
+savefig("segment_energy.svg")
 
 # ── scatter plot ──────────────────────────────────────────────────────────────
 # Scatter of signal vs its 1-sample-delayed version (phase portrait)
 x_scatter = real(sig(1:255))
 y_scatter = real(sig(2:256))
-savescatter(x_scatter, y_scatter, "phase_portrait.svg", "Signal phase portrait (x[n] vs x[n-1])")
+scatter(x_scatter, y_scatter, "Signal phase portrait (x[n] vs x[n-1])")
+savefig("phase_portrait.svg")

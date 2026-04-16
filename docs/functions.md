@@ -449,7 +449,7 @@ freqs = fftfreq(256, 8000.0)   # 256-point FFT at 8 kHz
 ### `spectrum(X, sample_rate)`
 The recommended way to display FFT results with a correct Hz axis.
 
-Applies `fftshift` to the spectrum and pairs it with the DC-centered frequency axis, returning a **2×n matrix** that plugs directly into `plotdb` and `savedb`:
+Applies `fftshift` to the spectrum and pairs it with the DC-centered frequency axis, returning a **2×n matrix** that plugs directly into `plotdb`:
 - Row 1: frequency axis in Hz (DC = 0, negative on left, positive on right)
 - Row 2: complex spectrum (DC centered)
 
@@ -457,7 +457,7 @@ Applies `fftshift` to the spectrum and pairs it with the DC-centered frequency a
 X = fft(x)
 H = spectrum(X, sr)
 plotdb(H, "Magnitude Spectrum")
-savedb(H, "spectrum.svg", "Magnitude Spectrum")
+savefig("spectrum.svg")
 ```
 
 This is the standard workflow for viewing FFT output with a proper frequency axis. Internally it is equivalent to:
@@ -612,7 +612,7 @@ Returns a **2×n matrix**:
 ```
 Hz = freqz(h, 512, 44100.0)
 plotdb(Hz, "Frequency Response")
-savedb(Hz, "response.svg", "Frequency Response")
+savefig("response.svg")
 ```
 
 ---
@@ -1249,62 +1249,42 @@ imagesc(M, "jet")
 
 ---
 
-## Visualization — File Output (PNG / SVG)
+## Visualization — File Output (PNG / SVG / HTML)
 
-File format is detected from the extension (`.svg` or `.png`).
+File format is detected from the extension (`.svg`, `.png`, or `.html`).
 
-### `savefig(v, filename [, title])` / `savefig(filename)`
-Save a plot to file. Extension determines format: `.svg`, `.png`, or `.html`.
+### `savefig(filename)`
+Save the current figure state to file. Any interactive plot (`plot`, `stem`, `bar`, `scatter`, `plotdb`, `histogram`, `imagesc`) pushes data into the figure, then `savefig(path)` renders it.
 
-The 1-argument form `savefig("file.html")` exports the current figure state (all subplots and series) as an interactive HTML file using Plotly.js. Supports zoom, pan, hover readout, and PNG export from the browser toolbar.
-
-The 2–3 argument form saves a line chart: `v` may be a vector or an n×1 column matrix.
 ```
-savefig("report.html")                               % interactive Plotly HTML
-savefig(real(signal), "signal.svg", "440 Hz Sinusoid")
-savefig(mag, "magnitude.png")
-```
+plot(real(signal), "440 Hz Sinusoid")
+savefig("signal.svg")
 
-### `savestem(v, filename [, title])`
-Save a stem chart to file. `v` may be a vector or an n×1 column matrix.
-```
-savestem(real(h), "impulse.svg", "Filter Impulse Response")
-```
+stem(real(h), "Impulse Response")
+savefig("impulse.png")
 
-### `savedb(Hz, filename [, title])`
-Save a dB frequency response chart to file. `Hz` is the 2×n matrix from `freqz()` or `spectrum()`.
-```
-savedb(freqz(h, 512, sr), "response.svg", "Lowpass Response")
-savedb(spectrum(fft(x), sr), "spectrum.svg", "Signal Spectrum")
+plotdb(freqz(h, 512, sr), "Lowpass Response")
+savefig("response.svg")
+
+imagesc(M, "jet")
+savefig("heatmap.svg")
+
+savefig("report.html")    % interactive Plotly HTML with zoom/pan/hover
 ```
 
-### `savebar(y, filename)` / `savebar(x, y, filename)` / `savebar(x, y, filename, title)`
-Save a bar chart to file. Bar positions default to 0, 1, 2, … if `x` is omitted.
-```
-savebar(counts, "votes.svg", "Election Results")
-savebar(x, y, "bars.svg")
-```
+### Shorthand `save*` functions (backwards compatibility)
 
-### `savescatter(x, y, filename)` / `savescatter(x, y, filename, title)`
-Save a scatter plot to file. Each (x, y) pair is rendered as a filled circle.
-```
-savescatter(x, y, "scatter.svg", "Noise Distribution")
-savescatter(real(z), imag(z), "constellation.svg")
-```
+These convenience wrappers combine the interactive plot + `savefig` in one call. They are equivalent to calling the interactive builtin followed by `savefig(path)`.
 
-### `savehist(v, filename [, title])` / `savehist(v, n_bins, filename [, title])`
-Save a histogram to file.
-```
-savehist(randn(2000), "noise_hist.svg", "Noise Distribution")
-savehist(data, 30, "data_hist.png", "Data Histogram")
-```
-
-### `saveimagesc(M, filename)` / `saveimagesc(M, filename, title)` / `saveimagesc(M, filename, title, colormap)`
-Save a matrix heatmap to file. Supported colormaps: `"viridis"` (default), `"jet"`, `"hot"`, `"gray"`.
-```
-saveimagesc(spectrogram, "spec.png")
-saveimagesc(M, "heatmap.svg", "Correlation Matrix", "jet")
-```
+| Function | Equivalent to |
+|----------|---------------|
+| `savefig(v, file [, title])` | `plot(v [, title]); savefig(file)` |
+| `savestem(v, file [, title])` | `stem(v [, title]); savefig(file)` |
+| `savedb(Hz, file [, title])` | `plotdb(Hz [, title]); savefig(file)` |
+| `savebar(y, file [, title])` | `bar(y [, title]); savefig(file)` |
+| `savescatter(x, y, file [, title])` | `scatter(x, y [, title]); savefig(file)` |
+| `savehist(v, file [, title])` | `histogram(v); savefig(file)` |
+| `saveimagesc(M, file [, title [, cmap]])` | `imagesc(M [, cmap]); savefig(file)` |
 
 ---
 

@@ -25,11 +25,9 @@ pub use viewer_live::ViewerFigure;
 pub use viewer_live::{connect_viewer, connect_viewer_named, disconnect_viewer, viewer_active, viewer_new_figure, sync_viewer};
 pub use file::{
     render_figure_file, render_figure_state_to_file,
-    save_db, save_histogram, save_imagesc_cmap, save_plot, save_stem,
-    save_bar, save_scatter,
 };
 pub use figure::{
-    colormap_rgb, FigureState, FigureOutput, LineStyle, PlotContext, PlotKind, Series, SeriesColor, SubplotState,
+    colormap_rgb, FigureState, FigureOutput, HeatmapData, LineStyle, PlotContext, PlotKind, Series, SeriesColor, SubplotState,
     FIGURE,
     figure_new, figure_new_html, figure_switch,
     current_figure_id, current_figure_output, set_current_figure_output,

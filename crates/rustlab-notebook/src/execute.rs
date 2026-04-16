@@ -1,6 +1,6 @@
 use rustlab_script::Evaluator;
 use rustlab_plot::{FIGURE, FigureState, PlotContext, set_plot_context};
-use crate::parse::Block;
+use crate::parse::{Block, CalloutKind};
 
 /// A rendered block ready for HTML output.
 #[derive(Debug)]
@@ -15,7 +15,17 @@ pub enum Rendered {
         figure: Option<FigureState>,
         /// If true, source code should be hidden in rendered output.
         hidden: bool,
+        /// If set, wrap output in a collapsible disclosure widget.
+        details: Option<String>,
+        /// If set, tile image outputs N-across.
+        grid_cols: Option<usize>,
     },
+    /// A callout box (note, tip, warning).
+    Callout { kind: CalloutKind, content: String },
+    /// Start of a numbered exercise.
+    ExerciseStart { number: usize },
+    /// Start of a solution (collapsed by default).
+    SolutionStart,
 }
 
 /// Execute a parsed notebook, returning rendered blocks.
@@ -32,6 +42,7 @@ pub fn execute_notebook(blocks: &[Block]) -> Vec<Rendered> {
 
     let mut ev = Evaluator::new();
     let mut rendered = Vec::with_capacity(blocks.len());
+    let mut exercise_counter = 0usize;
 
     for block in blocks {
         match block {
@@ -39,7 +50,7 @@ pub fn execute_notebook(blocks: &[Block]) -> Vec<Rendered> {
                 let interpolated = interpolate_markdown(text, &mut ev);
                 rendered.push(Rendered::Markdown(interpolated));
             }
-            Block::Code { source, hidden } => {
+            Block::Code { source, directives } => {
                 // Reset figure before each code block so we only capture
                 // what this block produces — unless hold is on, in which
                 // case we preserve the figure state for multi-block overlays.
@@ -53,10 +64,10 @@ pub fn execute_notebook(blocks: &[Block]) -> Vec<Rendered> {
                 let error = run_code_block(&mut ev, source);
                 let text_output = rustlab_script::stop_capture();
 
-                // Capture figure if it has data
+                // Capture figure if it has data (series or heatmap)
                 let figure = FIGURE.with(|fig| {
                     let f = fig.borrow().clone();
-                    if f.subplots.iter().any(|s| !s.series.is_empty()) {
+                    if f.subplots.iter().any(|s| !s.series.is_empty() || s.heatmap.is_some()) {
                         Some(f)
                     } else {
                         None
@@ -68,8 +79,21 @@ pub fn execute_notebook(blocks: &[Block]) -> Vec<Rendered> {
                     text_output,
                     error,
                     figure,
-                    hidden: *hidden,
+                    hidden: directives.hidden,
+                    details: directives.details.clone(),
+                    grid_cols: directives.grid_cols,
                 });
+            }
+            Block::Callout { kind, content } => {
+                let interpolated = interpolate_markdown(content, &mut ev);
+                rendered.push(Rendered::Callout { kind: *kind, content: interpolated });
+            }
+            Block::ExerciseStart => {
+                exercise_counter += 1;
+                rendered.push(Rendered::ExerciseStart { number: exercise_counter });
+            }
+            Block::SolutionStart => {
+                rendered.push(Rendered::SolutionStart);
             }
         }
     }

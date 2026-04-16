@@ -11,21 +11,25 @@ x = linspace(-3.0, 3.0, 64)
 # ── ReLU ─────────────────────────────────────────────────────────────────────
 # max(0, x): zero for negatives, identity for positives
 r = relu(x)
-savefig(real(r), "relu.svg", "ReLU: max(0, x)")
+plot(real(r), "ReLU: max(0, x)")
+savefig("relu.svg")
 
 # ── GELU ─────────────────────────────────────────────────────────────────────
 # Smooth approximation of ReLU used in transformers (BERT, GPT)
 g = gelu(x)
-savefig(real(g), "gelu.svg", "GELU: 0.5·x·(1 + tanh(√(2/π)·(x + 0.044715·x³)))")
+plot(real(g), "GELU: 0.5·x·(1 + tanh(√(2/π)·(x + 0.044715·x³)))")
+savefig("gelu.svg")
 
 # ── tanh ─────────────────────────────────────────────────────────────────────
 # Classic bounded activation: saturates at ±1, zero-centred unlike sigmoid
 t = tanh(x)
-savefig(real(t), "tanh.svg", "tanh: (eˣ − e⁻ˣ) / (eˣ + e⁻ˣ)")
+plot(real(t), "tanh: (eˣ − e⁻ˣ) / (eˣ + e⁻ˣ)")
+savefig("tanh.svg")
 
 # ── Side-by-side comparison: ReLU vs GELU vs tanh ────────────────────────────
 # All three on the same axes — save each curve individually then inspect
-savefig(real(r - g), "relu_minus_gelu.svg", "ReLU − GELU  (difference)")
+plot(real(r - g), "ReLU − GELU  (difference)")
+savefig("relu_minus_gelu.svg")
 
 # ── softmax ───────────────────────────────────────────────────────────────────
 # Converts a logit vector to a probability distribution summing to 1.
@@ -34,7 +38,8 @@ probs  = softmax(logits)
 print(probs)
 print(sum(probs))                      # → 1.0
 
-savebar(real(probs), "softmax_probs.svg", "softmax([2, 1, 0.1, 3.5, -0.5])")
+bar(real(probs), "softmax([2, 1, 0.1, 3.5, -0.5])")
+savefig("softmax_probs.svg")
 
 # ── Top-K sampling pattern ────────────────────────────────────────────────────
 # sort the logits descending, keep the top-3, re-normalise with softmax.

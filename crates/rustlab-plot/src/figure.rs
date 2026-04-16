@@ -80,6 +80,15 @@ pub struct Series {
     pub kind:   PlotKind,
 }
 
+/// 2D heatmap data for a subplot (produced by `saveimagesc`).
+#[derive(Debug, Clone)]
+pub struct HeatmapData {
+    /// Row-major matrix values (magnitudes). `z[row][col]`.
+    pub z: Vec<Vec<f64>>,
+    /// Colorscale name (rustlab convention: "viridis", "jet", "hot", "gray").
+    pub colorscale: String,
+}
+
 /// State for a single subplot panel.
 #[derive(Debug, Clone)]
 pub struct SubplotState {
@@ -92,6 +101,8 @@ pub struct SubplotState {
     pub ylim:   (Option<f64>, Option<f64>),
     /// Categorical x-axis tick labels (e.g. from string array bar charts).
     pub x_labels: Option<Vec<String>>,
+    /// Optional 2D heatmap data (takes precedence over series when present).
+    pub heatmap: Option<HeatmapData>,
 }
 impl SubplotState {
     pub fn new() -> Self {
@@ -100,6 +111,7 @@ impl SubplotState {
             grid: true, series: Vec::new(),
             xlim: (None, None), ylim: (None, None),
             x_labels: None,
+            heatmap: None,
         }
     }
 }

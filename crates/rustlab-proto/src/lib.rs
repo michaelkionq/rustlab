@@ -39,6 +39,12 @@ pub enum ViewerMsg {
         xlim:   (Option<f64>, Option<f64>),
         ylim:   (Option<f64>, Option<f64>),
     },
+    /// Replace heatmap data in one panel (0-based).
+    PanelHeatmap {
+        fig_id: u32,
+        panel:  u16,
+        heatmap: WireHeatmap,
+    },
     /// Request a redraw of all panels in a figure.
     Redraw { fig_id: u32 },
     /// Close a figure window.
@@ -90,6 +96,17 @@ pub enum WirePlotKind {
     Stem,
     Bar,
     Scatter,
+}
+
+/// Pre-rendered heatmap image on the wire.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WireHeatmap {
+    /// Image width in pixels.
+    pub width:  u32,
+    /// Image height in pixels.
+    pub height: u32,
+    /// RGBA pixel data, row-major, 4 bytes per pixel.
+    pub rgba:   Vec<u8>,
 }
 
 // ─── Framing helpers ────────────────────────────────────────────────────────
