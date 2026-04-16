@@ -303,7 +303,11 @@ pub fn imagesc_terminal(matrix: &CMatrix, title: &str, colormap: &str) -> Result
         .collect();
     FIGURE.with(|fig| {
         let mut fig = fig.borrow_mut();
-        if !fig.hold { fig.current_mut().series.clear(); }
+        if !fig.hold {
+            let sp = fig.current_mut();
+            sp.series.clear();
+            sp.title.clear();
+        }
         let sp = fig.current_mut();
         if !title.is_empty() && sp.title.is_empty() { sp.title = title.to_string(); }
         sp.heatmap = Some(crate::figure::HeatmapData {
@@ -529,7 +533,13 @@ pub fn plot_db(freqs: &RVector, h: &CVector, title: &str) -> Result<(), PlotErro
     }).collect();
     FIGURE.with(|fig| {
         let mut fig = fig.borrow_mut();
-        if !fig.hold { fig.current_mut().series.clear(); }
+        if !fig.hold {
+            let sp = fig.current_mut();
+            sp.series.clear();
+            sp.title.clear();
+            sp.xlabel.clear();
+            sp.ylabel.clear();
+        }
         let color = fig.next_color();
         let sp = fig.current_mut();
         if !title.is_empty() && sp.title.is_empty() { sp.title = title.to_string(); }
@@ -558,7 +568,13 @@ pub fn plot_histogram(data: &RVector, n_bins: usize, title: &str) -> Result<(), 
     }
     FIGURE.with(|fig| {
         let mut fig = fig.borrow_mut();
-        if !fig.hold { fig.current_mut().series.clear(); }
+        if !fig.hold {
+            let sp = fig.current_mut();
+            sp.series.clear();
+            sp.title.clear();
+            sp.xlabel.clear();
+            sp.ylabel.clear();
+        }
         let color = fig.next_color();
         let sp = fig.current_mut();
         if !title.is_empty() && sp.title.is_empty() { sp.title = title.to_string(); }
