@@ -36,7 +36,6 @@ print(max(abs(real(theta_atan) - angles_rad)))   # → ≈ 0  (for θ ∈ [0, π
 theta_wide = linspace(-pi/2.0, pi/2.0, 200)
 residual   = real(asin(sin(theta_wide))) - real(theta_wide)
 plot(residual, "asin(sin(θ)) − θ  round-trip error")
-savefig("asin_roundtrip_error.svg")
 
 # ── Laguerre polynomials ──────────────────────────────────────────────────────
 # laguerre(n, alpha, x) — generalised Laguerre polynomial L_n^alpha(x).
@@ -56,14 +55,11 @@ print(laguerre(1, 0.0, x_spot))           # → 1 − 2.5 = -1.5
 print(laguerre(0, 0.0, x_spot))           # → 1.0
 
 plot(real(L2), "Laguerre L₂(x)  [0, 8]")
-savefig("laguerre_L2.svg")
 plot(real(L3), "Laguerre L₃(x)  [0, 8]")
-savefig("laguerre_L3.svg")
 
 # Generalised Laguerre with alpha=0.5: used in quantum harmonic oscillator
 L2a = laguerre(2, 0.5, x_lag)
 plot(real(L2a), "Generalised Laguerre L₂^(0.5)(x)")
-savefig("laguerre_L2_alpha05.svg")
 
 # ── Legendre polynomials ──────────────────────────────────────────────────────
 # legendre(l, m, x) — associated Legendre polynomial P_l^m(x).
@@ -85,11 +81,8 @@ norm_P20 = trapz(x_leg, real(P20) .^ 2)
 print(norm_P20)                           # → ≈ 0.4
 
 plot(real(P20), "Legendre P₂⁰(x)  (l=2, m=0)")
-savefig("legendre_P20.svg")
 plot(real(P30), "Legendre P₃⁰(x)  (l=3, m=0)")
-savefig("legendre_P30.svg")
 
 # Associated Legendre: P₂¹(x) — appears in spherical harmonics Y_l^m
 P21 = legendre(2, 1, x_leg)
 plot(real(P21), "Associated Legendre P₂¹(x)")
-savefig("legendre_P21.svg")

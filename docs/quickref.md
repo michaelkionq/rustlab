@@ -354,7 +354,7 @@ Any interactive plot can be saved to a file by calling `savefig(path)` immediate
 | `imagesc(M); savefig("file.svg")` | Heatmap → file |
 | `savefig("file.html")` | Export current figure to interactive HTML (Plotly) |
 
-Supported extensions: `.svg`, `.png`, `.html`. Shorthand `save*` wrappers (`savestem`, `savedb`, etc.) are also available for backwards compatibility.
+Supported extensions: `.svg`, `.png`, `.html`. Legacy `save*` wrappers (`savestem`, `savedb`, etc.) still work but are deprecated — they emit a warning and will be removed in a future release.
 
 ---
 

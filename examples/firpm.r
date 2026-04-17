@@ -21,7 +21,6 @@ print(length(h_lp))
 
 Hz_lp = freqz(h_lp, 512, fs)
 plotdb(Hz_lp, "PM Low-pass Frequency Response")
-savefig("firpm_lp_response.svg")
 
 # -- 2. Band-pass: 79-tap, pass-band 0.30-0.50 Nyquist (2.4-4 kHz)
 h_bp = firpm(79,
@@ -34,7 +33,6 @@ print(length(h_bp))
 
 Hz_bp = freqz(h_bp, 512, fs)
 plotdb(Hz_bp, "PM Band-pass Frequency Response")
-savefig("firpm_bp_response.svg")
 
 # -- 3. Weighted low-pass: 51-tap, 10x heavier stop-band constraint
 h_w = firpm(51,
@@ -48,7 +46,6 @@ print(length(h_w))
 
 Hz_w = freqz(h_w, 512, fs)
 plotdb(Hz_w, "PM Weighted Low-pass Frequency Response")
-savefig("firpm_weighted_response.svg")
 
 # -- 4. Tap count comparison: Parks-McClellan vs Kaiser for same spec
 h_kai = fir_lowpass_kaiser(0.25 * fs, 400.0, 60.0, fs)
@@ -75,7 +72,6 @@ print(sum(h_int8))
 
 Hz_int8 = freqz(h_int8 / sum(h_int8), 512, fs)
 plotdb(Hz_int8, "Integer LP Frequency Response (8-bit)")
-savefig("firpm_int8_response.svg")
 
 h_int16 = firpmq(63,
                  [0.0, 0.20, 0.30, 1.0],
@@ -91,4 +87,3 @@ print(sum(h_int16))
 
 Hz_int16 = freqz(h_int16 / sum(h_int16), 512, fs)
 plotdb(Hz_int16, "Integer LP Frequency Response (16-bit)")
-savefig("firpm_int16_response.svg")

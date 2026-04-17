@@ -321,6 +321,12 @@ pub fn imagesc_terminal(matrix: &CMatrix, title: &str, colormap: &str) -> Result
         return Ok(());
     }
 
+    // Skip when stdout is not a real terminal (e.g. piped output, CI)
+    use std::io::IsTerminal;
+    if !std::io::stdout().is_terminal() {
+        return Ok(());
+    }
+
     execute!(stdout(), EnterAlternateScreen)?;
     enable_raw_mode()?;
     let backend = CrosstermBackend::new(stdout());

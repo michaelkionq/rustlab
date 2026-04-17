@@ -165,6 +165,8 @@ fn connect_viewer_impl(client: Option<ViewerClient>) -> Result<bool, PlotError> 
         Ok(rustlab_proto::ViewerReply::Pong) => {}
         _ => return Ok(false),
     }
+    // Clear any figures from previous sessions
+    let _ = client.send(&ViewerMsg::Reset);
     let fig_id = next_fig_id();
     VIEWER_CONN.with(|c| *c.borrow_mut() = Some(ViewerConn {
         client,

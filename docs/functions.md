@@ -465,7 +465,7 @@ This is the standard workflow for viewing FFT output with a proper frequency axi
 # What spectrum() does for you:
 Xs    = fftshift(X)
 freqs = fftshift(fftfreq(len(X), sr))
-# (pairs them into a matrix for plotdb/savedb)
+# (pairs them into a matrix for plotdb)
 ```
 
 ---
@@ -1272,9 +1272,9 @@ savefig("heatmap.svg")
 savefig("report.html")    % interactive Plotly HTML with zoom/pan/hover
 ```
 
-### Shorthand `save*` functions (backwards compatibility)
+### Shorthand `save*` functions (deprecated)
 
-These convenience wrappers combine the interactive plot + `savefig` in one call. They are equivalent to calling the interactive builtin followed by `savefig(path)`.
+These convenience wrappers still work but emit a deprecation warning. Use the interactive builtin followed by `savefig(path)` instead.
 
 | Function | Equivalent to |
 |----------|---------------|

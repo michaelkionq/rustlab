@@ -18,7 +18,6 @@ fan_in = 8.0
 W_kaiming = randn(4, 8) * sqrt(2.0 / fan_in)
 
 imagesc(W1)
-savefig("weight_matrix.svg")
 
 # ── reshape ───────────────────────────────────────────────────────────────────
 # Reinterpret data layout without copying values (column-major fill order).
@@ -34,7 +33,6 @@ print(v_again)
 frame = randn(256)
 gram  = reshape(frame, 8, 32)
 imagesc(gram)
-savefig("frame_reshape.svg")
 
 # ── outer product ─────────────────────────────────────────────────────────────
 # outer(a, b)[i, j] = a[i] * b[j] — rank-1 matrix.
@@ -47,7 +45,6 @@ print(R)
 win = window("hann", 8)
 K   = outer(win, win)                 # 8×8 separable 2-D Hann window
 imagesc(K)
-savefig("hann2d.svg")
 
 # ── Kronecker product ─────────────────────────────────────────────────────────
 # kron(A, B) tiles B scaled by each element of A — builds block matrices.

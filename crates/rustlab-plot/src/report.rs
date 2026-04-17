@@ -57,7 +57,7 @@ pub fn report_auto_capture() {
         let mut r = r.borrow_mut();
         if let Some(report) = r.as_mut() {
             let fig = FIGURE.with(|f| f.borrow().clone());
-            if fig.subplots.iter().any(|s| !s.series.is_empty()) {
+            if fig.subplots.iter().any(|s| !s.series.is_empty() || s.heatmap.is_some()) {
                 let title = fig.subplots.first()
                     .map(|s| s.title.clone())
                     .unwrap_or_default();

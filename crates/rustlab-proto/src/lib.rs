@@ -49,6 +49,8 @@ pub enum ViewerMsg {
     Redraw { fig_id: u32 },
     /// Close a figure window.
     Close { fig_id: u32 },
+    /// Close all figures (sent on new `viewer on` connection).
+    Reset,
     /// Keepalive ping.
     Ping,
 }

@@ -82,6 +82,9 @@ impl ViewerApp {
                 ViewerMsg::Close { fig_id } => {
                     self.figures.remove(&fig_id);
                 }
+                ViewerMsg::Reset => {
+                    self.figures.clear();
+                }
                 ViewerMsg::Ping => {} // handled at the connection level
             }
         }

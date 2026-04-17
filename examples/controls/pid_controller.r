@@ -129,6 +129,5 @@ idx_check = round(4.5 / dt);
 fprintf("  y(4.5) = %.4f   (target 0.5)\n", y_vec(idx_check))
 fprintf("  e(4.5) = %.4f\n", e_vec(idx_check))
 
-# ── Save step-response plot ──────────────────────────────────────────────
+# ── Plot step-response ───────────────────────────────────────────────────
 plot(real(y_vec), "PID Response: y(t) vs setpoint")
-savefig("pid_response.svg")

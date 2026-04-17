@@ -871,8 +871,8 @@ fn builtin_histogram(args: Vec<Value>) -> Result<Value, ScriptError> {
     Ok(Value::Matrix(histogram_matrix(&centers, &counts)))
 }
 
-// TODO: consider deprecating savehist — use histogram(v); savefig(path) instead
 fn builtin_savehist(args: Vec<Value>) -> Result<Value, ScriptError> {
+    eprintln!("warning: savehist() is deprecated — use histogram(v); savefig(\"path\") instead");
     // savehist(v, "file")                  → 10 bins, empty title
     // savehist(v, "file", "title")         → 10 bins
     // savehist(v, n, "file")               → n bins, empty title
@@ -1748,8 +1748,8 @@ fn builtin_savefig(args: Vec<Value>) -> Result<Value, ScriptError> {
         render_figure_file(&path).map_err(|e| ScriptError::runtime(e.to_string()))?;
         return Ok(Value::None);
     }
-    // 2–3 arg form: savefig(data, path) or savefig(data, path, title)
-    // TODO: consider deprecating 2-3 arg form — use plot(data); savefig(path) instead
+    // 2–3 arg form: savefig(data, path) or savefig(data, path, title) — DEPRECATED
+    eprintln!("warning: savefig(data, path) is deprecated — use plot(data, \"title\"); savefig(\"path\") instead");
     let path  = args[1].to_str().map_err(|e| ScriptError::type_err(e))?;
     let title = if args.len() == 3 {
         args[2].to_str().map_err(|e| ScriptError::type_err(e))?
@@ -1764,8 +1764,8 @@ fn builtin_savefig(args: Vec<Value>) -> Result<Value, ScriptError> {
     Ok(Value::None)
 }
 
-// TODO: consider deprecating savestem — use stem(data); savefig(path) instead
 fn builtin_savestem(args: Vec<Value>) -> Result<Value, ScriptError> {
+    eprintln!("warning: savestem() is deprecated — use stem(v, \"title\"); savefig(\"path\") instead");
     check_args_range("savestem", &args, 2, 3)?;
     let path  = args[1].to_str().map_err(|e| ScriptError::type_err(e))?;
     let title = if args.len() == 3 {
@@ -1781,8 +1781,8 @@ fn builtin_savestem(args: Vec<Value>) -> Result<Value, ScriptError> {
     Ok(Value::None)
 }
 
-// TODO: consider deprecating savedb — use plotdb(h); savefig(path) instead
 fn builtin_savedb(args: Vec<Value>) -> Result<Value, ScriptError> {
+    eprintln!("warning: savedb() is deprecated — use plotdb(Hz, \"title\"); savefig(\"path\") instead");
     check_args_range("savedb", &args, 2, 3)?;
     let path  = args[1].to_str().map_err(|e| ScriptError::type_err(e))?;
     let title = if args.len() == 3 {
@@ -2046,8 +2046,8 @@ fn builtin_imagesc(args: Vec<Value>) -> Result<Value, ScriptError> {
 }
 
 /// saveimagesc(M, path) / saveimagesc(M, path, title) / saveimagesc(M, path, title, colormap)
-// TODO: consider deprecating saveimagesc — use imagesc(M); savefig(path) instead
 fn builtin_saveimagesc(args: Vec<Value>) -> Result<Value, ScriptError> {
+    eprintln!("warning: saveimagesc() is deprecated — use imagesc(M); savefig(\"path\") instead");
     check_args_range("saveimagesc", &args, 2, 4)?;
     let matrix = match &args[0] {
         Value::Matrix(m) => m.clone(),
@@ -4820,8 +4820,8 @@ fn builtin_bar(args: Vec<Value>) -> Result<Value, ScriptError> {
 }
 
 /// savebar(y, path)  or  savebar(x, y, path)  or  savebar(x, y, path, title)
-// TODO: consider deprecating savebar — use bar(x,y); savefig(path) instead
 fn builtin_savebar(args: Vec<Value>) -> Result<Value, ScriptError> {
+    eprintln!("warning: savebar() is deprecated — use bar(y, \"title\"); savefig(\"path\") instead");
     if args.len() < 2 || args.len() > 4 {
         return Err(ScriptError::type_err(
             "savebar: expected savebar(y, path) or savebar(x, y, path) or savebar(x, y, path, title)".to_string()
@@ -4854,8 +4854,8 @@ fn builtin_scatter(args: Vec<Value>) -> Result<Value, ScriptError> {
 }
 
 /// savescatter(x, y, path)  or  savescatter(x, y, path, title)
-// TODO: consider deprecating savescatter — use scatter(x,y); savefig(path) instead
 fn builtin_savescatter(args: Vec<Value>) -> Result<Value, ScriptError> {
+    eprintln!("warning: savescatter() is deprecated — use scatter(x, y, \"title\"); savefig(\"path\") instead");
     if args.len() < 3 || args.len() > 4 {
         return Err(ScriptError::type_err(
             "savescatter: expected savescatter(x, y, path) or savescatter(x, y, path, title)".to_string()
