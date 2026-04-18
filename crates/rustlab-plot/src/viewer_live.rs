@@ -31,9 +31,15 @@ pub struct ViewerFigure {
 
 impl ViewerFigure {
     /// Try to connect to a running viewer and open a figure.
-    /// Returns `None` if the viewer is not running.
+    /// If a named session is active (set by `connect_viewer_named`), dial that
+    /// socket; otherwise fall back to the default socket. Returns `None` if
+    /// the viewer is not running.
     pub fn connect(rows: usize, cols: usize) -> Option<Self> {
-        let mut client = ViewerClient::connect()?;
+        let session = VIEWER_SESSION.with(|s| s.borrow().clone());
+        let mut client = match session {
+            Some(ref name) => ViewerClient::connect_named(name)?,
+            None => ViewerClient::connect()?,
+        };
         let fig_id = next_fig_id();
         let msg = ViewerMsg::FigureOpen {
             id:    fig_id,
@@ -143,16 +149,22 @@ struct ViewerConn {
 thread_local! {
     /// Active viewer connection for regular plot commands.
     static VIEWER_CONN: RefCell<Option<ViewerConn>> = RefCell::new(None);
+    /// Session name used for the active connection (None = default socket).
+    /// Consulted by `ViewerFigure::connect` so `figure_live` hits the same
+    /// session as static plots when the user passed `--viewer-name NAME`.
+    static VIEWER_SESSION: RefCell<Option<String>> = RefCell::new(None);
 }
 
 /// Try to connect to a running viewer. Returns Ok(true) if connected,
 /// Ok(false) if the viewer is not running.
 pub fn connect_viewer() -> Result<bool, PlotError> {
+    VIEWER_SESSION.with(|s| *s.borrow_mut() = None);
     connect_viewer_impl(ViewerClient::connect())
 }
 
 /// Connect to a named viewer session (e.g. `viewer on work`).
 pub fn connect_viewer_named(name: &str) -> Result<bool, PlotError> {
+    VIEWER_SESSION.with(|s| *s.borrow_mut() = Some(name.to_string()));
     connect_viewer_impl(ViewerClient::connect_named(name))
 }
 
@@ -184,6 +196,7 @@ pub fn disconnect_viewer() {
             let _ = conn.client.send_nowait(&ViewerMsg::Close { fig_id: conn.fig_id });
         }
     });
+    VIEWER_SESSION.with(|s| *s.borrow_mut() = None);
 }
 
 /// Start a new figure in the viewer, keeping the previous one visible.

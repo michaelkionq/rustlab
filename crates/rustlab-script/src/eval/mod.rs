@@ -143,11 +143,21 @@ impl Evaluator {
         self.exec_stmt_kind(&stmt.kind).map_err(|e| e.with_line(stmt.line))
     }
 
+    /// True when assignment / index-assignment echo should be printed.
+    ///
+    /// Echo is suppressed inside user-defined functions and in notebook
+    /// rendering mode — notebooks show only `print()` / `disp()` and bare
+    /// expressions, matching Jupyter / MATLAB Live Script conventions.
+    #[inline]
+    fn echo_enabled(&self) -> bool {
+        !self.in_function && rustlab_plot::plot_context() != rustlab_plot::PlotContext::Notebook
+    }
+
     fn exec_stmt_kind(&mut self, stmt: &StmtKind) -> Result<(), ScriptError> {
         match stmt {
             StmtKind::Assign { name, expr, suppress } => {
                 let val = self.eval_expr(expr)?;
-                if !suppress && !self.in_function {
+                if !suppress && self.echo_enabled() {
                     let display = val.format_display(self.number_format);
                     if self.color_output && !output::capturing() {
                         output::script_println(&format!("\x1b[32m{}\x1b[0m = {}", name, display));
@@ -167,7 +177,7 @@ impl Evaluator {
             }
             StmtKind::FieldAssign { object, field, expr, suppress } => {
                 let val = self.eval_expr(expr)?;
-                if !suppress && !self.in_function {
+                if !suppress && self.echo_enabled() {
                     let display = val.format_display(self.number_format);
                     if self.color_output && !output::capturing() {
                         output::script_println(&format!("\x1b[32m{}.{}\x1b[0m = {}", object, field, display));
@@ -339,7 +349,7 @@ impl Evaluator {
                         }
                         for (name, v) in names.iter().zip(values.into_iter()) {
                             if name == "~" { continue; } // discard
-                            if !suppress && !self.in_function {
+                            if !suppress && self.echo_enabled() {
                                 let display = v.format_display(self.number_format);
                                 if self.color_output && !output::capturing() {
                                     output::script_println(&format!("\x1b[32m{}\x1b[0m = {}", name, display));
@@ -358,7 +368,7 @@ impl Evaluator {
                             )));
                         }
                         if names[0] != "~" {
-                            if !suppress && !self.in_function {
+                            if !suppress && self.echo_enabled() {
                                 if self.color_output && !output::capturing() {
                                     output::script_println(&format!("\x1b[32m{}\x1b[0m = {}", names[0], single));
                                 } else {
@@ -443,7 +453,7 @@ impl Evaluator {
                                     )));
                                 }
                                 sv.set(idx - 1, assign_val);
-                                if !suppress && !self.in_function {
+                                if !suppress && self.echo_enabled() {
                                     output::script_println(&format!("{}({}) = {}", name, idx, Value::Complex(assign_val)));
                                 }
                             }
@@ -471,7 +481,7 @@ impl Evaluator {
                                 for (col, &v) in row_data.iter().enumerate() {
                                     m[[idx - 1, col]] = v;
                                 }
-                                if !suppress && !self.in_function {
+                                if !suppress && self.echo_enabled() {
                                     output::script_println(&format!("{}({}) = [{}]", name, idx,
                                         row_data.iter().map(|c| format!("{}", Value::Complex(*c))).collect::<Vec<_>>().join(", ")));
                                 }
@@ -508,7 +518,7 @@ impl Evaluator {
                         }
                     };
                     vec[idx - 1] = assign_val;
-                    if !suppress && !self.in_function {
+                    if !suppress && self.echo_enabled() {
                         output::script_println(&format!("{}({}) = {}", name, idx, Value::Complex(assign_val)));
                     }
                     } // end else scalar assignment
@@ -538,7 +548,7 @@ impl Evaluator {
                                 )));
                             }
                             m[[row - 1, col - 1]] = assign_val;
-                            if !suppress && !self.in_function {
+                            if !suppress && self.echo_enabled() {
                                 output::script_println(&format!("{}({},{}) = {}", name, row, col, Value::Complex(assign_val)));
                             }
                         }
@@ -550,7 +560,7 @@ impl Evaluator {
                                 )));
                             }
                             sm.set(row - 1, col - 1, assign_val);
-                            if !suppress && !self.in_function {
+                            if !suppress && self.echo_enabled() {
                                 output::script_println(&format!("{}({},{}) = {}", name, row, col, Value::Complex(assign_val)));
                             }
                         }

@@ -327,7 +327,7 @@ savefig("fft_reconstructed.svg")
 
 4. **`X = fft(x)`** — computes the forward FFT. Because `n = 256` is already a power of two, no zero-padding is needed and `len(X) == 256`. For non-power-of-two inputs, `fft` automatically pads to the next power of two.
 
-5. **`H = spectrum(X, sr)`** — the key step. `spectrum` applies `fftshift` to center DC, pairs the result with the Hz frequency axis, and returns a **2×n matrix** compatible with `plotdb` and `savedb`. This is the standard way to display FFT output with a correct frequency axis. Internally it is equivalent to:
+5. **`H = spectrum(X, sr)`** — the key step. `spectrum` applies `fftshift` to center DC, pairs the result with the Hz frequency axis, and returns a **2×n matrix** compatible with `plotdb`. This is the standard way to display FFT output with a correct frequency axis. Internally it is equivalent to:
    ```
    Xs    = fftshift(X)
    freqs = fftshift(fftfreq(len(X), sr))
@@ -344,7 +344,7 @@ savefig("fft_reconstructed.svg")
 
 | Expression | What you get |
 |-----------|--------------|
-| `spectrum(fft(x), sr)` | DC-centered dB spectrum with Hz axis (for plotdb/savedb) |
+| `spectrum(fft(x), sr)` | DC-centered dB spectrum with Hz axis (for plotdb) |
 | `abs(fft(x))` | Raw magnitude spectrum (sample-indexed) |
 | `angle(fft(x))` | Phase spectrum |
 | `real(ifft(fft(x)))` | Reconstructed signal (round-trip) |

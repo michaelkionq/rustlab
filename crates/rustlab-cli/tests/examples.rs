@@ -131,3 +131,16 @@ fn example_fixed_point() {
 #[test] fn example_profiling()       { run_example_ok("profiling"); }
 #[test] fn example_upfirdn()         { run_example_ok("upfirdn"); }
 #[test] fn example_vectors()         { run_example_ok("vectors"); }
+
+// ── Plot-producing examples (render_figure_terminal is a no-op under `cargo
+//    test` because stdout is not a TTY; savefig writes into the temp dir and
+//    is cleaned up automatically when the TempDir drops) ────────────────────
+#[test] fn example_bandpass()          { run_example_ok("bandpass"); }
+#[test] fn example_fft()               { run_example_ok("fft"); }
+#[test] fn example_kaiser_fir()        { run_example_ok("kaiser_fir"); }
+#[test] fn example_lowpass()           { run_example_ok("lowpass"); }
+#[test] fn example_multi_figure()      { run_example_ok("multi_figure"); }
+#[test] fn example_random()            { run_example_ok("random"); }
+#[test] fn example_report_demo()       { run_example_ok("report_demo"); }
+#[test] fn example_toml_filter_chain() { run_example_ok("toml_filter_chain"); }
+#[test] fn example_toml_io()           { run_example_ok("toml_io"); }

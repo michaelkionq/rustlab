@@ -14,6 +14,8 @@ pub enum PlotError {
     FileOutput(String),
     #[error("figure_live requires a real terminal (stdout is not a tty)")]
     NotATty,
+    #[error("figure_live is disabled under --plot none; use --plot tui or --plot viewer")]
+    HeadlessDisabled,
     #[error("interrupted")]
     Interrupted,
     #[error("viewer connection error: {0}")]

@@ -26,8 +26,12 @@ pub struct LiveFigure {
 
 impl LiveFigure {
     /// Open the alternate screen and initialise a `rows × cols` live figure.
-    /// Returns `Err(PlotError::NotATty)` if stdout is not a real terminal.
+    /// Returns `Err(PlotError::NotATty)` if stdout is not a real terminal,
+    /// or `Err(PlotError::HeadlessDisabled)` when running under `--plot none`.
     pub fn new(rows: usize, cols: usize) -> Result<Self, PlotError> {
+        if crate::figure::plot_context() == crate::figure::PlotContext::Headless {
+            return Err(PlotError::HeadlessDisabled);
+        }
         if !stdout().is_terminal() {
             return Err(PlotError::NotATty);
         }

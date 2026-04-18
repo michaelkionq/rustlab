@@ -89,13 +89,17 @@ enum Command {
         /// Color theme: dark (default), light
         #[arg(short, long, value_enum, default_value = "dark")]
         theme: CliTheme,
+        /// Index page title (directory mode only). Precedence:
+        /// --title > index.md H1 > parent directory name.
+        #[arg(long)]
+        title: Option<String>,
     },
 }
 
 fn main() {
     let cli = Cli::parse();
     match cli.command {
-        Command::Render { input, output, format, theme } => {
+        Command::Render { input, output, format, theme, title } => {
             let theme = match theme {
                 CliTheme::Dark => Theme::Dark,
                 CliTheme::Light => Theme::Light,
@@ -107,8 +111,11 @@ fn main() {
                 CliFormat::Pdf => rustlab_notebook::Format::Pdf,
             };
             if input.is_dir() {
-                rustlab_notebook::cmd_render_dir(input, output, format, colors);
+                rustlab_notebook::cmd_render_dir(input, output, format, colors, title);
             } else {
+                if title.is_some() {
+                    eprintln!("warning: --title is only used when rendering a directory; ignored for single-file input");
+                }
                 rustlab_notebook::cmd_render(input, output, format, colors);
             }
         }

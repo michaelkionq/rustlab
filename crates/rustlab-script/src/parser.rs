@@ -811,33 +811,54 @@ impl Parser {
         Ok(lhs)
     }
 
-    // term = factor (('*' | '/' | '.*' | './') factor)*
+    // term = unary (('*' | '/' | '.*' | './') unary)*
     fn parse_term(&mut self) -> Result<Expr, ScriptError> {
-        let mut lhs = self.parse_factor()?;
+        let mut lhs = self.parse_unary()?;
         loop {
             match self.peek_token() {
-                Token::Star     => { self.advance(); let r = self.parse_factor()?; lhs = Expr::BinOp { op: BinOp::Mul,     lhs: Box::new(lhs), rhs: Box::new(r) }; }
-                Token::Slash    => { self.advance(); let r = self.parse_factor()?; lhs = Expr::BinOp { op: BinOp::Div,     lhs: Box::new(lhs), rhs: Box::new(r) }; }
-                Token::DotStar  => { self.advance(); let r = self.parse_factor()?; lhs = Expr::BinOp { op: BinOp::ElemMul, lhs: Box::new(lhs), rhs: Box::new(r) }; }
-                Token::DotSlash => { self.advance(); let r = self.parse_factor()?; lhs = Expr::BinOp { op: BinOp::ElemDiv, lhs: Box::new(lhs), rhs: Box::new(r) }; }
+                Token::Star     => { self.advance(); let r = self.parse_unary()?; lhs = Expr::BinOp { op: BinOp::Mul,     lhs: Box::new(lhs), rhs: Box::new(r) }; }
+                Token::Slash    => { self.advance(); let r = self.parse_unary()?; lhs = Expr::BinOp { op: BinOp::Div,     lhs: Box::new(lhs), rhs: Box::new(r) }; }
+                Token::DotStar  => { self.advance(); let r = self.parse_unary()?; lhs = Expr::BinOp { op: BinOp::ElemMul, lhs: Box::new(lhs), rhs: Box::new(r) }; }
+                Token::DotSlash => { self.advance(); let r = self.parse_unary()?; lhs = Expr::BinOp { op: BinOp::ElemDiv, lhs: Box::new(lhs), rhs: Box::new(r) }; }
                 _ => break,
             }
         }
         Ok(lhs)
     }
 
-    // factor = postfix ('^' | '.^' factor)?   right-associative
+    // unary = ('-' | '!') unary | factor
+    //
+    // Unary minus/not sits BELOW power (`^`, `.^`) so `-x.^2` parses as
+    // `-(x.^2)` — matching MATLAB/Octave precedence. The RHS of `^`/`.^`
+    // also goes through unary so `2^-3` still parses as `2^(-3)`.
+    fn parse_unary(&mut self) -> Result<Expr, ScriptError> {
+        match self.peek_token() {
+            Token::Minus => {
+                self.advance();
+                let inner = self.parse_unary()?;
+                Ok(Expr::UnaryMinus(Box::new(inner)))
+            }
+            Token::Bang => {
+                self.advance();
+                let inner = self.parse_unary()?;
+                Ok(Expr::UnaryNot(Box::new(inner)))
+            }
+            _ => self.parse_factor(),
+        }
+    }
+
+    // factor = postfix ('^' | '.^' unary)?   right-associative
     fn parse_factor(&mut self) -> Result<Expr, ScriptError> {
         let base = self.parse_postfix()?;
         match self.peek_token() {
             Token::Caret => {
                 self.advance();
-                let exp = self.parse_factor()?;
+                let exp = self.parse_unary()?;
                 Ok(Expr::BinOp { op: BinOp::Pow, lhs: Box::new(base), rhs: Box::new(exp) })
             }
             Token::DotCaret => {
                 self.advance();
-                let exp = self.parse_factor()?;
+                let exp = self.parse_unary()?;
                 Ok(Expr::BinOp { op: BinOp::ElemPow, lhs: Box::new(base), rhs: Box::new(exp) })
             }
             _ => Ok(base),
@@ -985,16 +1006,6 @@ impl Parser {
                 self.skip_newlines();
                 self.expect(&Token::RParen)?;
                 Ok(expr)
-            }
-            Token::Minus => {
-                self.advance();
-                let inner = self.parse_primary()?;
-                Ok(Expr::UnaryMinus(Box::new(inner)))
-            }
-            Token::Bang => {
-                self.advance();
-                let inner = self.parse_primary()?;
-                Ok(Expr::UnaryNot(Box::new(inner)))
             }
             Token::At => {
                 self.advance(); // consume '@'

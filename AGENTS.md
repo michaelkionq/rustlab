@@ -282,6 +282,205 @@ cargo install --path crates/rustlab-cli   # → ~/.cargo/bin/rustlab
 > **Linux note:** No system libraries required. The `plotters` crate uses
 > `default-features = false` to avoid `font-kit` → `freetype-sys` → `fontconfig-sys`.
 
+### Octave numerical comparison
+
+The repo ships a regression harness that cross-checks rustlab's math/DSP/linalg/ODE
+output against GNU Octave to machine precision. Driver: `tests/octave/run_compare.sh`,
+invoked via:
+
+```sh
+make octave-compare          # requires `octave` on PATH (brew install octave / apt-get install octave)
+```
+
+The target regenerates all `out*.csv` (rustlab) and `ref*.csv` (Octave) files in
+`tests/octave/`, then runs both `compare.m` (19 DSP cases) and `compare_full.m`
+(67 math/matrix/linalg/DSP/ODE cases). It exits nonzero if any case exceeds its
+per-suite tolerance (`T_EXACT=1e-9`, `T_FILTER=1e-6`, `T_FIRPM=1e-4`,
+`T_ITER=1e-4`). To add a new function, append a `save(...)` line to `rustlab_full.r`
+and a matching `csvwrite(...)` + `check(...)` pair to `reference_full.m` /
+`compare_full.m`.
+
+---
+
+## Pre-Release Procedure
+
+Releases are cut from `main`. Every step below must pass before tagging.
+Follow Workflow Rule 4: never commit, push, or tag without explicit user
+approval.
+
+### 1. Clean working tree
+
+```sh
+git status                                                # must be clean
+git fetch origin && git log HEAD..origin/main --oneline   # must be empty
+```
+
+If the tree has unrelated in-progress work, pause and surface it to the user
+before continuing.
+
+### 2. Lint and format
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --workspace --features viewer -- -D warnings
+```
+
+Both must succeed with zero warnings. Do not silence warnings with `#[allow(...)]`
+just to pass — fix the underlying issue.
+
+### 3. Build and test both feature configurations
+
+```sh
+cargo build --workspace                           # default features
+cargo test  --workspace                           # default features
+cargo build --workspace --features viewer         # with viewer
+cargo test  --workspace --features viewer         # with viewer
+```
+
+All four must succeed. The viewer feature is off by default, so the no-viewer
+build must stay green — if it breaks, users installing via `cargo install
+--path crates/rustlab-cli` hit the failure first.
+
+### 4. Run the performance benchmarks twice
+
+```sh
+make perf                       # first run
+make perf                       # second run — rules out cold-cache noise
+```
+
+On **both** runs:
+
+- All seven `bench_*.r` scripts must report `PASS`.
+- All timings must be under the thresholds declared in the `AI_ANALYSIS` block
+  of `perf/run_perf.sh` (`bench_builtins > 300 ms`, `bench_fft > 100 ms`, etc.).
+  If a single run exceeds a threshold but the other is clean, investigate
+  (thermal throttle, background load) before proceeding; do not raise the
+  threshold to make a release pass.
+- Numeric output must be sane: `convolve` length = `len(x)+len(h)-1`, FFT
+  round-trip length matches input, scalar-loop sum Σ(1..10000) = 50005000,
+  etc. A `PASS` status alone is not enough — the values must also be correct.
+
+### 5. Run the Octave numerical comparison (mandatory)
+
+```sh
+make octave-compare             # requires `octave` on PATH
+```
+
+All cases in `compare.m` (19 DSP) and `compare_full.m` (67 math/linalg/DSP/ODE)
+must pass their per-suite tolerances. Octave is a **hard requirement** for
+release — if it is not installed, install it (`brew install octave` /
+`apt-get install octave`) and re-run. Do not skip.
+
+### 6. Notebook render smoke test
+
+The notebook binary ships with every release; exercise it end-to-end so a
+broken templating / KaTeX / figure-snapshot change does not slip out:
+
+```sh
+./target/release/rustlab-notebook render examples/<notebook>.md -o /tmp/nb.html
+./target/release/rustlab-notebook render examples/<notebook>.md -o /tmp/nb.pdf --format pdf
+```
+
+Open both artifacts and confirm code blocks, math, and plots render. If the
+repo has no example notebook yet, add one before cutting the release.
+
+### 7. Documentation audit
+
+Per Workflow Rules 5, 6, and 7, every user-facing change since the previous
+release must be reflected in:
+
+- `docs/functions.md` — full function reference
+- `docs/quickref.md` — must match registered builtins in
+  `crates/rustlab-script/src/eval/builtins.rs`
+- `AGENTS.md` — "All builtin functions" table, grammar, crate details
+- `README.md` — if user-visible CLI flags, commands, or install steps changed
+- REPL `help` entries — `HelpEntry` + category slice in
+  `crates/rustlab-cli/src/commands/repl.rs`
+
+Find the previous release commit (`git log --oneline | grep -i 'bump to v' | head -1`)
+and diff forward:
+
+```sh
+PREV=$(git log --oneline --grep='bump to v' | head -1 | awk '{print $1}')
+git diff $PREV..HEAD -- crates/rustlab-script/src/eval/builtins.rs \
+                        crates/rustlab-dsp/src \
+                        crates/rustlab-script/src/eval/value.rs
+```
+
+Confirm every added builtin, DSP function, and `Value` variant has docs + REPL
+help. Once `v0.1.7` is tagged, future releases can use `git diff v0.1.7..HEAD`
+and tag ranges going forward.
+
+### 8. Bump the version
+
+The workspace uses a single version in the root `Cargo.toml`; all crates
+inherit it via `version.workspace = true`, so only one file changes.
+
+```sh
+# Edit Cargo.toml → [workspace.package] → version = "0.1.X"
+cargo build --workspace          # refreshes Cargo.lock with the new version
+```
+
+Stage `Cargo.toml` and `Cargo.lock` together — a lockfile mismatch will trip
+CI on clones.
+
+### 9. Commit, tag, and publish (only after user approval)
+
+Match the existing commit-message convention in `git log`: a short imperative
+summary of what is in the release, ending with `bump to v0.1.X`. Release-prep
+changes (docs sync, version bump, small release-time fixes) may ride in the
+same commit; unrelated feature work must not.
+
+```sh
+git add Cargo.toml Cargo.lock docs/ AGENTS.md README.md
+git commit -m "<release summary>, bump to v0.1.X"
+git tag -a v0.1.X -m "rustlab v0.1.X"
+```
+
+Ask the user before pushing. Then:
+
+```sh
+git push origin main
+git push origin v0.1.X
+```
+
+After the tag is pushed, create a GitHub release with notes generated from
+the commit range:
+
+```sh
+gh release create v0.1.X \
+    --title "rustlab v0.1.X" \
+    --generate-notes
+```
+
+Edit the notes if the auto-generated summary misses anything meaningful.
+Attaching prebuilt binaries is optional; if attached, build them locally with
+`make release` and upload with `gh release upload v0.1.X target/release/rustlab ...`.
+
+### 10. Post-release smoke test
+
+After the tag and GitHub release are live, install from the tag and confirm
+the release binary works on a clean environment:
+
+```sh
+make install
+rustlab --version                # must print the new version
+rustlab run examples/lowpass.r   # must exit 0 with a plot
+```
+
+### Release rules (do not violate)
+
+- **Never force push.** Not to `main`, not to a tag, not under any argument.
+  If a tag was pushed incorrectly, delete the remote tag with user approval
+  (`git push --delete origin v0.1.X`) and push a corrected tag — do not
+  rewrite history on a shared ref.
+- **Never skip hooks** (`--no-verify`) or bypass signing on a release commit.
+- **Never tag a dirty tree** — every file in `git status` must be either
+  committed or explicitly intended to be excluded.
+- **Release-prep only in the bump commit.** Docs, version bump, and
+  release-time fixes may share the commit; unrelated in-flight feature work
+  must not.
+
 ---
 
 ## Crate Details
@@ -330,6 +529,8 @@ cargo install --path crates/rustlab-cli   # → ~/.cargo/bin/rustlab
 **Trait:** `LivePlot` (in `lib.rs`) — backend-agnostic interface for live plots. Implemented by `LiveFigure` (ratatui) and `ViewerFigure` (egui viewer). The script engine stores `Box<dyn LivePlot>` in `Value::LiveFigure`.
 
 **Behavior:** Static plot functions enter the ratatui alternate screen, draw a braille-pixel chart, wait for a keypress, then restore the terminal. `LiveFigure` keeps the alternate screen open across multiple `redraw()` calls and only restores on `Drop`. When the `viewer` feature is enabled and `rustlab-viewer` is running, `figure_live()` automatically connects to the viewer instead of using ratatui. Neither should be called in non-TTY contexts (`render_figure_terminal` silently skips; `LiveFigure::new` returns `Err(PlotError::NotATty)`).
+
+**Plot-output context (`PlotContext`):** Three variants — `Terminal` (default, TUI rendering), `Notebook` (silent assignments, figure snapshots for the notebook executor), and `Headless` (no TUI). Under `Headless`, `render_figure_terminal()` and `imagesc_terminal()` short-circuit, and `LiveFigure::new()` returns `PlotError::HeadlessDisabled`. The CLI `rustlab run --plot none` sets `Headless`; `rustlab run --plot viewer [--viewer-name NAME]` calls `connect_viewer()` at startup and leaves the context at `Terminal` so per-figure viewer routing takes over. The notebook/figure-snapshot and silent-assignment behaviors remain keyed on `Notebook` only — `Headless` does not inherit them.
 
 ---
 
@@ -411,7 +612,7 @@ rustlab-viewer --socket PATH    # custom socket path
 - `src/main.rs` — calls `Cli::parse().execute()`
 - `src/cli.rs` — `Cli` struct with `Option<Commands>` (None → REPL)
 - `src/commands/repl.rs` — interactive REPL using `rustyline`; persistent `Evaluator` across inputs
-- `src/commands/run.rs` — reads a file, calls `rustlab_script::run`
+- `src/commands/run.rs` — reads a file, calls `rustlab_script::run`. Supports `--profile` and `--plot {tui|none|viewer} [--viewer-name NAME]` (see `PlotContext` note under `rustlab-plot`).
 - `src/commands/filter.rs` — `fir` and `iir` subcommands
 - `src/commands/convolve.rs` — reads CSV signals, calls `convolve` or `overlap_add`
 - `src/commands/window.rs` — generates window, prints values, optional `--plot`
@@ -425,7 +626,7 @@ rustlab-viewer --socket PATH    # custom socket path
 **Purpose:** Library + binary crate. Renders Markdown notebooks with \`\`\`rustlab code blocks into self-contained HTML, LaTeX, or PDF.
 
 **Key files:**
-- `src/lib.rs` — public API: `cmd_render`, `cmd_render_dir`, `Format`, `generate_index_html`
+- `src/lib.rs` — public API: `cmd_render`, `cmd_render_dir` (accepts optional `index_title`), `Format`, `generate_index_html` (accepts an `index_body_html: &str`)
 - `src/main.rs` — thin CLI wrapper (`rustlab-notebook render`)
 - `src/parse.rs` — parse notebook markdown into `Block` enum (Markdown / Code)
 - `src/execute.rs` — execute code blocks through `Evaluator`, produce `Rendered` blocks
@@ -434,7 +635,15 @@ rustlab-viewer --socket PATH    # custom socket path
 
 **Theme support:** `--theme dark|light` flag (default: dark). Dark = Catppuccin Mocha, Light = Catppuccin Latte. Theme colors are defined in `rustlab-plot/src/theme.rs` (`Theme` enum + `ThemeColors` struct) and shared with the plot crate for consistent Plotly chart styling.
 
-**Accessible via:** `rustlab-notebook render ...` (standalone binary) or `rustlab notebook render ...` (main CLI subcommand).
+**Multi-plot blocks:** Each `savefig()` call inside a code block captures a separate `FigureState` snapshot (via `rustlab_plot::push_notebook_figure_snapshot`, hooked into `render_figure_file` when `PlotContext::Notebook` is active). If a block plots but never calls `savefig()`, a single final snapshot is taken. `Rendered::Code.figures` is a `Vec<FigureState>`.
+
+**Silent assignments:** Under `PlotContext::Notebook`, the `Evaluator` suppresses assignment echo (via `echo_enabled()`). Only bare expressions, `print()`, and `disp()` produce visible text output — matching Jupyter / MATLAB Live Script conventions. REPL and `rustlab run` behaviour is unchanged.
+
+**YAML frontmatter (`--- title: ... ---`):** Parsed by `parse::extract_frontmatter` → `Frontmatter { title, order }`. Known keys are `title` (overrides the `# H1` fallback in `extract_title`) and `order` / `weight` (signed integer; sorts entries on the directory index page, ascending, ties broken by filename). Unknown keys are ignored silently so future additions don't break existing files. Quoted values (single or double) are unwrapped.
+
+**Directory index page (`cmd_render_dir`):** Generates `index.html` listing every rendered notebook. Title precedence: `--title <STRING>` CLI flag > `index.md`'s H1/frontmatter title > parent directory name. When `index.md` is present, it is excluded from the notebook list (it IS the index) and its markdown body is rendered as plain HTML above the list — *without* executing any code fences (the index page is kept dependency-free; put executable content in regular notebooks and link to them from `index.md`). Entries are sorted by frontmatter `order` ascending, ties by filename; entries without `order` sort after those that have one.
+
+**Accessible via:** `rustlab-notebook render ...` (standalone binary) or `rustlab notebook render ...` (main CLI subcommand). `--title` is directory-mode only; passing it with a single-file input prints a warning and is ignored.
 
 ---
 

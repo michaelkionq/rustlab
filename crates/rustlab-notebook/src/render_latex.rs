@@ -19,7 +19,7 @@ pub fn render_latex(title: &str, blocks: &[Rendered], plot_dir: &Path, theme: &T
             Rendered::Markdown(md) => {
                 body.push_str(&markdown_to_latex(md));
             }
-            Rendered::Code { source, text_output, error, figure, hidden, details, grid_cols } => {
+            Rendered::Code { source, text_output, error, figures, hidden, details, grid_cols } => {
                 // Source code (unless hidden)
                 if !hidden {
                     body.push_str("\\begin{verbatim}\n");
@@ -50,28 +50,27 @@ pub fn render_latex(title: &str, blocks: &[Rendered], plot_dir: &Path, theme: &T
                     body.push_str("\n\\end{verbatim}\n}\\end{quote}\n\n");
                 }
 
-                // Plot
-                if let Some(fig) = figure {
+                // Plots (one per savefig call, or one final snapshot)
+                for fig in figures {
                     plot_idx += 1;
                     let plot_file = plot_dir.join(format!("plot-{plot_idx}.svg"));
                     if let Err(e) = rustlab_plot::render_figure_state_to_file(fig, &plot_file.to_string_lossy()) {
                         eprintln!("warning: could not render plot-{plot_idx}: {e}");
-                    } else {
-                        let rel_path = plot_dir.file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy();
-                        let width = if let Some(n) = grid_cols {
-                            let w = 0.9 / *n as f64;
-                            format!("{w:.2}\\textwidth")
-                        } else {
-                            "0.9\\textwidth".to_string()
-                        };
-                        body.push_str(&format!(
-                            "\\begin{{center}}\n\\includesvg[width={width}]{{{}/{}}}\n\\end{{center}}\n\n",
-                            rel_path,
-                            format!("plot-{plot_idx}"),
-                        ));
+                        continue;
                     }
+                    let rel_path = plot_dir.file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy();
+                    let width = if let Some(n) = grid_cols {
+                        let w = 0.9 / *n as f64;
+                        format!("{w:.2}\\textwidth")
+                    } else {
+                        "0.9\\textwidth".to_string()
+                    };
+                    body.push_str(&format!(
+                        "\\begin{{center}}\n\\includesvg[width={width}]{{{}/plot-{plot_idx}}}\n\\end{{center}}\n\n",
+                        rel_path,
+                    ));
                 }
             }
             Rendered::Callout { kind, content } => {
@@ -536,7 +535,7 @@ mod tests {
                 source: "x = 42".to_string(),
                 text_output: String::new(),
                 error: None,
-                figure: None,
+                figures: Vec::new(),
                 hidden: false,
                 details: None,
                 grid_cols: None,
@@ -553,7 +552,7 @@ mod tests {
                 source: "secret = 42".to_string(),
                 text_output: "ans = 42".to_string(),
                 error: None,
-                figure: None,
+                figures: Vec::new(),
                 hidden: true,
                 details: None,
                 grid_cols: None,
@@ -573,7 +572,7 @@ mod tests {
                 source: "x = 1".to_string(),
                 text_output: "ans = 1".to_string(),
                 error: None,
-                figure: None,
+                figures: Vec::new(),
                 hidden: false,
                 details: None,
                 grid_cols: None,
@@ -591,7 +590,7 @@ mod tests {
                 source: "x = 1;".to_string(),
                 text_output: "   \n  ".to_string(),
                 error: None,
-                figure: None,
+                figures: Vec::new(),
                 hidden: false,
                 details: None,
                 grid_cols: None,
@@ -611,7 +610,7 @@ mod tests {
                 source: "bad".to_string(),
                 text_output: String::new(),
                 error: Some("undefined variable".to_string()),
-                figure: None,
+                figures: Vec::new(),
                 hidden: false,
                 details: None,
                 grid_cols: None,

@@ -1,5 +1,8 @@
 use rustlab_script::Evaluator;
-use rustlab_plot::{FIGURE, FigureState, PlotContext, set_plot_context};
+use rustlab_plot::{
+    clear_notebook_figures, set_plot_context, take_notebook_figures,
+    FigureState, PlotContext, FIGURE,
+};
 use crate::parse::{Block, CalloutKind};
 
 /// A rendered block ready for HTML output.
@@ -12,7 +15,10 @@ pub enum Rendered {
         source: String,
         text_output: String,
         error: Option<String>,
-        figure: Option<FigureState>,
+        /// One FigureState per inline plot produced by the block.
+        /// Each `savefig()` call captures a snapshot; if the block ends
+        /// with unsaved plot state, a final snapshot is appended.
+        figures: Vec<FigureState>,
         /// If true, source code should be hidden in rendered output.
         hidden: bool,
         /// If set, wrap output in a collapsible disclosure widget.
@@ -58,27 +64,31 @@ pub fn execute_notebook(blocks: &[Block]) -> Vec<Rendered> {
                 if !hold_active {
                     FIGURE.with(|fig| fig.borrow_mut().reset());
                 }
+                // Drop any stray savefig snapshots from a prior block.
+                clear_notebook_figures();
 
                 // Capture text output during execution
                 rustlab_script::start_capture();
                 let error = run_code_block(&mut ev, source);
                 let text_output = rustlab_script::stop_capture();
 
-                // Capture figure if it has data (series or heatmap)
-                let figure = FIGURE.with(|fig| {
-                    let f = fig.borrow().clone();
-                    if f.subplots.iter().any(|s| !s.series.is_empty() || s.heatmap.is_some()) {
-                        Some(f)
-                    } else {
-                        None
-                    }
-                });
+                // Collect per-savefig snapshots; if none were taken but the
+                // block left plot data in FIGURE, fall back to a final snapshot.
+                let mut figures = take_notebook_figures();
+                if figures.is_empty() {
+                    FIGURE.with(|fig| {
+                        let f = fig.borrow();
+                        if f.subplots.iter().any(|s| !s.series.is_empty() || s.heatmap.is_some()) {
+                            figures.push(f.clone());
+                        }
+                    });
+                }
 
                 rendered.push(Rendered::Code {
                     source: source.clone(),
                     text_output,
                     error,
-                    figure,
+                    figures,
                     hidden: directives.hidden,
                     details: directives.details.clone(),
                     grid_cols: directives.grid_cols,
@@ -328,5 +338,106 @@ mod tests {
         let mut ev = make_ev("");
         let result = interpolate_markdown("Bad: ${}", &mut ev);
         assert!(result.contains("<ERROR:"));
+    }
+
+    // ─── Notebook figure capture ──────────────────────────────────────────
+
+    fn tmp_path(tag: &str) -> String {
+        let mut p = std::env::temp_dir();
+        p.push(format!("nb_figs_{}_{}.svg", std::process::id(), tag));
+        p.to_str().unwrap().to_string()
+    }
+
+    /// Multiple `savefig()` calls in a single block produce separate snapshots.
+    #[test]
+    fn notebook_captures_every_savefig_in_block() {
+        let a = tmp_path("a");
+        let b = tmp_path("b");
+        let src = format!(
+            "x = 0:10; plot(x, sin(x)); savefig('{a}'); plot(x, cos(x)); savefig('{b}');"
+        );
+        let blocks = vec![Block::Code {
+            source: src,
+            directives: crate::parse::CodeDirectives::default(),
+        }];
+        let rendered = execute_notebook(&blocks);
+        let _ = std::fs::remove_file(&a);
+        let _ = std::fs::remove_file(&b);
+        match &rendered[0] {
+            Rendered::Code { figures, error, .. } => {
+                assert!(error.is_none(), "unexpected error: {error:?}");
+                assert_eq!(figures.len(), 2, "expected two snapshots, got {}", figures.len());
+            }
+            _ => panic!("expected Code block"),
+        }
+    }
+
+    /// A block that plots but never calls savefig still yields exactly one
+    /// figure (the final state) — the pre-fix behavior for unsaved plots.
+    #[test]
+    fn notebook_captures_final_figure_without_savefig() {
+        let src = "x = 0:5; plot(x, x);".to_string();
+        let blocks = vec![Block::Code {
+            source: src,
+            directives: crate::parse::CodeDirectives::default(),
+        }];
+        let rendered = execute_notebook(&blocks);
+        match &rendered[0] {
+            Rendered::Code { figures, error, .. } => {
+                assert!(error.is_none(), "unexpected error: {error:?}");
+                assert_eq!(figures.len(), 1);
+            }
+            _ => panic!("expected Code block"),
+        }
+    }
+
+    /// Notebook mode suppresses assignment echo; only `print()` and bare
+    /// expressions contribute to text output.
+    #[test]
+    fn notebook_suppresses_assignment_echo() {
+        let blocks = vec![Block::Code {
+            source: "x = 42\ny = [1, 2, 3]\nprint('hello')\n".to_string(),
+            directives: crate::parse::CodeDirectives::default(),
+        }];
+        let rendered = execute_notebook(&blocks);
+        match &rendered[0] {
+            Rendered::Code { text_output, error, .. } => {
+                assert!(error.is_none(), "unexpected error: {error:?}");
+                assert!(!text_output.contains("x ="), "assignment echo leaked: {text_output:?}");
+                assert!(!text_output.contains("y ="), "assignment echo leaked: {text_output:?}");
+                assert!(text_output.contains("hello"), "print output missing: {text_output:?}");
+            }
+            _ => panic!("expected Code block"),
+        }
+    }
+
+    /// A bare expression (no `=`) still produces visible output in notebook mode.
+    #[test]
+    fn notebook_shows_bare_expression_output() {
+        let blocks = vec![Block::Code {
+            source: "1 + 2\n".to_string(),
+            directives: crate::parse::CodeDirectives::default(),
+        }];
+        let rendered = execute_notebook(&blocks);
+        match &rendered[0] {
+            Rendered::Code { text_output, .. } => {
+                assert!(text_output.contains('3'), "bare expression not shown: {text_output:?}");
+            }
+            _ => panic!("expected Code block"),
+        }
+    }
+
+    /// A block with no plotting and no savefig produces zero figures.
+    #[test]
+    fn notebook_no_plot_yields_no_figures() {
+        let blocks = vec![Block::Code {
+            source: "x = 42;".to_string(),
+            directives: crate::parse::CodeDirectives::default(),
+        }];
+        let rendered = execute_notebook(&blocks);
+        match &rendered[0] {
+            Rendered::Code { figures, .. } => assert!(figures.is_empty()),
+            _ => panic!("expected Code block"),
+        }
     }
 }

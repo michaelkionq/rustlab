@@ -58,6 +58,10 @@ pub struct RenderArgs {
     /// Color theme: dark (default), light
     #[arg(short, long, value_enum, default_value = "dark")]
     theme: CliTheme,
+    /// Index page title (directory mode only). Precedence: --title >
+    /// index.md H1 > parent directory name.
+    #[arg(long)]
+    title: Option<String>,
 }
 
 pub fn execute(cmd: NotebookCommands) -> Result<()> {
@@ -74,8 +78,11 @@ pub fn execute(cmd: NotebookCommands) -> Result<()> {
                 CliFormat::Pdf => rustlab_notebook::Format::Pdf,
             };
             if args.input.is_dir() {
-                rustlab_notebook::cmd_render_dir(args.input, args.output, format, colors);
+                rustlab_notebook::cmd_render_dir(args.input, args.output, format, colors, args.title);
             } else {
+                if args.title.is_some() {
+                    eprintln!("warning: --title is only used when rendering a directory; ignored for single-file input");
+                }
                 rustlab_notebook::cmd_render(args.input, args.output, format, colors);
             }
             Ok(())

@@ -49,7 +49,7 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
                 body.push_str(&html);
                 body.push_str("</div>\n");
             }
-            Rendered::Code { source, text_output, error, figure, hidden, details, grid_cols } => {
+            Rendered::Code { source, text_output, error, figures, hidden, details, grid_cols } => {
                 body.push_str("<div class=\"code-block\">\n");
 
                 // Source code (unless hidden)
@@ -80,21 +80,27 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
                     body.push_str("</pre>\n");
                 }
 
-                // Plot (if any)
-                if let Some(fig) = figure {
-                    plot_idx += 1;
-                    let div_id = format!("plot-{plot_idx}");
-                    let plotly_div = render_figure_plotly_div(fig, &div_id, theme);
+                // Plots (one per savefig call, or one final snapshot)
+                if !figures.is_empty() {
                     if let Some(n) = grid_cols {
                         body.push_str(&format!(
                             "<div class=\"image-grid\" style=\"grid-template-columns:repeat({n},1fr)\">\n"
                         ));
-                        body.push_str(&plotly_div);
-                        body.push_str("\n</div>\n");
+                        for fig in figures {
+                            plot_idx += 1;
+                            let div_id = format!("plot-{plot_idx}");
+                            body.push_str(&render_figure_plotly_div(fig, &div_id, theme));
+                            body.push('\n');
+                        }
+                        body.push_str("</div>\n");
                     } else {
-                        body.push_str("<div class=\"plot-container\">\n");
-                        body.push_str(&plotly_div);
-                        body.push_str("\n</div>\n");
+                        for fig in figures {
+                            plot_idx += 1;
+                            let div_id = format!("plot-{plot_idx}");
+                            body.push_str("<div class=\"plot-container\">\n");
+                            body.push_str(&render_figure_plotly_div(fig, &div_id, theme));
+                            body.push_str("\n</div>\n");
+                        }
                     }
                 }
 
@@ -969,7 +975,7 @@ mod tests {
                 source: "x = 42".to_string(),
                 text_output: "ans = 42".to_string(),
                 error: None,
-                figure: None,
+                figures: Vec::new(),
                 hidden: false,
                 details: None,
                 grid_cols: None,
@@ -988,7 +994,7 @@ mod tests {
                 source: "bad".to_string(),
                 text_output: String::new(),
                 error: Some("undefined variable".to_string()),
-                figure: None,
+                figures: Vec::new(),
                 hidden: false,
                 details: None,
                 grid_cols: None,
@@ -1006,7 +1012,7 @@ mod tests {
                 source: "secret = 42".to_string(),
                 text_output: "ans = 42".to_string(),
                 error: None,
-                figure: None,
+                figures: Vec::new(),
                 hidden: true,
                 details: None,
                 grid_cols: None,
@@ -1027,7 +1033,7 @@ mod tests {
                 source: "x = 1;".to_string(),
                 text_output: "   \n  ".to_string(), // whitespace only
                 error: None,
-                figure: None,
+                figures: Vec::new(),
                 hidden: false,
                 details: None,
                 grid_cols: None,
@@ -1071,7 +1077,7 @@ mod tests {
                 source: "for k = 1:10\n  plot(k)\nend".to_string(),
                 text_output: String::new(),
                 error: None,
-                figure: None,
+                figures: Vec::new(),
                 hidden: false,
                 details: None,
                 grid_cols: None,

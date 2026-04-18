@@ -237,9 +237,12 @@ pub(crate) fn draw_subplots(
 
 /// Render the current FIGURE state to the terminal.
 pub fn render_figure_terminal() -> Result<(), PlotError> {
-    // Notebook context: never render to terminal.
-    if crate::figure::plot_context() == crate::figure::PlotContext::Notebook {
-        return Ok(());
+    // Notebook / Headless context: never render to terminal.
+    match crate::figure::plot_context() {
+        crate::figure::PlotContext::Notebook | crate::figure::PlotContext::Headless => {
+            return Ok(());
+        }
+        crate::figure::PlotContext::Terminal => {}
     }
     // Route based on the current figure's output mode.
     match crate::figure::current_figure_output() {
@@ -316,9 +319,12 @@ pub fn imagesc_terminal(matrix: &CMatrix, title: &str, colormap: &str) -> Result
         });
     });
 
-    // Notebook mode: FIGURE state is set, no terminal render needed
-    if crate::figure::plot_context() == crate::figure::PlotContext::Notebook {
-        return Ok(());
+    // Notebook / Headless mode: FIGURE state is set, no terminal render needed
+    match crate::figure::plot_context() {
+        crate::figure::PlotContext::Notebook | crate::figure::PlotContext::Headless => {
+            return Ok(());
+        }
+        crate::figure::PlotContext::Terminal => {}
     }
 
     // Skip when stdout is not a real terminal (e.g. piped output, CI)

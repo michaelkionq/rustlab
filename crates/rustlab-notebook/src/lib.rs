@@ -37,7 +37,18 @@ pub fn cmd_render(input: PathBuf, output: Option<PathBuf>, format: Format, theme
 }
 
 /// Render all .md files in a directory.
-pub fn cmd_render_dir(dir: PathBuf, output: Option<PathBuf>, format: Format, theme: &ThemeColors) {
+///
+/// `index_title` overrides the auto-derived index page title. When a file named
+/// `index.md` exists in `dir`, it is treated specially: its body is rendered as
+/// the top of the generated `index.html` (above the notebook listing), and its
+/// title supplies the default index title when `index_title` is `None`.
+pub fn cmd_render_dir(
+    dir: PathBuf,
+    output: Option<PathBuf>,
+    format: Format,
+    theme: &ThemeColors,
+    index_title: Option<String>,
+) {
     let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
     let out_dir = output
         .map(|o| std::path::absolute(&o).unwrap_or(o))
@@ -56,13 +67,19 @@ pub fn cmd_render_dir(dir: PathBuf, output: Option<PathBuf>, format: Format, the
     };
     md_files.sort();
 
-    if md_files.is_empty() {
+    // Split out `index.md` so it is not listed as a notebook entry.
+    let index_md_path = md_files.iter()
+        .position(|p| p.file_name().map_or(false, |n| n == "index.md"))
+        .map(|i| md_files.remove(i));
+
+    if md_files.is_empty() && index_md_path.is_none() {
         eprintln!("warning: no .md files found in {}", dir.display());
         return;
     }
 
     let ext = format.extension();
-    let mut index_entries: Vec<(String, String)> = Vec::new();
+    // (order, title, filename) — stable sort by order asc, ties by filename asc.
+    let mut index_entries: Vec<(Option<i64>, String, String)> = Vec::new();
 
     for md_path in &md_files {
         let source = match std::fs::read_to_string(md_path) {
@@ -73,6 +90,7 @@ pub fn cmd_render_dir(dir: PathBuf, output: Option<PathBuf>, format: Format, the
             }
         };
 
+        let (fm, _) = parse::extract_frontmatter(&source);
         let title = extract_title(&source, md_path);
         let stem = md_path.file_stem().unwrap_or_default().to_string_lossy();
         let out_file = out_dir.join(format!("{stem}.{ext}"));
@@ -85,18 +103,79 @@ pub fn cmd_render_dir(dir: PathBuf, output: Option<PathBuf>, format: Format, the
         render_output(&out_file, &format, &title, &rendered, theme);
         print_summary(md_path, &out_file, &rendered);
 
-        index_entries.push((title, format!("{stem}.{ext}")));
+        index_entries.push((fm.order, title, format!("{stem}.{ext}")));
     }
 
+    // Entries without an explicit order sort after those that have one, in
+    // filename order. Among entries that share an order, filename breaks ties.
+    index_entries.sort_by(|a, b| {
+        match (a.0, b.0) {
+            (Some(x), Some(y)) => x.cmp(&y).then_with(|| a.2.cmp(&b.2)),
+            (Some(_), None)    => std::cmp::Ordering::Less,
+            (None, Some(_))    => std::cmp::Ordering::Greater,
+            (None, None)       => a.2.cmp(&b.2),
+        }
+    });
+
     if matches!(format, Format::Html) {
-        let dir_name = dir.file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        let index_html = generate_index_html(&dir_name, &index_entries, theme);
+        // Resolve the index title: CLI flag > index.md title > dir name.
+        let (index_body_html, index_md_title) = match index_md_path.as_ref() {
+            Some(p) => read_and_render_index_md(p, &dir, theme),
+            None => (String::new(), None),
+        };
+        let resolved_title = index_title
+            .or(index_md_title)
+            .unwrap_or_else(|| dir.file_name().unwrap_or_default().to_string_lossy().to_string());
+
+        let entries_simple: Vec<(String, String)> =
+            index_entries.iter().map(|(_, t, f)| (t.clone(), f.clone())).collect();
+        let index_html = generate_index_html(&resolved_title, &entries_simple, theme, &index_body_html);
         let index_path = out_dir.join("index.html");
         write_output(&index_path, index_html.as_bytes());
-        println!("Generated {} ({} notebooks)", index_path.display(), index_entries.len());
+        println!("Generated {} ({} notebooks)", index_path.display(), entries_simple.len());
+    }
+}
+
+/// Read `index.md`, render its markdown body to HTML, and return the body
+/// plus the title used for the page. Code fences inside `index.md` are
+/// rendered as plain markdown (not executed) to keep the landing page
+/// lightweight — put executable content in regular notebooks and link to
+/// them from `index.md`.
+fn read_and_render_index_md(path: &PathBuf, _dir: &PathBuf, _theme: &ThemeColors) -> (String, Option<String>) {
+    let source = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("warning: cannot read {}: {e}", path.display());
+            return (String::new(), None);
+        }
+    };
+    let title = extract_title(&source, path);
+    let (_, body_md) = parse::extract_frontmatter(&source);
+    // Strip the first H1 from the body: it becomes the page title already.
+    let body_without_h1 = strip_leading_h1(body_md);
+    let mut opts = pulldown_cmark::Options::empty();
+    opts.insert(pulldown_cmark::Options::ENABLE_TABLES);
+    opts.insert(pulldown_cmark::Options::ENABLE_STRIKETHROUGH);
+    let parser = pulldown_cmark::Parser::new_ext(body_without_h1, opts);
+    let mut html = String::new();
+    pulldown_cmark::html::push_html(&mut html, parser);
+    (html, Some(title))
+}
+
+fn strip_leading_h1(src: &str) -> &str {
+    let mut rest = src;
+    // Skip any blank lines.
+    loop {
+        let trimmed = rest.trim_start_matches(|c: char| c == '\n' || c == '\r');
+        if trimmed.len() == rest.len() { break; } else { rest = trimmed; }
+    }
+    let first_line = rest.lines().next().unwrap_or("");
+    if first_line.trim_start().starts_with("# ") {
+        let consumed = first_line.len().min(rest.len());
+        let after = &rest[consumed..];
+        after.strip_prefix('\n').unwrap_or(after)
+    } else {
+        rest
     }
 }
 
@@ -147,7 +226,12 @@ fn render_output(
 
 fn print_summary(input: &PathBuf, out_path: &PathBuf, rendered: &[execute::Rendered]) {
     let n_code = rendered.iter().filter(|b| matches!(b, execute::Rendered::Code { .. })).count();
-    let n_plots = rendered.iter().filter(|b| matches!(b, execute::Rendered::Code { figure: Some(_), .. })).count();
+    let n_plots: usize = rendered.iter()
+        .map(|b| match b {
+            execute::Rendered::Code { figures, .. } => figures.len(),
+            _ => 0,
+        })
+        .sum();
     let n_errors = rendered.iter().filter(|b| matches!(b, execute::Rendered::Code { error: Some(_), .. })).count();
 
     print!("Rendered {} → {} ({} code blocks, {} plots",
@@ -235,7 +319,12 @@ fn which_exists(cmd: &str) -> bool {
 }
 
 pub fn extract_title(source: &str, path: &PathBuf) -> String {
-    for line in source.lines() {
+    // Frontmatter `title:` wins over the H1 fallback.
+    let (fm, body) = parse::extract_frontmatter(source);
+    if let Some(t) = fm.title {
+        return t;
+    }
+    for line in body.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("# ") && !trimmed.starts_with("## ") {
             return trimmed[2..].trim().to_string();
@@ -247,7 +336,12 @@ pub fn extract_title(source: &str, path: &PathBuf) -> String {
         .to_string()
 }
 
-pub fn generate_index_html(dir_name: &str, entries: &[(String, String)], theme: &ThemeColors) -> String {
+pub fn generate_index_html(
+    page_title: &str,
+    entries: &[(String, String)],
+    theme: &ThemeColors,
+    body_html: &str,
+) -> String {
     let c = theme;
     let mut links = String::new();
     for (title, filename) in entries {
@@ -257,6 +351,12 @@ pub fn generate_index_html(dir_name: &str, entries: &[(String, String)], theme: 
             title = escape_html(title),
         ));
     }
+
+    let intro = if body_html.is_empty() {
+        String::new()
+    } else {
+        format!("<div class=\"intro prose\">\n{body_html}</div>\n")
+    };
 
     format!(
         r##"<!DOCTYPE html>
@@ -321,22 +421,34 @@ pub fn generate_index_html(dir_name: &str, entries: &[(String, String)], theme: 
     padding-top: 1rem;
     border-top: 1px solid {border};
   }}
+  .intro {{
+    color: {text};
+    margin-bottom: 2rem;
+  }}
+  .intro p, .intro ul, .intro ol {{ margin-bottom: 1rem; }}
+  .intro h2 {{ color: {accent_primary}; margin: 1.5rem 0 0.5rem; }}
+  .intro a {{
+    display: inline; padding: 0; background: transparent; border: 0;
+    color: {accent_secondary}; text-decoration: underline;
+  }}
+  .intro a:hover {{ background: transparent; }}
 </style>
 </head>
 <body>
 <main>
 <h1>{title}</h1>
 <p class="subtitle">{count} notebook{plural}</p>
-<ul>
+{intro}<ul>
 {links}</ul>
 <footer>Generated by rustlab-notebook</footer>
 </main>
 </body>
 </html>
 "##,
-        title = escape_html(dir_name),
+        title = escape_html(page_title),
         count = entries.len(),
         plural = if entries.len() == 1 { "" } else { "s" },
+        intro = intro,
         links = links,
         bg = c.bg,
         bg_secondary = c.bg_secondary,
@@ -388,7 +500,7 @@ mod tests {
             ("Filter Analysis".to_string(), "filter.html".to_string()),
             ("Quick Look".to_string(), "quick.html".to_string()),
         ];
-        let html = generate_index_html("notebooks", &entries, Theme::Dark.colors());
+        let html = generate_index_html("notebooks", &entries, Theme::Dark.colors(), "");
         assert!(html.contains("notebooks"));
         assert!(html.contains("2 notebooks"));
         assert!(html.contains("href=\"filter.html\""));
@@ -403,14 +515,14 @@ mod tests {
         let entries = vec![
             ("Solo".to_string(), "solo.html".to_string()),
         ];
-        let html = generate_index_html("test", &entries, Theme::Dark.colors());
+        let html = generate_index_html("test", &entries, Theme::Dark.colors(), "");
         assert!(html.contains("1 notebook"));
         assert!(!html.contains("notebooks")); // singular
     }
 
     #[test]
     fn generate_index_empty() {
-        let html = generate_index_html("empty", &[], Theme::Dark.colors());
+        let html = generate_index_html("empty", &[], Theme::Dark.colors(), "");
         assert!(html.contains("0 notebooks"));
     }
 
@@ -419,8 +531,53 @@ mod tests {
         let entries = vec![
             ("A <script> & \"test\"".to_string(), "test.html".to_string()),
         ];
-        let html = generate_index_html("dir", &entries, Theme::Dark.colors());
+        let html = generate_index_html("dir", &entries, Theme::Dark.colors(), "");
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("&amp;"));
+    }
+
+    #[test]
+    fn generate_index_includes_body_html() {
+        let entries = vec![("A".to_string(), "a.html".to_string())];
+        let body = "<p>Intro paragraph.</p>\n";
+        let html = generate_index_html("dir", &entries, Theme::Dark.colors(), body);
+        assert!(html.contains("<p>Intro paragraph.</p>"));
+        assert!(html.contains("class=\"intro"));
+    }
+
+    #[test]
+    fn generate_index_no_intro_when_body_empty() {
+        let entries = vec![("A".to_string(), "a.html".to_string())];
+        let html = generate_index_html("dir", &entries, Theme::Dark.colors(), "");
+        assert!(!html.contains("class=\"intro"));
+    }
+
+    #[test]
+    fn generate_index_uses_custom_title() {
+        let entries = vec![("A".to_string(), "a.html".to_string())];
+        let html = generate_index_html("My Book", &entries, Theme::Dark.colors(), "");
+        assert!(html.contains("<h1>My Book</h1>"));
+        assert!(html.contains("<title>My Book"));
+    }
+
+    #[test]
+    fn extract_title_from_frontmatter_wins_over_h1() {
+        let source = "---\ntitle: FM Wins\n---\n# H1 Loses\n";
+        let title = extract_title(source, &PathBuf::from("x.md"));
+        assert_eq!(title, "FM Wins");
+    }
+
+    #[test]
+    fn extract_title_frontmatter_quoted() {
+        let source = "---\ntitle: \"Quoted Title\"\n---\n";
+        let title = extract_title(source, &PathBuf::from("x.md"));
+        assert_eq!(title, "Quoted Title");
+    }
+
+    #[test]
+    fn extract_title_h1_when_no_frontmatter_title() {
+        let source = "---\norder: 3\n---\n# Real Title\n";
+        let title = extract_title(source, &PathBuf::from("x.md"));
+        assert_eq!(title, "Real Title");
     }
 }

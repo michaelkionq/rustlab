@@ -117,11 +117,18 @@ pub fn render_figure_plotly_div(fig: &FigureState, div_id: &str, theme: &ThemeCo
 
         // Axis layout
         let show_grid = if panel.grid { "true" } else { "false" };
-        // Categorical tick labels for x-axis
+        // Categorical x-axis: switch Plotly into category mode and preserve
+        // the user-provided label order. Traces below emit their x values as
+        // the label strings directly, so tickvals/ticktext are not needed.
         let xtick_extra = if let Some(labels) = &panel.x_labels {
-            let tickvals: Vec<String> = (1..=labels.len()).map(|i| i.to_string()).collect();
-            let ticktext: Vec<String> = labels.iter().map(|l| format!("\"{}\"", escape_js(l))).collect();
-            format!(", tickvals: [{}], ticktext: [{}]", tickvals.join(","), ticktext.join(","))
+            let category_array: Vec<String> = labels
+                .iter()
+                .map(|l| format!("\"{}\"", escape_js(l)))
+                .collect();
+            format!(
+                r#", type: "category", categoryorder: "array", categoryarray: [{}]"#,
+                category_array.join(","),
+            )
         } else {
             String::new()
         };
@@ -221,10 +228,23 @@ yaxis{ax}: {{ domain: [{y0:.4}, {y1:.4}], title: {{ text: "{ylabel}" }}{yrange},
                     ));
                 }
                 PlotKind::Bar => {
+                    // Categorical bar: when the subplot has x_labels that
+                    // match this series 1:1, feed the labels in as x so
+                    // Plotly's type="category" axis renders them correctly.
+                    let x_json = match &panel.x_labels {
+                        Some(labels) if labels.len() == series.x_data.len() => {
+                            let items: Vec<String> = labels
+                                .iter()
+                                .map(|l| format!("\"{}\"", escape_js(l)))
+                                .collect();
+                            format!("[{}]", items.join(","))
+                        }
+                        _ => json_f64_array(&series.x_data),
+                    };
                     traces.push_str(&format!(
                         r#"{{ x: {x}, y: {y}, type: "bar", name: "{name}", marker: {{ color: "{color}" }}, xaxis: "{xa}", yaxis: "{ya}" }},
 "#,
-                        x = json_f64_array(&series.x_data),
+                        x = x_json,
                         y = json_f64_array(&series.y_data),
                         name = escape_js(&series.label),
                         color = color_str,
@@ -340,5 +360,59 @@ fn format_range(lim: (Option<f64>, Option<f64>)) -> String {
     match lim {
         (Some(lo), Some(hi)) => format!(", range: [{}, {}]", lo, hi),
         _ => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::figure::{FigureState, Series, PlotKind};
+    use crate::{LineStyle, SeriesColor, Theme};
+
+    #[test]
+    fn categorical_bar_plotly_emits_category_axis_and_label_xs() {
+        // Regression: bar(labels, y) used to emit numeric x=[1,2,3,4] on a
+        // default (linear) axis with tickvals/ticktext that Plotly ignored,
+        // so the label strings never appeared. Now we set type:"category"
+        // and feed the label strings as x values.
+        let mut fig = FigureState::new();
+        let labels = vec![
+            "|00>".to_string(),
+            "|01>".to_string(),
+            "|10>".to_string(),
+            "|11>".to_string(),
+        ];
+        let sp = fig.current_mut();
+        sp.x_labels = Some(labels.clone());
+        sp.series.push(Series {
+            label: "bar".to_string(),
+            x_data: vec![1.0, 2.0, 3.0, 4.0],
+            y_data: vec![0.25, 0.12, 0.48, 0.15],
+            color: SeriesColor::Cyan,
+            style: LineStyle::Solid,
+            kind: PlotKind::Bar,
+        });
+
+        let div = render_figure_plotly_div(&fig, "plot", Theme::default().colors());
+
+        assert!(
+            div.contains(r#"type: "category""#),
+            "x-axis should be category type; got:\n{}",
+            div
+        );
+        assert!(
+            div.contains(r#"categoryorder: "array""#),
+            "category order should be 'array' to preserve user order"
+        );
+        assert!(
+            div.contains(r#"categoryarray: ["|00>","|01>","|10>","|11>"]"#),
+            "categoryarray should list labels in order"
+        );
+        // Trace x should carry the label strings, not numeric indices.
+        assert!(
+            div.contains(r#"x: ["|00>","|01>","|10>","|11>"]"#),
+            "bar trace x should be the label strings; got:\n{}",
+            div
+        );
     }
 }

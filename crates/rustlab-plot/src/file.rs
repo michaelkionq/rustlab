@@ -1,6 +1,9 @@
 use plotters::prelude::*;
 use crate::error::PlotError;
-use crate::figure::{colormap_rgb, FigureState, LineStyle, PlotKind, SubplotState, FIGURE};
+use crate::figure::{
+    colormap_rgb, plot_context, push_notebook_figure_snapshot,
+    FigureState, LineStyle, PlotContext, PlotKind, SubplotState, FIGURE,
+};
 
 const MARGIN: u32 = 20;
 const X_LABEL_AREA: u32 = 50;
@@ -25,6 +28,9 @@ fn fmt_g(v: f64) -> String {
 
 /// Render the current FIGURE state to a file (PNG or SVG by extension).
 pub fn render_figure_file(path: &str) -> Result<(), PlotError> {
+    if plot_context() == PlotContext::Notebook {
+        push_notebook_figure_snapshot();
+    }
     if path.ends_with(".html") || path.ends_with(".htm") {
         return crate::html::render_figure_html(path);
     }
@@ -140,9 +146,16 @@ where
             .disable_mesh()
             .x_desc(xlabel)
             .y_desc(ylabel)
+            .x_labels(labels_c.len())
             .x_label_formatter(&|v| {
-                let idx = (*v as usize).wrapping_sub(1);
-                if idx < labels_c.len() { labels_c[idx].clone() } else { String::new() }
+                let rounded = v.round();
+                if (*v - rounded).abs() > 1e-6 { return String::new(); }
+                let idx = (rounded as isize) - 1;
+                if idx >= 0 && (idx as usize) < labels_c.len() {
+                    labels_c[idx as usize].clone()
+                } else {
+                    String::new()
+                }
             })
             .draw()
             .map_err(err)?;
@@ -411,6 +424,43 @@ mod tests {
         render_figure_file(&path).expect("render should succeed");
         let content = std::fs::read_to_string(&path).expect("should read SVG");
         assert!(content.contains("<svg"), "scatter SVG should contain '<svg' tag");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn categorical_bar_svg_renders_each_label_once() {
+        // Regression: bar(labels, y) used to emit each tick label twice because
+        // plotters generates ticks at half-integer positions and the formatter
+        // mapped (v as usize)-1 to labels[0] for both v=1.0 and v=1.5. The
+        // formatter now returns "" for non-integer ticks.
+        let path = tmp_path("_cat_bar.svg");
+        let labels = vec![
+            "|00>".to_string(),
+            "|01>".to_string(),
+            "|10>".to_string(),
+            "|11>".to_string(),
+        ];
+        FIGURE.with(|fig| {
+            let mut fig = fig.borrow_mut();
+            let sp = fig.current_mut();
+            sp.series.clear();
+            sp.title.clear();
+            sp.x_labels = Some(labels.clone());
+        });
+        push_xy_bar(
+            vec![1.0, 2.0, 3.0, 4.0],
+            vec![0.25, 0.12, 0.48, 0.15],
+            "bar", "Categorical Bar", None,
+        );
+        render_figure_file(&path).expect("render should succeed");
+        let content = std::fs::read_to_string(&path).expect("should read SVG");
+        // SVG escapes '>' as '&gt;'; check the escaped form.
+        for lbl in ["|00&gt;", "|01&gt;", "|10&gt;", "|11&gt;"] {
+            let count = content.matches(lbl).count();
+            assert_eq!(count, 1, "expected {} to appear once in SVG, found {}", lbl, count);
+        }
+        // Reset state so sibling tests aren't affected.
+        FIGURE.with(|fig| fig.borrow_mut().current_mut().x_labels = None);
         let _ = std::fs::remove_file(&path);
     }
 

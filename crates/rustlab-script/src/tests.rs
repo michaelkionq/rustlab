@@ -282,6 +282,42 @@ mod parser_tests {
     }
 
     #[test]
+    fn unary_minus_binds_weaker_than_elem_pow() {
+        // -x .^ 2 must parse as -(x .^ 2), matching MATLAB/Octave precedence.
+        match first_expr("-x .^ 2") {
+            Expr::UnaryMinus(inner) => match inner.as_ref() {
+                Expr::BinOp { op: BinOp::ElemPow, .. } => {}
+                other => panic!("Expected UnaryMinus(ElemPow), got UnaryMinus({other:?})"),
+            },
+            other => panic!("Expected UnaryMinus(ElemPow), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unary_minus_binds_weaker_than_pow() {
+        // -x ^ 2 must parse as -(x ^ 2).
+        match first_expr("-x ^ 2") {
+            Expr::UnaryMinus(inner) => match inner.as_ref() {
+                Expr::BinOp { op: BinOp::Pow, .. } => {}
+                other => panic!("Expected UnaryMinus(Pow), got UnaryMinus({other:?})"),
+            },
+            other => panic!("Expected UnaryMinus(Pow), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unary_minus_allowed_on_rhs_of_pow() {
+        // 2 ^ -3 must still parse (MATLAB accepts it as 2 ^ (-3) = 0.125).
+        match first_expr("2 ^ -3") {
+            Expr::BinOp { op: BinOp::Pow, rhs, .. } => match rhs.as_ref() {
+                Expr::UnaryMinus(_) => {}
+                other => panic!("Expected Pow(_, UnaryMinus), got Pow(_, {other:?})"),
+            },
+            other => panic!("Expected Pow, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn range_two_args() {
         match first_expr("1:5") {
             Expr::Range { step: None, .. } => {}
@@ -1071,6 +1107,32 @@ mod matrix_tests {
         let v = get_vector(&ev, "v");
         assert!(close(v[0], 1.0, 1e-12), "diag[0] should be 1.0");
         assert!(close(v[1], 4.0, 1e-12), "diag[1] should be 4.0");
+    }
+
+    #[test]
+    fn nx1_column_matrix_single_index_returns_scalar() {
+        // v(i) on an Nx1 column matrix should unwrap to a scalar so template
+        // interpolation and fprintf %f work without an explicit cast.
+        let ev = eval_str("v = [1.0; 2.0; 3.0];\nx = v(2);");
+        assert!(close(get_scalar(&ev, "x"), 2.0, 1e-12));
+    }
+
+    #[test]
+    fn nx1_column_matrix_single_index_first_and_last() {
+        let ev = eval_str("v = [10.0; 20.0; 30.0];\na = v(1);\nb = v(3);");
+        assert!(close(get_scalar(&ev, "a"), 10.0, 1e-12));
+        assert!(close(get_scalar(&ev, "b"), 30.0, 1e-12));
+    }
+
+    #[test]
+    fn mxn_single_index_still_returns_row() {
+        // Preserve existing behavior: M(i) on a general MxN matrix returns
+        // the i-th row as a vector. Only Nx1 matrices are unwrapped to scalar.
+        let ev = eval_str("M = [1.0, 2.0; 3.0, 4.0];\nr = M(1);");
+        let r = get_vector(&ev, "r");
+        assert_eq!(r.len(), 2);
+        assert!(close(r[0], 1.0, 1e-12));
+        assert!(close(r[1], 2.0, 1e-12));
     }
 }
 
@@ -2343,9 +2405,6 @@ mod new_builtins_tests {
     }
 
     fn close(a: f64, b: f64) -> bool { (a - b).abs() < 1e-9 }
-    fn close_c(a: Complex<f64>, b: Complex<f64>) -> bool {
-        (a.re - b.re).abs() < 1e-9 && (a.im - b.im).abs() < 1e-9
-    }
 
     // ── acos / asin / atan ──────────────────────────────────────────────────
 
@@ -3972,6 +4031,28 @@ ref_full = convolve(x, h);
     }
 
     #[test]
+    fn headless_context_suppresses_plot_and_blocks_live_figure() {
+        use rustlab_plot::{plot_context, set_plot_context, PlotContext};
+        let prev = plot_context();
+        set_plot_context(PlotContext::Headless);
+
+        // Regular plot() must not touch the terminal and must not error —
+        // render_figure_terminal short-circuits under Headless.
+        let plot_result = try_run("x = linspace(0.0, 1.0, 4); plot(x, x)");
+
+        // figure_live must refuse with a clear error under Headless, regardless
+        // of whether a viewer is running (headless is an explicit user opt-out).
+        let live_result = try_run("fig = figure_live(1, 1)");
+
+        set_plot_context(prev);
+
+        assert!(plot_result.is_ok(),
+            "plot() should succeed silently under Headless: {}",
+            plot_result.err().map(|e| e.to_string()).unwrap_or_default());
+        assert!(live_result.is_err(), "figure_live should error under Headless");
+    }
+
+    #[test]
     fn viewer_on_parses() {
         // `viewer on` should parse and run without error (prints a warning if no viewer)
         let src = "viewer on\n";
@@ -4500,6 +4581,51 @@ mod figure_state_tests {
         FIGURE.with(|f| assert!(!f.borrow().current().grid));
         run("grid(\"on\");");
         FIGURE.with(|f| assert!(f.borrow().current().grid));
+    }
+
+    #[test]
+    fn plot_accepts_nx1_column_matrix() {
+        run("v = [1.0; 2.0; 3.0]; plot(v);");
+        FIGURE.with(|f| {
+            let fig = f.borrow();
+            let sp = fig.current();
+            assert_eq!(sp.series.len(), 1, "Nx1 column matrix should plot as a single series");
+            assert_eq!(sp.series[0].y_data, vec![1.0, 2.0, 3.0]);
+        });
+    }
+
+    #[test]
+    fn stem_accepts_nx1_column_matrix() {
+        run("v = [1.0; 2.0; 3.0]; stem(v);");
+        FIGURE.with(|f| {
+            let fig = f.borrow();
+            let sp = fig.current();
+            assert_eq!(sp.series.len(), 1);
+            assert_eq!(sp.series[0].y_data, vec![1.0, 2.0, 3.0]);
+        });
+    }
+
+    #[test]
+    fn bar_accepts_nx1_column_matrix() {
+        run("v = [1.0; 2.0; 3.0]; bar(v);");
+        FIGURE.with(|f| {
+            let fig = f.borrow();
+            let sp = fig.current();
+            assert_eq!(sp.series.len(), 1);
+            assert_eq!(sp.series[0].y_data, vec![1.0, 2.0, 3.0]);
+        });
+    }
+
+    #[test]
+    fn scatter_accepts_nx1_column_matrix() {
+        run("x = [1.0; 2.0; 3.0]; y = [4.0; 5.0; 6.0]; scatter(x, y);");
+        FIGURE.with(|f| {
+            let fig = f.borrow();
+            let sp = fig.current();
+            assert_eq!(sp.series.len(), 1);
+            assert_eq!(sp.series[0].x_data, vec![1.0, 2.0, 3.0]);
+            assert_eq!(sp.series[0].y_data, vec![4.0, 5.0, 6.0]);
+        });
     }
 }
 
@@ -6663,5 +6789,133 @@ mod string_array_tests {
         let mut ev = Evaluator::new();
         let result = ev.exec_stmt(&stmts[0]);
         assert!(result.is_err());
+    }
+}
+
+// ─── Audit gap coverage: script wrappers around tested DSP/plot primitives ──
+#[cfg(test)]
+mod audit_builtin_tests {
+    use crate::Evaluator;
+    use crate::eval::value::Value;
+    use rustlab_plot::figure::FIGURE;
+
+    fn run(src: &str) -> Evaluator {
+        let src = format!("{}\n", src);
+        let tokens = crate::lexer::tokenize(&src).unwrap();
+        let stmts = crate::parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        ev.run(&stmts).unwrap();
+        ev
+    }
+
+    fn get_real_vec(ev: &Evaluator, name: &str) -> Vec<f64> {
+        match ev.get(name).unwrap() {
+            Value::Vector(v) => v.iter().map(|c| c.re).collect(),
+            other => panic!("expected vector for '{name}', got {other:?}"),
+        }
+    }
+
+    fn reset_figure() {
+        FIGURE.with(|f| f.borrow_mut().reset());
+    }
+
+    // ── butterworth_lowpass / butterworth_highpass ────────────────────────
+
+    #[test]
+    fn butterworth_lowpass_order2_returns_3_coeffs() {
+        let ev = run("b = butterworth_lowpass(2, 1000.0, 8000.0);");
+        let b = get_real_vec(&ev, "b");
+        assert_eq!(b.len(), 3, "order-2 LP must return 3 b coefficients");
+        // DC gain of the numerator alone is monotonic > 0 for a LP butterworth.
+        let sum: f64 = b.iter().sum();
+        assert!(sum > 0.0, "sum of b coefficients should be positive for LP, got {sum}");
+    }
+
+    #[test]
+    fn butterworth_lowpass_order4_returns_5_coeffs() {
+        let ev = run("b = butterworth_lowpass(4, 1000.0, 8000.0);");
+        assert_eq!(get_real_vec(&ev, "b").len(), 5);
+    }
+
+    #[test]
+    fn butterworth_highpass_order2_returns_3_coeffs() {
+        let ev = run("b = butterworth_highpass(2, 1000.0, 8000.0);");
+        let b = get_real_vec(&ev, "b");
+        assert_eq!(b.len(), 3, "order-2 HP must return 3 b coefficients");
+        // First b coefficient for a HP butterworth via bilinear transform is positive.
+        assert!(b[0] > 0.0, "b[0] should be positive for HP, got {}", b[0]);
+    }
+
+    // ── hline / yline alias pair ──────────────────────────────────────────
+
+    #[test]
+    fn hline_adds_dashed_series_to_current_subplot() {
+        reset_figure();
+        run("hline(0.5);");
+        FIGURE.with(|f| {
+            let fig = f.borrow();
+            let sp = fig.current();
+            assert_eq!(sp.series.len(), 1, "hline should add one series");
+            let s = &sp.series[0];
+            assert_eq!(s.y_data, vec![0.5, 0.5]);
+            assert!(matches!(s.style, rustlab_plot::LineStyle::Dashed));
+        });
+    }
+
+    #[test]
+    fn yline_is_alias_for_hline() {
+        reset_figure();
+        run("yline(1.25);");
+        FIGURE.with(|f| {
+            let fig = f.borrow();
+            let sp = fig.current();
+            assert_eq!(sp.series.len(), 1, "yline should add one series");
+            assert_eq!(sp.series[0].y_data, vec![1.25, 1.25]);
+            assert!(matches!(sp.series[0].style, rustlab_plot::LineStyle::Dashed));
+        });
+    }
+
+    #[test]
+    fn hline_vector_adds_one_series_per_element() {
+        reset_figure();
+        run("hline([0.0, 0.5, 1.0]);");
+        FIGURE.with(|f| {
+            let fig = f.borrow();
+            let sp = fig.current();
+            assert_eq!(sp.series.len(), 3);
+            assert_eq!(sp.series[0].y_data, vec![0.0, 0.0]);
+            assert_eq!(sp.series[1].y_data, vec![0.5, 0.5]);
+            assert_eq!(sp.series[2].y_data, vec![1.0, 1.0]);
+        });
+    }
+
+    // ── qadd / qmul ───────────────────────────────────────────────────────
+
+    #[test]
+    fn qadd_elementwise_with_round_mode() {
+        // Q1.15 with round-to-nearest: 0.25 + 0.125 = 0.375 (exactly representable).
+        let ev = run("f = qfmt(16, 15, \"round\"); y = qadd([0.25, 0.5], [0.125, 0.25], f);");
+        let y = get_real_vec(&ev, "y");
+        assert_eq!(y.len(), 2);
+        assert!((y[0] - 0.375).abs() < 1e-9, "qadd[0] = {}", y[0]);
+        assert!((y[1] - 0.75).abs() < 1e-9,  "qadd[1] = {}", y[1]);
+    }
+
+    #[test]
+    fn qadd_saturates_on_overflow() {
+        // Q1.15 max positive ≈ 0.999969..., 0.9 + 0.9 would overflow → saturate.
+        let ev = run("f = qfmt(16, 15, \"round\", \"saturate\"); y = qadd([0.9], [0.9], f);");
+        let y = get_real_vec(&ev, "y");
+        assert!(y[0] < 1.0 && y[0] > 0.999, "qadd saturated value = {}", y[0]);
+    }
+
+    #[test]
+    fn qmul_elementwise_with_round_mode() {
+        // Q1.15 rounding: 0.5 * 0.5 = 0.25 (exactly representable).
+        let ev = run("f = qfmt(16, 15, \"round\"); y = qmul([0.5, 0.25], [0.5, 0.5], f);");
+        let y = get_real_vec(&ev, "y");
+        assert_eq!(y.len(), 2);
+        assert!((y[0] - 0.25).abs() < 1e-9,  "qmul[0] = {}", y[0]);
+        assert!((y[1] - 0.125).abs() < 1e-9, "qmul[1] = {}", y[1]);
     }
 }

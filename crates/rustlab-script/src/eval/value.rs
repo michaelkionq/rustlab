@@ -295,12 +295,18 @@ impl Value {
                 }
             }
             Value::Matrix(m) => {
-                // Single index selects a row (1-based)
+                // Single index selects a row (1-based). If the matrix has a single
+                // column (Nx1), unwrap the 1-element row to a scalar — the user is
+                // treating the column as a 1D vector.
                 match &idx {
                     Value::Scalar(n) => {
                         let i = Self::one_based_to_zero(*n)?;
                         if i >= m.nrows() {
                             return Err(format!("row index {} out of bounds ({} rows)", n, m.nrows()));
+                        }
+                        if m.ncols() == 1 {
+                            let c = m[[i, 0]];
+                            return if c.im.abs() < 1e-12 { Ok(Value::Scalar(c.re)) } else { Ok(Value::Complex(c)) };
                         }
                         Ok(Value::Vector(m.row(i).to_owned()))
                     }

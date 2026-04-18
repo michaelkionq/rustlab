@@ -529,7 +529,10 @@ rustlab-notebook render notebooks/               # render all → *.html + index
 - Syntax-highlighted code blocks
 - Template interpolation: `${expr}` embeds computed values in prose
 - `<!-- hide -->` directive to suppress setup code
-- Multi-notebook directory rendering with index generation
+- Multi-notebook directory rendering with index generation (customise
+  via `--title`, `index.md`, or frontmatter `order:`)
+- YAML frontmatter (`title:`, `order:` / `weight:`) for index titling
+  and sort order
 - Cross-notebook `.md` → `.html` link rewriting
 - Variables persist across code blocks within a notebook
 

@@ -23,7 +23,7 @@ use rustlab_plot::{
     render_figure_terminal, render_figure_file,
     imagesc_terminal,
     push_xy_line, push_xy_stem, push_xy_bar, push_xy_scatter,
-    HeatmapData, LineStyle, SeriesColor, FIGURE, LiveFigure, LivePlot,
+    LineStyle, SeriesColor, FIGURE, LiveFigure, LivePlot,
     sync_figure_outputs,
 };
 use ndarray::{Array1, Array2};
@@ -111,7 +111,6 @@ impl BuiltinRegistry {
         r.register("randi",     builtin_randi);
         r.register("histogram", builtin_histogram);
         r.register("hist",      builtin_histogram);
-        r.register("savehist",  builtin_savehist);
         r.register("mean",     builtin_mean);
         r.register("median",   builtin_median);
         r.register("std",      builtin_std);
@@ -134,8 +133,6 @@ impl BuiltinRegistry {
         r.register("stem",  builtin_stem);
         r.register("plotdb",   builtin_plotdb);
         r.register("savefig",  builtin_savefig);
-        r.register("savestem", builtin_savestem);
-        r.register("savedb",   builtin_savedb);
         // Figure state control
         r.register("figure",      builtin_figure);
         r.register("hold",        builtin_hold);
@@ -150,7 +147,6 @@ impl BuiltinRegistry {
         r.register("hline",       builtin_hline);
         r.register("yline",       builtin_hline);  // common alias
         r.register("imagesc",     builtin_imagesc);
-        r.register("saveimagesc", builtin_saveimagesc);
         // Import / export
         r.register("save", builtin_save);
         r.register("load", builtin_load);
@@ -234,8 +230,6 @@ impl BuiltinRegistry {
         // New plot types
         r.register("bar",        builtin_bar);
         r.register("scatter",    builtin_scatter);
-        r.register("savebar",    builtin_savebar);
-        r.register("savescatter", builtin_savescatter);
 
         // Streaming DSP
         r.register("state_init",    builtin_state_init);
@@ -869,53 +863,6 @@ fn builtin_histogram(args: Vec<Value>) -> Result<Value, ScriptError> {
         .map_err(|e| ScriptError::type_err(e.to_string()))?;
     let (centers, counts, _) = compute_histogram(&data, n_bins);
     Ok(Value::Matrix(histogram_matrix(&centers, &counts)))
-}
-
-fn builtin_savehist(args: Vec<Value>) -> Result<Value, ScriptError> {
-    eprintln!("warning: savehist() is deprecated — use histogram(v); savefig(\"path\") instead");
-    // savehist(v, "file")                  → 10 bins, empty title
-    // savehist(v, "file", "title")         → 10 bins
-    // savehist(v, n, "file")               → n bins, empty title
-    // savehist(v, n, "file", "title")      → n bins
-    if args.len() < 2 || args.len() > 4 {
-        return Err(ScriptError::type_err(
-            "savehist: expected savehist(v, file) or savehist(v, n, file) or savehist(v, n, file, title)".to_string()
-        ));
-    }
-    let data = to_real_vector(&args[0])?;
-    let (n_bins, path, title) = if let Value::Str(s) = &args[1] {
-        let t = args.get(2).and_then(|a| if let Value::Str(t) = a { Some(t.as_str()) } else { None }).unwrap_or("");
-        (10usize, s.as_str(), t)
-    } else {
-        let n = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
-        let path = match args.get(2) {
-            Some(Value::Str(s)) => s.as_str(),
-            _ => return Err(ScriptError::type_err("savehist: file path must be a string".to_string())),
-        };
-        let t = args.get(3).and_then(|a| if let Value::Str(t) = a { Some(t.as_str()) } else { None }).unwrap_or("");
-        (n, path, t)
-    };
-    if data.is_empty() || n_bins == 0 {
-        return Err(ScriptError::runtime("savehist: empty data or zero bins".to_string()));
-    }
-    let (centers, counts, bin_width) = compute_histogram(&data, n_bins);
-    let mut x: Vec<f64> = Vec::with_capacity(n_bins * 4);
-    let mut y: Vec<f64> = Vec::with_capacity(n_bins * 4);
-    for i in 0..centers.len() {
-        let left  = centers[i] - bin_width / 2.0;
-        let right = centers[i] + bin_width / 2.0;
-        x.extend_from_slice(&[left, left, right, right]);
-        y.extend_from_slice(&[0.0, counts[i], counts[i], 0.0]);
-    }
-    push_xy_line(x, y, "count", title, None, LineStyle::Solid);
-    FIGURE.with(|fig| {
-        let mut fig = fig.borrow_mut();
-        let sp = fig.current_mut();
-        if sp.xlabel.is_empty() { sp.xlabel = "Value".to_string(); }
-        if sp.ylabel.is_empty() { sp.ylabel = "Count".to_string(); }
-    });
-    render_figure_file(path).map_err(|e| ScriptError::runtime(e.to_string()))?;
-    Ok(Value::None)
 }
 
 fn builtin_min(args: Vec<Value>) -> Result<Value, ScriptError> {
@@ -1593,6 +1540,8 @@ fn builtin_plot(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.is_empty() {
         return Err(ScriptError::arg_count("plot".to_string(), 1, 0));
     }
+    let mut args = args;
+    flatten_column_matrix_args(&mut args);
 
     // Determine if first two args are both data (x, y) or single data + options
     let (x_opt, y_val, opts_start) = match (&args[0], args.get(1)) {
@@ -1691,6 +1640,8 @@ fn builtin_stem(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.is_empty() {
         return Err(ScriptError::arg_count("stem".to_string(), 1, 0));
     }
+    let mut args = args;
+    flatten_column_matrix_args(&mut args);
 
     let (x_opt, y_val, opts_start) = match (&args[0], args.get(1)) {
         (Value::Vector(_), Some(Value::Vector(_))) => (Some(&args[0]), &args[1], 2),
@@ -1741,70 +1692,8 @@ fn builtin_plotdb(args: Vec<Value>) -> Result<Value, ScriptError> {
 }
 
 fn builtin_savefig(args: Vec<Value>) -> Result<Value, ScriptError> {
-    check_args_range("savefig", &args, 1, 3)?;
-    // 1-arg form: savefig(path) — render current FIGURE state to file
-    if args.len() == 1 {
-        let path = args[0].to_str().map_err(|e| ScriptError::type_err(e))?;
-        render_figure_file(&path).map_err(|e| ScriptError::runtime(e.to_string()))?;
-        return Ok(Value::None);
-    }
-    // 2–3 arg form: savefig(data, path) or savefig(data, path, title) — DEPRECATED
-    eprintln!("warning: savefig(data, path) is deprecated — use plot(data, \"title\"); savefig(\"path\") instead");
-    let path  = args[1].to_str().map_err(|e| ScriptError::type_err(e))?;
-    let title = if args.len() == 3 {
-        args[2].to_str().map_err(|e| ScriptError::type_err(e))?
-    } else {
-        "Plot".to_string()
-    };
-    let real_v = to_real_vector(&args[0])?;
-    let x: Vec<f64> = (0..real_v.len()).map(|i| i as f64).collect();
-    let y: Vec<f64> = real_v.iter().copied().collect();
-    push_xy_line(x, y, "value", &title, None, LineStyle::Solid);
-    render_figure_file(&path).map_err(|e| ScriptError::runtime(e.to_string()))?;
-    Ok(Value::None)
-}
-
-fn builtin_savestem(args: Vec<Value>) -> Result<Value, ScriptError> {
-    eprintln!("warning: savestem() is deprecated — use stem(v, \"title\"); savefig(\"path\") instead");
-    check_args_range("savestem", &args, 2, 3)?;
-    let path  = args[1].to_str().map_err(|e| ScriptError::type_err(e))?;
-    let title = if args.len() == 3 {
-        args[2].to_str().map_err(|e| ScriptError::type_err(e))?
-    } else {
-        "Stem Plot".to_string()
-    };
-    let real_v = to_real_vector(&args[0])?;
-    let x: Vec<f64> = (0..real_v.len()).map(|i| i as f64).collect();
-    let y: Vec<f64> = real_v.iter().copied().collect();
-    push_xy_stem(x, y, "stem", &title, None);
-    render_figure_file(&path).map_err(|e| ScriptError::runtime(e.to_string()))?;
-    Ok(Value::None)
-}
-
-fn builtin_savedb(args: Vec<Value>) -> Result<Value, ScriptError> {
-    eprintln!("warning: savedb() is deprecated — use plotdb(Hz, \"title\"); savefig(\"path\") instead");
-    check_args_range("savedb", &args, 2, 3)?;
-    let path  = args[1].to_str().map_err(|e| ScriptError::type_err(e))?;
-    let title = if args.len() == 3 {
-        args[2].to_str().map_err(|e| ScriptError::type_err(e))?
-    } else {
-        "Frequency Response".to_string()
-    };
-    let (freqs, h) = extract_freq_response(&args[0])?;
-    let n = freqs.len().min(h.len());
-    const FLOOR_DB: f64 = -120.0;
-    let x: Vec<f64> = freqs.iter().take(n).copied().collect();
-    let y: Vec<f64> = h.iter().take(n).map(|c| {
-        let m = c.norm();
-        if m < 1e-12 { FLOOR_DB } else { 20.0 * m.log10() }
-    }).collect();
-    push_xy_line(x, y, "dB", &title, None, LineStyle::Solid);
-    FIGURE.with(|fig| {
-        let mut fig = fig.borrow_mut();
-        let sp = fig.current_mut();
-        if sp.xlabel.is_empty() { sp.xlabel = "Frequency (Hz)".to_string(); }
-        if sp.ylabel.is_empty() { sp.ylabel = "Magnitude (dB)".to_string(); }
-    });
+    check_args("savefig", &args, 1)?;
+    let path = args[0].to_str().map_err(|e| ScriptError::type_err(e))?;
     render_figure_file(&path).map_err(|e| ScriptError::runtime(e.to_string()))?;
     Ok(Value::None)
 }
@@ -2045,48 +1934,13 @@ fn builtin_imagesc(args: Vec<Value>) -> Result<Value, ScriptError> {
     Ok(Value::None)
 }
 
-/// saveimagesc(M, path) / saveimagesc(M, path, title) / saveimagesc(M, path, title, colormap)
-fn builtin_saveimagesc(args: Vec<Value>) -> Result<Value, ScriptError> {
-    eprintln!("warning: saveimagesc() is deprecated — use imagesc(M); savefig(\"path\") instead");
-    check_args_range("saveimagesc", &args, 2, 4)?;
-    let matrix = match &args[0] {
-        Value::Matrix(m) => m.clone(),
-        Value::Vector(v) => {
-            let n = v.len();
-            ndarray::Array2::from_shape_fn((n, 1), |(i, _)| v[i])
-        }
-        other => return Err(ScriptError::type_err(format!("saveimagesc: expected matrix, got {}", other))),
-    };
-    let path = args[1].to_str().map_err(|e| ScriptError::type_err(e))?;
-    let title = if args.len() >= 3 { args[2].to_str().map_err(|e| ScriptError::type_err(e))? } else { String::new() };
-    let colormap = if args.len() >= 4 { args[3].to_str().map_err(|e| ScriptError::type_err(e))? } else { "viridis".to_string() };
-    // Push heatmap data into FIGURE state (same as imagesc, without terminal render)
-    let (nrows, ncols) = (matrix.nrows(), matrix.ncols());
-    let vals: Vec<f64> = matrix.iter().map(|c| c.norm()).collect();
-    let z: Vec<Vec<f64>> = (0..nrows)
-        .map(|r| (0..ncols).map(|c| vals[r * ncols + c]).collect())
-        .collect();
-    FIGURE.with(|fig| {
-        let mut fig = fig.borrow_mut();
-        let sp = fig.current_mut();
-        sp.series.clear();
-        if !title.is_empty() { sp.title = title; }
-        sp.heatmap = Some(HeatmapData {
-            z,
-            colorscale: colormap,
-        });
-    });
-    render_figure_file(&path).map_err(|e| ScriptError::runtime(e.to_string()))?;
-    Ok(Value::None)
-}
-
 /// Extract (freqs: RVector, H: CVector) from a 2×n Matrix (as returned by freqz).
 fn extract_freq_response(val: &Value) -> Result<(rustlab_core::RVector, CVector), ScriptError> {
     match val {
         Value::Matrix(m) => {
             if m.nrows() < 2 {
                 return Err(ScriptError::type_err(
-                    "plotdb/savedb: expected a 2×n matrix from freqz".to_string()
+                    "plotdb: expected a 2×n matrix from freqz".to_string()
                 ));
             }
             let freqs = ndarray::Array1::from_iter(m.row(0).iter().map(|c| c.re));
@@ -2094,7 +1948,7 @@ fn extract_freq_response(val: &Value) -> Result<(rustlab_core::RVector, CVector)
             Ok((freqs, h))
         }
         other => Err(ScriptError::type_err(format!(
-            "plotdb/savedb: expected matrix from freqz, got {other}"
+            "plotdb: expected matrix from freqz, got {other}"
         ))),
     }
 }
@@ -2124,6 +1978,20 @@ fn to_real_vector(val: &Value) -> Result<rustlab_core::RVector, ScriptError> {
             Ok(ndarray::Array1::from_iter(m.column(0).iter().map(|c| c.re)))
         }
         other => Err(ScriptError::type_err(format!("cannot plot value of type {other}"))),
+    }
+}
+
+// Nx1 column matrices are 1D data in user-facing terms. Rewrite such args to
+// Vector so plot/stem/bar can treat them uniformly with row vectors. Leaves
+// multi-column matrices alone (they remain grouped series).
+fn flatten_column_matrix_args(args: &mut [Value]) {
+    for a in args.iter_mut() {
+        if let Value::Matrix(m) = a {
+            if m.ncols() == 1 {
+                let v: Vec<Complex<f64>> = m.column(0).iter().copied().collect();
+                *a = Value::Vector(ndarray::Array1::from_vec(v));
+            }
+        }
     }
 }
 
@@ -4743,6 +4611,8 @@ fn builtin_bar(args: Vec<Value>) -> Result<Value, ScriptError> {
             "bar: expected bar(y), bar(x,y), bar(labels,y), bar(M), bar(x,M), or bar(...,title)".to_string()
         ));
     }
+    let mut args = args;
+    flatten_column_matrix_args(&mut args);
     // Categorical bar chart: bar({"A","B","C"}, [10,20,30]) or bar(labels, y, "title")
     if let Value::StringArray(labels) = &args[0] {
         if args.len() < 2 {
@@ -4819,20 +4689,6 @@ fn builtin_bar(args: Vec<Value>) -> Result<Value, ScriptError> {
     Ok(Value::None)
 }
 
-/// savebar(y, path)  or  savebar(x, y, path)  or  savebar(x, y, path, title)
-fn builtin_savebar(args: Vec<Value>) -> Result<Value, ScriptError> {
-    eprintln!("warning: savebar() is deprecated — use bar(y, \"title\"); savefig(\"path\") instead");
-    if args.len() < 2 || args.len() > 4 {
-        return Err(ScriptError::type_err(
-            "savebar: expected savebar(y, path) or savebar(x, y, path) or savebar(x, y, path, title)".to_string()
-        ));
-    }
-    let (x_data, y_data, path, title) = extract_xy_path_title(&args, "savebar")?;
-    push_xy_bar(x_data, y_data, "bar", &title, None);
-    render_figure_file(&path).map_err(|e| ScriptError::runtime(e.to_string()))?;
-    Ok(Value::None)
-}
-
 // ─── scatter builtin ──────────────────────────────────────────────────────────
 
 /// scatter(x, y)  or  scatter(x, y, "title")
@@ -4842,6 +4698,8 @@ fn builtin_scatter(args: Vec<Value>) -> Result<Value, ScriptError> {
             "scatter: expected scatter(x, y) or scatter(x, y, title)".to_string()
         ));
     }
+    let mut args = args;
+    flatten_column_matrix_args(&mut args);
     let xv = to_real_vector(&args[0])?;
     let yv = to_real_vector(&args[1])?;
     let title = if args.len() == 3 { args[2].to_str().map_err(|e| ScriptError::type_err(e))? } else { String::new() };
@@ -4850,25 +4708,6 @@ fn builtin_scatter(args: Vec<Value>) -> Result<Value, ScriptError> {
     push_xy_scatter(x_data, y_data, "scatter", &title, None);
     render_figure_terminal().map_err(|e| ScriptError::runtime(e.to_string()))?;
     sync_figure_outputs();
-    Ok(Value::None)
-}
-
-/// savescatter(x, y, path)  or  savescatter(x, y, path, title)
-fn builtin_savescatter(args: Vec<Value>) -> Result<Value, ScriptError> {
-    eprintln!("warning: savescatter() is deprecated — use scatter(x, y, \"title\"); savefig(\"path\") instead");
-    if args.len() < 3 || args.len() > 4 {
-        return Err(ScriptError::type_err(
-            "savescatter: expected savescatter(x, y, path) or savescatter(x, y, path, title)".to_string()
-        ));
-    }
-    let xv = to_real_vector(&args[0])?;
-    let yv = to_real_vector(&args[1])?;
-    let path  = args[2].to_str().map_err(|e| ScriptError::type_err(e))?;
-    let title = if args.len() == 4 { args[3].to_str().map_err(|e| ScriptError::type_err(e))? } else { String::new() };
-    let x_data: Vec<f64> = xv.to_vec();
-    let y_data: Vec<f64> = yv.to_vec();
-    push_xy_scatter(x_data, y_data, "scatter", &title, None);
-    render_figure_file(&path).map_err(|e| ScriptError::runtime(e.to_string()))?;
     Ok(Value::None)
 }
 
@@ -4902,43 +4741,6 @@ fn extract_xy_with_title(args: &[Value], name: &str) -> Result<(Vec<f64>, Vec<f6
             let yv = to_real_vector(y)?;
             let title = t.to_str().map_err(|e| ScriptError::type_err(e))?;
             Ok((xv.to_vec(), yv.to_vec(), title))
-        }
-        _ => Err(ScriptError::type_err(format!("{name}: wrong number of arguments"))),
-    }
-}
-
-/// Extract (x_data, y_data, path, title) from save-style arg lists.
-fn extract_xy_path_title(args: &[Value], name: &str) -> Result<(Vec<f64>, Vec<f64>, String, String), ScriptError> {
-    match args {
-        // save(y, path)
-        [y, path] => {
-            let yv = to_real_vector(y)?;
-            let x_data: Vec<f64> = (0..yv.len()).map(|i| i as f64).collect();
-            Ok((x_data, yv.to_vec(), path.to_str().map_err(|e| ScriptError::type_err(e))?, String::new()))
-        }
-        // save(x, y, path) or save(y, path, title) — detect by whether arg[1] is a vector
-        [a, b, c] => {
-            if let Ok(path) = b.to_str() {
-                // save(y, path, title)
-                let yv = to_real_vector(a)?;
-                let x_data: Vec<f64> = (0..yv.len()).map(|i| i as f64).collect();
-                let title = c.to_str().map_err(|e| ScriptError::type_err(e))?;
-                Ok((x_data, yv.to_vec(), path, title))
-            } else {
-                // save(x, y, path)
-                let xv = to_real_vector(a)?;
-                let yv = to_real_vector(b)?;
-                let path = c.to_str().map_err(|e| ScriptError::type_err(e))?;
-                Ok((xv.to_vec(), yv.to_vec(), path, String::new()))
-            }
-        }
-        // save(x, y, path, title)
-        [x, y, path, title] => {
-            let xv = to_real_vector(x)?;
-            let yv = to_real_vector(y)?;
-            Ok((xv.to_vec(), yv.to_vec(),
-                path.to_str().map_err(|e| ScriptError::type_err(e))?,
-                title.to_str().map_err(|e| ScriptError::type_err(e))?))
         }
         _ => Err(ScriptError::type_err(format!("{name}: wrong number of arguments"))),
     }
@@ -5511,6 +5313,15 @@ fn builtin_figure_live(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("figure_live", &args, 2)?;
     let rows = args[0].to_usize().map_err(|e| ScriptError::runtime(e))?;
     let cols = args[1].to_usize().map_err(|e| ScriptError::runtime(e))?;
+
+    // --plot none: refuse before either backend is consulted — the user
+    // explicitly opted out of interactive plotting, regardless of whether a
+    // viewer happens to be running on this host.
+    if rustlab_plot::plot_context() == rustlab_plot::PlotContext::Headless {
+        return Err(ScriptError::runtime(
+            rustlab_plot::PlotError::HeadlessDisabled.to_string(),
+        ));
+    }
 
     // When the viewer feature is enabled, try to connect to a running
     // rustlab-viewer first.  Fall back to ratatui if the viewer is not up.

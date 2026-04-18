@@ -1272,22 +1272,6 @@ savefig("heatmap.svg")
 savefig("report.html")    % interactive Plotly HTML with zoom/pan/hover
 ```
 
-### Shorthand `save*` functions (deprecated)
-
-These convenience wrappers still work but emit a deprecation warning. Use the interactive builtin followed by `savefig(path)` instead.
-
-| Function | Equivalent to |
-|----------|---------------|
-| `savefig(v, file [, title])` | `plot(v [, title]); savefig(file)` |
-| `savestem(v, file [, title])` | `stem(v [, title]); savefig(file)` |
-| `savedb(Hz, file [, title])` | `plotdb(Hz [, title]); savefig(file)` |
-| `savebar(y, file [, title])` | `bar(y [, title]); savefig(file)` |
-| `savescatter(x, y, file [, title])` | `scatter(x, y [, title]); savefig(file)` |
-| `savehist(v, file [, title])` | `histogram(v); savefig(file)` |
-| `saveimagesc(M, file [, title [, cmap]])` | `imagesc(M [, cmap]); savefig(file)` |
-
----
-
 ## Import / Export
 
 ### `save(filename, x)`

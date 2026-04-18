@@ -80,7 +80,7 @@ pub struct Series {
     pub kind:   PlotKind,
 }
 
-/// 2D heatmap data for a subplot (produced by `saveimagesc`).
+/// 2D heatmap data for a subplot (produced by `imagesc`).
 #[derive(Debug, Clone)]
 pub struct HeatmapData {
     /// Row-major matrix values (magnitudes). `z[row][col]`.
@@ -179,10 +179,16 @@ pub enum PlotContext {
     /// Notebook batch rendering. No TUI, no viewer. Figures are captured
     /// as FigureState by the notebook executor.
     Notebook,
+    /// Headless script run: suppress TUI rendering entirely. `savefig()` still
+    /// writes files, viewer output still works if explicitly connected.
+    Headless,
 }
 
 thread_local! {
     static PLOT_CONTEXT: Cell<PlotContext> = Cell::new(PlotContext::Terminal);
+    /// Snapshots captured by `savefig()` calls during a notebook code block.
+    /// Drained by the notebook executor at end-of-block.
+    static NOTEBOOK_FIGURES: RefCell<Vec<FigureState>> = RefCell::new(Vec::new());
 }
 
 /// Set the process-level plot context. Call once at startup.
@@ -193,6 +199,23 @@ pub fn set_plot_context(ctx: PlotContext) {
 /// Get the current plot context.
 pub fn plot_context() -> PlotContext {
     PLOT_CONTEXT.with(|c| c.get())
+}
+
+/// Push a snapshot of the current FIGURE state onto the notebook capture list.
+/// Called from `render_figure_file` when running under `PlotContext::Notebook`.
+pub fn push_notebook_figure_snapshot() {
+    let snap = FIGURE.with(|f| f.borrow().clone());
+    NOTEBOOK_FIGURES.with(|v| v.borrow_mut().push(snap));
+}
+
+/// Drain and return all notebook figure snapshots captured since the last call.
+pub fn take_notebook_figures() -> Vec<FigureState> {
+    NOTEBOOK_FIGURES.with(|v| std::mem::take(&mut *v.borrow_mut()))
+}
+
+/// Discard any pending notebook figure snapshots without returning them.
+pub fn clear_notebook_figures() {
+    NOTEBOOK_FIGURES.with(|v| v.borrow_mut().clear());
 }
 
 // ─── Multi-figure store (figure handles) ──────────────────────────────────

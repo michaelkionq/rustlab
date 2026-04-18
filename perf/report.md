@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Generated** | 2026-04-05 12:22:30 |
-| **Version** | 0.1.1 |
+| **Generated** | 2026-04-18 10:46:23 |
+| **Version** | 0.1.7 |
 | **Platform** | Darwin 25.3.0 arm64 |
 | **Binary** | `target/release/rustlab` |
 
@@ -13,13 +13,13 @@
 
 | Build | Size |
 |---|---|
-| Release (with debug symbols) | 2.7M |
-| After `strip` | 2.7M |
+| Release (with debug symbols) | 3.8M |
+| After `strip` | 3.8M |
 
 **Section sizes:**
 ```
 __TEXT	__DATA	__OBJC	others	dec	hex
-2637824	16384	0	4295147520	4297801728	1002b4000
+3719168	16384	0	4295278592	4299014144	1003dc000
 ```
 
 ---
@@ -30,7 +30,7 @@ __TEXT	__DATA	__OBJC	others	dec	hex
 
 | | |
 |---|---|
-| **Wall time** | 289 ms |
+| **Wall time** | 212 ms |
 | **Status** | PASS |
 
 ```
@@ -50,11 +50,11 @@ cos   n=100000
 tanh  n=100000
   out:  100000
 sum   n=100000
-  sum:  453.99943460684705
+  sum:  199.2218436837493
 mean  n=100000
-  mean:  0.00453999434606847+0j
+  mean:  0.0019922184368374933
 std   n=100000
-  std:  1.0017760257059867
+  std:  0.9987089558763885
 sort  n=100000
   out:  100000
 done
@@ -64,7 +64,7 @@ done
 
 | | |
 |---|---|
-| **Wall time** | 39 ms |
+| **Wall time** | 40 ms |
 | **Status** | PASS |
 
 ```
@@ -104,7 +104,7 @@ done
 
 | | |
 |---|---|
-| **Wall time** | 17 ms |
+| **Wall time** | 19 ms |
 | **Status** | PASS |
 
 ```
@@ -153,7 +153,7 @@ done
 
 | | |
 |---|---|
-| **Wall time** | 23 ms |
+| **Wall time** | 29 ms |
 | **Status** | PASS |
 
 ```
@@ -172,7 +172,7 @@ done
 
 | | |
 |---|---|
-| **Wall time** | 19 ms |
+| **Wall time** | 22 ms |
 | **Status** | PASS |
 
 ```
@@ -195,19 +195,20 @@ done
 
 | | |
 |---|---|
-| Direct dependencies (rustlab-cli) | 10 |
-| Total transitive dependency lines | 233 |
+| Direct dependencies (rustlab-cli) | 11 |
+| Total transitive dependency lines | 268 |
 
 ```
-rustlab-cli v0.1.1 (/Users/mike/projects/2026/rustlab/crates/rustlab-cli)
+rustlab-cli v0.1.7 (/Users/mike/projects/2026/rustlab/crates/rustlab-cli)
 ├── anyhow v1.0.102
 ├── clap v4.6.0
 ├── ndarray v0.16.1
 ├── num-complex v0.4.6
-├── rustlab-core v0.1.1 (/Users/mike/projects/2026/rustlab/crates/rustlab-core)
-├── rustlab-dsp v0.1.1 (/Users/mike/projects/2026/rustlab/crates/rustlab-dsp)
-├── rustlab-plot v0.1.1 (/Users/mike/projects/2026/rustlab/crates/rustlab-plot)
-├── rustlab-script v0.1.1 (/Users/mike/projects/2026/rustlab/crates/rustlab-script)
+├── rustlab-core v0.1.7 (/Users/mike/projects/2026/rustlab/crates/rustlab-core)
+├── rustlab-dsp v0.1.7 (/Users/mike/projects/2026/rustlab/crates/rustlab-dsp)
+├── rustlab-notebook v0.1.7 (/Users/mike/projects/2026/rustlab/crates/rustlab-notebook)
+├── rustlab-plot v0.1.7 (/Users/mike/projects/2026/rustlab/crates/rustlab-plot)
+├── rustlab-script v0.1.7 (/Users/mike/projects/2026/rustlab/crates/rustlab-script)
 └── rustyline v14.0.0
 [dev-dependencies]
 └── tempfile v3.27.0
@@ -237,7 +238,7 @@ Produce a section headed "## AI Analysis" and append it to this file.
 Work through these tasks in order:
 
 1. BINARY SIZE
-   - Current unstripped size: 2.7M  stripped: 2.7M
+   - Current unstripped size: 3.8M  stripped: 3.8M
    - Are OPT-1, OPT-2, OPT-3 still open?  Apply whichever are still pending
      and re-measure, or estimate the new size if you cannot rebuild.
    - Flag any new dependencies added since the last report that have not
@@ -256,7 +257,7 @@ Work through these tasks in order:
    profiling step (e.g. samply, flamegraph, criterion micro-benchmark).
 
 3. DEPENDENCY GROWTH
-   Total transitive dependency lines: 233
+   Total transitive dependency lines: 268
    If this is > 400 lines, identify the largest contributor among direct
    deps and suggest whether its feature flags can be trimmed further.
 

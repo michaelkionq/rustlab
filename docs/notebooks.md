@@ -167,18 +167,27 @@ rustlab-notebook render analysis.md -f pdf
 
 ## Frontmatter
 
-Optional YAML frontmatter is stripped before rendering (reserved for
-future use):
+Optional YAML frontmatter is parsed before rendering. Two keys are
+recognised; unknown keys are ignored silently so the block is safe to
+use for arbitrary metadata.
 
 ```markdown
 ---
 title: Filter Analysis
-author: Jane Doe
+order: 2
+author: Jane Doe      # ignored (unknown key)
 ---
 
 # Filter Analysis
 ...
 ```
+
+- `title:` — used as the HTML page title and as the entry label on the
+  directory index page. Overrides the `# H1` fallback.
+- `order:` (alias `weight:`) — signed integer that sorts entries on the
+  directory index page, ascending. Ties break by filename. Entries
+  without `order` sort after entries that have one.
+- Quoted values (single or double) are unwrapped.
 
 ## Project Layout
 
@@ -205,11 +214,28 @@ Render an entire directory of notebooks at once:
 rustlab notebook render notebooks/                # → *.html + index.html (dark)
 rustlab notebook render notebooks/ -t light       # → *.html + index.html (light)
 rustlab notebook render notebooks/ -f pdf         # → *.pdf
+rustlab notebook render notebooks/ --title "Lab"  # custom index page title
 ```
 
 This produces one output file per `.md` file plus an `index.html` linking
 to all notebooks (HTML format only). Each notebook gets its own independent
 evaluator — variables do not leak between notebooks.
+
+### Index page
+
+The auto-generated `index.html` can be customised three ways (first match
+wins):
+
+1. `--title <STRING>` — CLI override (directory mode only).
+2. `index.md` in the directory — its H1 (or frontmatter `title:`) becomes
+   the index page title, and its markdown body is rendered as an intro
+   above the list of notebooks. `index.md` itself is excluded from the
+   list. Code fences in `index.md` are **not executed** — keep executable
+   content in regular notebooks and link to them.
+3. Parent directory name — fallback when neither of the above is set.
+
+Entries are sorted by frontmatter `order:` ascending (see Frontmatter
+above), with filename as a tiebreaker.
 
 ### Cross-notebook links
 

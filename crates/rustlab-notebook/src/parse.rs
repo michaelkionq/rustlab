@@ -258,31 +258,105 @@ fn extract_code_directives(markdown_buf: &mut String) -> CodeDirectives {
     directives
 }
 
+/// Parsed YAML frontmatter.
+///
+/// Only the keys that the notebook renderer understands are surfaced; unknown
+/// keys are ignored silently so future additions don't break existing files.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Frontmatter {
+    /// Overrides the title used in rendered output and the index page.
+    pub title: Option<String>,
+    /// Sort weight for the index page (ascending). Ties fall back to filename.
+    pub order: Option<i64>,
+}
+
+/// Extract YAML frontmatter and the remaining body from a notebook source.
+///
+/// If no closed `---` block is present, the returned frontmatter is empty and
+/// the body is the original source unchanged.
+pub fn extract_frontmatter(src: &str) -> (Frontmatter, &str) {
+    let (fm_block, body) = match split_frontmatter(src) {
+        Some(pair) => pair,
+        None => return (Frontmatter::default(), src),
+    };
+    (parse_frontmatter(fm_block), body)
+}
+
 /// Strip optional YAML frontmatter delimited by `---` lines.
 fn strip_frontmatter(src: &str) -> &str {
+    split_frontmatter(src).map(|(_, body)| body).unwrap_or(src)
+}
+
+/// Locate a closed `---`-delimited frontmatter block at the start of `src`.
+/// Returns `(frontmatter_body, rest_of_source)` when found.
+fn split_frontmatter(src: &str) -> Option<(&str, &str)> {
     let trimmed = src.trim_start();
     if !trimmed.starts_with("---") {
-        return src;
+        return None;
     }
-    // Find the closing `---`
     let after_open = &trimmed[3..];
-    // Skip to end of first `---` line
-    let rest = match after_open.find('\n') {
-        Some(pos) => &after_open[pos + 1..],
-        None => return src, // just `---` with nothing after
-    };
-    // Find closing `---`
-    for (i, line) in rest.lines().enumerate() {
+    // The opening `---` line must terminate with a newline (anything after `---`
+    // on the same line is rejected so we don't misparse a horizontal rule).
+    let first_nl = after_open.find('\n')?;
+    if !after_open[..first_nl].trim().is_empty() {
+        return None;
+    }
+    let rest = &after_open[first_nl + 1..];
+    let mut consumed = 0;
+    for line in rest.lines() {
         if line.trim() == "---" {
-            // Return everything after the closing ---
-            let consumed: usize = rest.lines().take(i + 1)
-                .map(|l| l.len() + 1) // +1 for newline
-                .sum();
-            return &rest[consumed..];
+            let body_start = consumed + line.len();
+            // Skip the trailing newline after the closing `---`, if any.
+            let body = rest.get(body_start..).unwrap_or("");
+            let body = body.strip_prefix('\n').unwrap_or(body);
+            let fm = &rest[..consumed];
+            return Some((fm, body));
+        }
+        consumed += line.len() + 1; // +1 for the newline separator
+    }
+    None
+}
+
+/// Minimal hand-rolled YAML scanner that recognises `key: value` lines.
+/// Quoted strings (single or double) are unwrapped; everything else is taken
+/// verbatim. Unknown keys are ignored.
+fn parse_frontmatter(src: &str) -> Frontmatter {
+    let mut fm = Frontmatter::default();
+    for line in src.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let Some((key, raw_val)) = trimmed.split_once(':') else { continue };
+        let key = key.trim();
+        let val = unquote(raw_val.trim());
+        match key {
+            "title" => {
+                if !val.is_empty() {
+                    fm.title = Some(val);
+                }
+            }
+            "order" | "weight" => {
+                if let Ok(n) = val.parse::<i64>() {
+                    fm.order = Some(n);
+                }
+            }
+            _ => {}
         }
     }
-    // No closing --- found, don't strip anything
-    src
+    fm
+}
+
+fn unquote(s: &str) -> String {
+    if s.len() >= 2 {
+        let b = s.as_bytes();
+        let first = b[0];
+        let last = b[s.len() - 1];
+        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
+            return s[1..s.len() - 1].to_string();
+        }
+    }
+    s.to_string()
 }
 
 #[cfg(test)]
@@ -430,6 +504,95 @@ mod tests {
         if let Block::Markdown(md) = &blocks[0] {
             assert!(md.contains("---"), "should preserve content when frontmatter unclosed");
         }
+    }
+
+    // ── extract_frontmatter / parse_frontmatter ────────────────────────────
+
+    #[test]
+    fn extract_frontmatter_parses_title() {
+        let src = "---\ntitle: Hello\n---\n# Body\n";
+        let (fm, body) = extract_frontmatter(src);
+        assert_eq!(fm.title.as_deref(), Some("Hello"));
+        assert_eq!(fm.order, None);
+        assert_eq!(body, "# Body\n");
+    }
+
+    #[test]
+    fn extract_frontmatter_parses_order_and_title() {
+        let src = "---\ntitle: Third Chapter\norder: 3\n---\nbody\n";
+        let (fm, body) = extract_frontmatter(src);
+        assert_eq!(fm.title.as_deref(), Some("Third Chapter"));
+        assert_eq!(fm.order, Some(3));
+        assert_eq!(body, "body\n");
+    }
+
+    #[test]
+    fn extract_frontmatter_accepts_weight_alias() {
+        let src = "---\nweight: -5\n---\n";
+        let (fm, _) = extract_frontmatter(src);
+        assert_eq!(fm.order, Some(-5));
+    }
+
+    #[test]
+    fn extract_frontmatter_unquotes_double_quotes() {
+        let src = "---\ntitle: \"Quoted: with colon\"\n---\n";
+        let (fm, _) = extract_frontmatter(src);
+        assert_eq!(fm.title.as_deref(), Some("Quoted: with colon"));
+    }
+
+    #[test]
+    fn extract_frontmatter_unquotes_single_quotes() {
+        let src = "---\ntitle: 'Single Quoted'\n---\n";
+        let (fm, _) = extract_frontmatter(src);
+        assert_eq!(fm.title.as_deref(), Some("Single Quoted"));
+    }
+
+    #[test]
+    fn extract_frontmatter_ignores_unknown_keys() {
+        let src = "---\nauthor: Alice\ntitle: Known\nfavorite_color: blue\n---\n";
+        let (fm, _) = extract_frontmatter(src);
+        assert_eq!(fm.title.as_deref(), Some("Known"));
+        // No panic / silent drop of unknown keys.
+    }
+
+    #[test]
+    fn extract_frontmatter_no_block_returns_original_source() {
+        let src = "# Just a Heading\n\nNo frontmatter here.\n";
+        let (fm, body) = extract_frontmatter(src);
+        assert_eq!(fm, Frontmatter::default());
+        assert_eq!(body, src);
+    }
+
+    #[test]
+    fn extract_frontmatter_rejects_horizontal_rule() {
+        // A bare `---` followed by content on the same line is NOT frontmatter.
+        let src = "--- not frontmatter ---\ntext\n";
+        let (fm, body) = extract_frontmatter(src);
+        assert_eq!(fm, Frontmatter::default());
+        assert_eq!(body, src);
+    }
+
+    #[test]
+    fn extract_frontmatter_unclosed_is_not_stripped() {
+        let src = "---\ntitle: X\n(no closing)\n";
+        let (fm, body) = extract_frontmatter(src);
+        assert_eq!(fm, Frontmatter::default(), "unclosed block must not be parsed");
+        assert_eq!(body, src);
+    }
+
+    #[test]
+    fn extract_frontmatter_ignores_comments() {
+        let src = "---\n# comment line\ntitle: T\n# another\norder: 2\n---\n";
+        let (fm, _) = extract_frontmatter(src);
+        assert_eq!(fm.title.as_deref(), Some("T"));
+        assert_eq!(fm.order, Some(2));
+    }
+
+    #[test]
+    fn extract_frontmatter_non_integer_order_ignored() {
+        let src = "---\norder: abc\n---\n";
+        let (fm, _) = extract_frontmatter(src);
+        assert_eq!(fm.order, None);
     }
 
     #[test]

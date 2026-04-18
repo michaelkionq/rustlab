@@ -191,10 +191,6 @@ mod tests {
         QFmtSpec::new(16, 15, RoundMode::Round, OverflowMode::Saturate).unwrap()
     }
 
-    fn q15e() -> QFmtSpec {
-        QFmtSpec::new(16, 15, RoundMode::RoundEven, OverflowMode::Saturate).unwrap()
-    }
-
     fn close(a: f64, b: f64, eps: f64) -> bool { (a - b).abs() <= eps }
 
     // ── QFmtSpec validation ──────────────────────────────────────────────
