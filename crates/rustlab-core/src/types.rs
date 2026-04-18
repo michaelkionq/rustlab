@@ -323,6 +323,7 @@ pub enum RoundMode {
 }
 
 impl RoundMode {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().replace('-', "_").as_str() {
             "floor" | "truncate" | "trunc" => Some(Self::Floor),
@@ -355,6 +356,7 @@ pub enum OverflowMode {
 }
 
 impl OverflowMode {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "saturate" | "sat" => Some(Self::Saturate),

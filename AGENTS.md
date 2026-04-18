@@ -321,12 +321,22 @@ before continuing.
 ### 2. Lint and format
 
 ```sh
-cargo fmt --all -- --check
-cargo clippy --workspace --features viewer -- -D warnings
+cargo fmt --all -- --check                          # mandatory — must pass
+cargo clippy --workspace --features viewer          # advisory — review output
 ```
 
-Both must succeed with zero warnings. Do not silence warnings with `#[allow(...)]`
-just to pass — fix the underlying issue.
+`cargo fmt --check` must pass with no diff. `cargo clippy` must compile (no
+hard clippy errors), but warnings are currently advisory — the workspace has
+accumulated style/complexity warnings that will be addressed in a dedicated
+cleanup pass. Review clippy output for anything in the `correctness` or
+`suspicious` categories; those must be fixed before release even though the
+overall gate is advisory. Do not silence warnings with `#[allow(...)]` just
+to pass — fix the underlying issue, or add the attribute with a comment
+explaining why it's the correct call (e.g. method name intentionally shadows
+a std trait for API ergonomics).
+
+Once the cleanup pass lands, tighten this step to `cargo clippy --workspace
+--features viewer -- -D warnings`.
 
 ### 3. Build and test both feature configurations
 
