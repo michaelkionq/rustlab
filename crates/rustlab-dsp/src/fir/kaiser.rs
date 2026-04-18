@@ -1,11 +1,11 @@
-use ndarray::Array1;
-use num_complex::Complex;
-use rustlab_core::{C64, CVector, RVector};
+use super::design::{fir_bandpass, fir_highpass, fir_lowpass, FirFilter};
 use crate::convolution::next_power_of_two;
 use crate::error::DspError;
 use crate::fft::fft_raw;
 use crate::window::WindowFunction;
-use super::design::{fir_bandpass, fir_highpass, fir_lowpass, FirFilter};
+use ndarray::Array1;
+use num_complex::Complex;
+use rustlab_core::{CVector, RVector, C64};
 
 /// Compute the Kaiser window shape parameter β from the desired stopband
 /// attenuation (Harris 1978).
@@ -59,7 +59,12 @@ pub fn fir_lowpass_kaiser(
     validate_kaiser(trans_bw_hz, stopband_attn_db)?;
     let beta = kaiser_beta(stopband_attn_db);
     let num_taps = kaiser_num_taps(trans_bw_hz, stopband_attn_db, sample_rate);
-    fir_lowpass(num_taps, cutoff_hz, sample_rate, WindowFunction::Kaiser { beta })
+    fir_lowpass(
+        num_taps,
+        cutoff_hz,
+        sample_rate,
+        WindowFunction::Kaiser { beta },
+    )
 }
 
 /// Design a Kaiser-windowed FIR highpass filter.
@@ -72,7 +77,12 @@ pub fn fir_highpass_kaiser(
     validate_kaiser(trans_bw_hz, stopband_attn_db)?;
     let beta = kaiser_beta(stopband_attn_db);
     let num_taps = kaiser_num_taps(trans_bw_hz, stopband_attn_db, sample_rate);
-    fir_highpass(num_taps, cutoff_hz, sample_rate, WindowFunction::Kaiser { beta })
+    fir_highpass(
+        num_taps,
+        cutoff_hz,
+        sample_rate,
+        WindowFunction::Kaiser { beta },
+    )
 }
 
 /// Design a Kaiser-windowed FIR bandpass filter.
@@ -86,7 +96,13 @@ pub fn fir_bandpass_kaiser(
     validate_kaiser(trans_bw_hz, stopband_attn_db)?;
     let beta = kaiser_beta(stopband_attn_db);
     let num_taps = kaiser_num_taps(trans_bw_hz, stopband_attn_db, sample_rate);
-    fir_bandpass(num_taps, low_hz, high_hz, sample_rate, WindowFunction::Kaiser { beta })
+    fir_bandpass(
+        num_taps,
+        low_hz,
+        high_hz,
+        sample_rate,
+        WindowFunction::Kaiser { beta },
+    )
 }
 
 /// Design a FIR notch filter via spectral inversion of a bandpass.
@@ -108,7 +124,7 @@ pub fn fir_notch(
     num_taps: usize,
     window: WindowFunction,
 ) -> Result<FirFilter, DspError> {
-    let low_hz  = center_hz - bandwidth_hz / 2.0;
+    let low_hz = center_hz - bandwidth_hz / 2.0;
     let high_hz = center_hz + bandwidth_hz / 2.0;
     let bp = fir_bandpass(num_taps, low_hz, high_hz, sample_rate, window)?;
 
@@ -116,7 +132,9 @@ pub fn fir_notch(
     let mut h_notch = -bp.coefficients;
     h_notch[center_tap] = h_notch[center_tap] + Complex::new(1.0, 0.0);
 
-    Ok(FirFilter { coefficients: h_notch })
+    Ok(FirFilter {
+        coefficients: h_notch,
+    })
 }
 
 /// Compute the complex frequency response of a filter.
@@ -137,20 +155,23 @@ pub fn freqz(
     sample_rate: f64,
 ) -> Result<(RVector, CVector), DspError> {
     if n_points == 0 {
-        return Err(DspError::InvalidParameter("freqz: n_points must be > 0".to_string()));
+        return Err(DspError::InvalidParameter(
+            "freqz: n_points must be > 0".to_string(),
+        ));
     }
     // fft_size must be >= 2*n_points so that the first n_points DFT bins
     // cover [0, Nyquist) rather than [0, fs).
     let fft_size = next_power_of_two((2 * n_points).max(h.len()));
-    let padded: Vec<C64> = h.iter().copied()
+    let padded: Vec<C64> = h
+        .iter()
+        .copied()
         .chain(std::iter::repeat(Complex::new(0.0, 0.0)))
         .take(fft_size)
         .collect();
     let spectrum = fft_raw(&padded);
 
-    let freqs: RVector = Array1::from_iter(
-        (0..n_points).map(|k| k as f64 * sample_rate / fft_size as f64)
-    );
+    let freqs: RVector =
+        Array1::from_iter((0..n_points).map(|k| k as f64 * sample_rate / fft_size as f64));
     let h_out: CVector = Array1::from_iter(spectrum[..n_points].iter().copied());
 
     Ok((freqs, h_out))
@@ -158,14 +179,14 @@ pub fn freqz(
 
 fn validate_kaiser(trans_bw_hz: f64, stopband_attn_db: f64) -> Result<(), DspError> {
     if trans_bw_hz <= 0.0 {
-        return Err(DspError::InvalidKaiserSpec(
-            format!("trans_bw_hz must be > 0, got {trans_bw_hz}")
-        ));
+        return Err(DspError::InvalidKaiserSpec(format!(
+            "trans_bw_hz must be > 0, got {trans_bw_hz}"
+        )));
     }
     if stopband_attn_db <= 0.0 {
-        return Err(DspError::InvalidKaiserSpec(
-            format!("stopband_attn_db must be > 0, got {stopband_attn_db}")
-        ));
+        return Err(DspError::InvalidKaiserSpec(format!(
+            "stopband_attn_db must be > 0, got {stopband_attn_db}"
+        )));
     }
     Ok(())
 }

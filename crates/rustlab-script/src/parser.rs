@@ -8,7 +8,11 @@ pub fn parse(tokens: Vec<Spanned>) -> Result<Vec<Stmt>, ScriptError> {
 }
 
 /// Terminator tells `parse_block_body` what caused it to stop.
-enum BlockEnd { End, Else, ElseIf }
+enum BlockEnd {
+    End,
+    Else,
+    ElseIf,
+}
 
 struct Parser {
     tokens: Vec<Spanned>,
@@ -81,9 +85,13 @@ impl Parser {
                 Token::End => {
                     if inside_fn {
                         self.advance(); // consume 'end'
-                        // consume optional ';' and newline
-                        if self.peek_token() == &Token::Semicolon { self.advance(); }
-                        if self.peek_token() == &Token::Newline   { self.advance(); }
+                                        // consume optional ';' and newline
+                        if self.peek_token() == &Token::Semicolon {
+                            self.advance();
+                        }
+                        if self.peek_token() == &Token::Newline {
+                            self.advance();
+                        }
                         break;
                     } else {
                         return Err(ScriptError::Parse {
@@ -92,7 +100,9 @@ impl Parser {
                         });
                     }
                 }
-                Token::Newline => { self.advance(); }
+                Token::Newline => {
+                    self.advance();
+                }
                 Token::Function => {
                     stmts.push(self.parse_function_def()?);
                 }
@@ -162,25 +172,28 @@ impl Parser {
     /// Peek ahead to decide if we have `IDENT ( ... ) =` (not `==`) — indexed assignment.
     /// Uses paren-depth counting to find the matching `)`.
     fn is_index_assignment(&self) -> bool {
-        if !matches!(self.peek_token(), Token::Ident(_)) { return false; }
-        if !matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::LParen)) {
+        if !matches!(self.peek_token(), Token::Ident(_)) {
+            return false;
+        }
+        if !matches!(
+            self.tokens.get(self.pos + 1).map(|s| &s.token),
+            Some(Token::LParen)
+        ) {
             return false;
         }
         let mut depth = 0usize;
         let mut p = self.pos + 1;
         while p < self.tokens.len() {
             match &self.tokens[p].token {
-                Token::LParen  => depth += 1,
-                Token::RParen  => {
+                Token::LParen => depth += 1,
+                Token::RParen => {
                     depth -= 1;
                     if depth == 0 {
-                        return matches!(
-                            self.tokens.get(p + 1).map(|s| &s.token),
-                            Some(Token::Eq)
-                        ) && !matches!(
-                            self.tokens.get(p + 2).map(|s| &s.token),
-                            Some(Token::Eq)
-                        );
+                        return matches!(self.tokens.get(p + 1).map(|s| &s.token), Some(Token::Eq))
+                            && !matches!(
+                                self.tokens.get(p + 2).map(|s| &s.token),
+                                Some(Token::Eq)
+                            );
                     }
                 }
                 Token::Newline | Token::Eof => break,
@@ -205,7 +218,15 @@ impl Parser {
         self.advance(); // consume '='
         let expr = self.parse_range_expr()?;
         let suppress = self.consume_stmt_end()?;
-        Ok(Stmt::new(StmtKind::IndexAssign { name, indices, expr, suppress }, line))
+        Ok(Stmt::new(
+            StmtKind::IndexAssign {
+                name,
+                indices,
+                expr,
+                suppress,
+            },
+            line,
+        ))
     }
 
     fn parse_while_stmt(&mut self) -> Result<Stmt, ScriptError> {
@@ -221,11 +242,16 @@ impl Parser {
         let line = self.current_line();
         self.advance(); // consume 'for'
         let var = match self.peek_token().clone() {
-            Token::Ident(s) => { self.advance(); s }
-            other => return Err(ScriptError::Parse {
-                line: self.current_line(),
-                msg: format!("expected loop variable after 'for', got {:?}", other),
-            }),
+            Token::Ident(s) => {
+                self.advance();
+                s
+            }
+            other => {
+                return Err(ScriptError::Parse {
+                    line: self.current_line(),
+                    msg: format!("expected loop variable after 'for', got {:?}", other),
+                })
+            }
         };
         self.expect(&Token::Eq)?;
         let iter = self.parse_range_expr()?;
@@ -239,7 +265,10 @@ impl Parser {
         if self.pos + 1 < self.tokens.len() {
             // Plain assignment: `=` but not `==`
             let is_plain = matches!(self.tokens[self.pos + 1].token, Token::Eq)
-                && !matches!(self.tokens.get(self.pos + 2).map(|s| &s.token), Some(Token::Eq));
+                && !matches!(
+                    self.tokens.get(self.pos + 2).map(|s| &s.token),
+                    Some(Token::Eq)
+                );
             // Compound assignment: +=, -=, *=, /=
             let is_compound = matches!(
                 self.tokens[self.pos + 1].token,
@@ -254,11 +283,14 @@ impl Parser {
     /// Peek ahead to decide if we have `IDENT . IDENT = expr` (struct field assignment)
     fn is_field_assignment(&self) -> bool {
         self.pos + 3 < self.tokens.len()
-            && matches!(self.tokens[self.pos].token,     Token::Ident(_))
-            && self.tokens[self.pos + 1].token ==        Token::Dot
+            && matches!(self.tokens[self.pos].token, Token::Ident(_))
+            && self.tokens[self.pos + 1].token == Token::Dot
             && matches!(self.tokens[self.pos + 2].token, Token::Ident(_))
-            && self.tokens[self.pos + 3].token ==        Token::Eq
-            && !matches!(self.tokens.get(self.pos + 4).map(|s| &s.token), Some(Token::Eq))
+            && self.tokens[self.pos + 3].token == Token::Eq
+            && !matches!(
+                self.tokens.get(self.pos + 4).map(|s| &s.token),
+                Some(Token::Eq)
+            )
     }
 
     fn parse_field_assignment(&mut self) -> Result<Stmt, ScriptError> {
@@ -275,7 +307,15 @@ impl Parser {
         self.advance(); // consume '='
         let expr = self.parse_range_expr()?;
         let suppress = self.consume_stmt_end()?;
-        Ok(Stmt::new(StmtKind::FieldAssign { object, field, expr, suppress }, line))
+        Ok(Stmt::new(
+            StmtKind::FieldAssign {
+                object,
+                field,
+                expr,
+                suppress,
+            },
+            line,
+        ))
     }
 
     fn parse_function_def(&mut self) -> Result<Stmt, ScriptError> {
@@ -286,22 +326,33 @@ impl Parser {
         // Determine if signature is  `retvar = name(params)`  or  `name(params)`
         // Look ahead: IDENT EQ IDENT LPAREN  →  return-var form
         let (return_var, name) = if self.pos + 3 < self.tokens.len()
-            && matches!(self.tokens[self.pos].token,     Token::Ident(_))
-            && self.tokens[self.pos + 1].token ==        Token::Eq
+            && matches!(self.tokens[self.pos].token, Token::Ident(_))
+            && self.tokens[self.pos + 1].token == Token::Eq
             && matches!(self.tokens[self.pos + 2].token, Token::Ident(_))
-            && self.tokens[self.pos + 3].token ==        Token::LParen
+            && self.tokens[self.pos + 3].token == Token::LParen
         {
-            let ret = match self.advance() { Token::Ident(s) => s.clone(), _ => unreachable!() };
+            let ret = match self.advance() {
+                Token::Ident(s) => s.clone(),
+                _ => unreachable!(),
+            };
             self.advance(); // consume '='
-            let n   = match self.advance() { Token::Ident(s) => s.clone(), _ => unreachable!() };
+            let n = match self.advance() {
+                Token::Ident(s) => s.clone(),
+                _ => unreachable!(),
+            };
             (Some(ret), n)
         } else {
             let n = match self.peek_token().clone() {
-                Token::Ident(s) => { self.advance(); s }
-                other => return Err(ScriptError::Parse {
-                    line: self.current_line(),
-                    msg: format!("expected function name, got {:?}", other),
-                }),
+                Token::Ident(s) => {
+                    self.advance();
+                    s
+                }
+                other => {
+                    return Err(ScriptError::Parse {
+                        line: self.current_line(),
+                        msg: format!("expected function name, got {:?}", other),
+                    })
+                }
             };
             (None, n)
         };
@@ -319,7 +370,15 @@ impl Parser {
         // Body — parsed until `end`
         let body = self.parse_stmts_until_end(true)?;
 
-        Ok(Stmt::new(StmtKind::FunctionDef { name, params, return_var, body }, line))
+        Ok(Stmt::new(
+            StmtKind::FunctionDef {
+                name,
+                params,
+                return_var,
+                body,
+            },
+            line,
+        ))
     }
 
     fn parse_if_stmt(&mut self) -> Result<Stmt, ScriptError> {
@@ -349,7 +408,15 @@ impl Parser {
             vec![]
         };
 
-        Ok(Stmt::new(StmtKind::If { cond, then_body, elseif_arms, else_body }, line))
+        Ok(Stmt::new(
+            StmtKind::If {
+                cond,
+                then_body,
+                elseif_arms,
+                else_body,
+            },
+            line,
+        ))
     }
 
     /// Parse statements until `end`, `else`, or `elseif`.
@@ -366,14 +433,22 @@ impl Parser {
                 }
                 Token::End => {
                     self.advance();
-                    if self.peek_token() == &Token::Semicolon { self.advance(); }
-                    if self.peek_token() == &Token::Newline   { self.advance(); }
+                    if self.peek_token() == &Token::Semicolon {
+                        self.advance();
+                    }
+                    if self.peek_token() == &Token::Newline {
+                        self.advance();
+                    }
                     return Ok((body, BlockEnd::End));
                 }
                 Token::Else => {
                     self.advance();
-                    if self.peek_token() == &Token::Semicolon { self.advance(); }
-                    if self.peek_token() == &Token::Newline   { self.advance(); }
+                    if self.peek_token() == &Token::Semicolon {
+                        self.advance();
+                    }
+                    if self.peek_token() == &Token::Newline {
+                        self.advance();
+                    }
                     return Ok((body, BlockEnd::Else));
                 }
                 Token::ElseIf => {
@@ -390,24 +465,37 @@ impl Parser {
     /// Parse a single statement inside a block body (if/else/elseif/for/while/switch).
     fn parse_one_body_stmt(&mut self) -> Result<Stmt, ScriptError> {
         match self.peek_token() {
-            Token::Newline   => { self.advance(); self.parse_one_body_stmt() }
-            Token::Function  => self.parse_function_def(),
-            Token::Return    => { let line = self.current_line(); self.advance(); let _ = self.consume_stmt_end()?; Ok(Stmt::new(StmtKind::Return, line)) }
-            Token::If        => self.parse_if_stmt(),
-            Token::For       => self.parse_for_stmt(),
-            Token::While     => self.parse_while_stmt(),
-            Token::Switch    => self.parse_switch_stmt(),
-            Token::Run       => self.parse_run_stmt(),
-            Token::Format    => self.parse_format_stmt(),
-            Token::Hold      => self.parse_on_off_stmt("hold"),
-            Token::Grid      => self.parse_on_off_stmt("grid"),
-            Token::Viewer    => self.parse_on_off_stmt("viewer"),
+            Token::Newline => {
+                self.advance();
+                self.parse_one_body_stmt()
+            }
+            Token::Function => self.parse_function_def(),
+            Token::Return => {
+                let line = self.current_line();
+                self.advance();
+                let _ = self.consume_stmt_end()?;
+                Ok(Stmt::new(StmtKind::Return, line))
+            }
+            Token::If => self.parse_if_stmt(),
+            Token::For => self.parse_for_stmt(),
+            Token::While => self.parse_while_stmt(),
+            Token::Switch => self.parse_switch_stmt(),
+            Token::Run => self.parse_run_stmt(),
+            Token::Format => self.parse_format_stmt(),
+            Token::Hold => self.parse_on_off_stmt("hold"),
+            Token::Grid => self.parse_on_off_stmt("grid"),
+            Token::Viewer => self.parse_on_off_stmt("viewer"),
             Token::LBracket if self.is_multi_assign() => self.parse_multi_assign(),
-            Token::Ident(_)  => {
-                if self.is_field_assignment()       { self.parse_field_assignment() }
-                else if self.is_index_assignment()  { self.parse_index_assign() }
-                else if self.is_assignment()        { self.parse_assignment() }
-                else                                { self.parse_expr_stmt() }
+            Token::Ident(_) => {
+                if self.is_field_assignment() {
+                    self.parse_field_assignment()
+                } else if self.is_index_assignment() {
+                    self.parse_index_assign()
+                } else if self.is_assignment() {
+                    self.parse_assignment()
+                } else {
+                    self.parse_expr_stmt()
+                }
             }
             _ => self.parse_expr_stmt(),
         }
@@ -423,7 +511,9 @@ impl Parser {
         let mut otherwise: Vec<Stmt> = Vec::new();
 
         // Skip leading newlines
-        while self.peek_token() == &Token::Newline { self.advance(); }
+        while self.peek_token() == &Token::Newline {
+            self.advance();
+        }
 
         loop {
             match self.peek_token() {
@@ -435,27 +525,41 @@ impl Parser {
                     loop {
                         match self.peek_token() {
                             Token::Case | Token::Otherwise | Token::End | Token::Eof => break,
-                            Token::Newline => { self.advance(); }
-                            _ => { body.push(self.parse_one_body_stmt()?); }
+                            Token::Newline => {
+                                self.advance();
+                            }
+                            _ => {
+                                body.push(self.parse_one_body_stmt()?);
+                            }
                         }
                     }
                     cases.push((case_val, body));
                 }
                 Token::Otherwise => {
                     self.advance(); // consume 'otherwise'
-                    if self.peek_token() == &Token::Newline { self.advance(); }
+                    if self.peek_token() == &Token::Newline {
+                        self.advance();
+                    }
                     loop {
                         match self.peek_token() {
                             Token::End | Token::Eof => break,
-                            Token::Newline => { self.advance(); }
-                            _ => { otherwise.push(self.parse_one_body_stmt()?); }
+                            Token::Newline => {
+                                self.advance();
+                            }
+                            _ => {
+                                otherwise.push(self.parse_one_body_stmt()?);
+                            }
                         }
                     }
                 }
                 Token::End => {
                     self.advance();
-                    if self.peek_token() == &Token::Semicolon { self.advance(); }
-                    if self.peek_token() == &Token::Newline   { self.advance(); }
+                    if self.peek_token() == &Token::Semicolon {
+                        self.advance();
+                    }
+                    if self.peek_token() == &Token::Newline {
+                        self.advance();
+                    }
                     break;
                 }
                 Token::Eof => {
@@ -464,23 +568,35 @@ impl Parser {
                         msg: "unexpected end of input: missing 'end' for 'switch'".to_string(),
                     });
                 }
-                Token::Newline => { self.advance(); }
+                Token::Newline => {
+                    self.advance();
+                }
                 other => {
                     return Err(ScriptError::Parse {
                         line: self.current_line(),
-                        msg: format!("expected 'case', 'otherwise', or 'end' in switch, got {:?}", other),
+                        msg: format!(
+                            "expected 'case', 'otherwise', or 'end' in switch, got {:?}",
+                            other
+                        ),
                     });
                 }
             }
         }
 
-        Ok(Stmt::new(StmtKind::Switch { expr, cases, otherwise }, line))
+        Ok(Stmt::new(
+            StmtKind::Switch {
+                expr,
+                cases,
+                otherwise,
+            },
+            line,
+        ))
     }
 
     fn parse_run_stmt(&mut self) -> Result<Stmt, ScriptError> {
         let line = self.current_line();
         self.advance(); // consume 'run'
-        // Collect the rest of the line as a file path (unquoted)
+                        // Collect the rest of the line as a file path (unquoted)
         let mut path_chars = Vec::new();
         loop {
             match self.peek_token() {
@@ -490,11 +606,11 @@ impl Parser {
                     let tok = self.advance().clone();
                     match &tok {
                         Token::Ident(s) => path_chars.push(s.clone()),
-                        Token::Dot      => path_chars.push(".".to_string()),
-                        Token::Slash    => path_chars.push("/".to_string()),
-                        Token::Minus    => path_chars.push("-".to_string()),
+                        Token::Dot => path_chars.push(".".to_string()),
+                        Token::Slash => path_chars.push("/".to_string()),
+                        Token::Minus => path_chars.push("-".to_string()),
                         Token::Number(n) => path_chars.push(format!("{}", n)),
-                        Token::Str(s)   => path_chars.push(s.clone()),
+                        Token::Str(s) => path_chars.push(s.clone()),
                         other => path_chars.push(format!("{:?}", other)),
                     }
                 }
@@ -520,12 +636,14 @@ impl Parser {
         // Bare form: `hold on` / `grid off` / `viewer on <name>`
         if let Token::Ident(s) = self.peek_token() {
             let val = match s.as_str() {
-                "on"  => true,
+                "on" => true,
                 "off" => false,
-                other => return Err(ScriptError::Parse {
-                    line: self.current_line(),
-                    msg: format!("{}: expected 'on' or 'off', got '{}'", cmd, other),
-                }),
+                other => {
+                    return Err(ScriptError::Parse {
+                        line: self.current_line(),
+                        msg: format!("{}: expected 'on' or 'off', got '{}'", cmd, other),
+                    })
+                }
             };
             self.advance();
             // For `viewer on`, optionally read a session name
@@ -542,9 +660,15 @@ impl Parser {
             };
             let _ = self.consume_stmt_end()?;
             return match cmd {
-                "hold"   => Ok(Stmt::new(StmtKind::Hold { on: val }, line)),
-                "grid"   => Ok(Stmt::new(StmtKind::Grid { on: val }, line)),
-                "viewer" => Ok(Stmt::new(StmtKind::Viewer { on: val, name: viewer_name }, line)),
+                "hold" => Ok(Stmt::new(StmtKind::Hold { on: val }, line)),
+                "grid" => Ok(Stmt::new(StmtKind::Grid { on: val }, line)),
+                "viewer" => Ok(Stmt::new(
+                    StmtKind::Viewer {
+                        on: val,
+                        name: viewer_name,
+                    },
+                    line,
+                )),
                 _ => unreachable!(),
             };
         }
@@ -565,7 +689,11 @@ impl Parser {
 
         Err(ScriptError::Parse {
             line: self.current_line(),
-            msg: format!("{}: expected 'on', 'off', or '(' — got {:?}", cmd, self.peek_token()),
+            msg: format!(
+                "{}: expected 'on', 'off', or '(' — got {:?}",
+                cmd,
+                self.peek_token()
+            ),
         })
     }
 
@@ -585,7 +713,10 @@ impl Parser {
             other => {
                 return Err(ScriptError::Parse {
                     line: self.current_line(),
-                    msg: format!("format: expected mode name (commas, default), got {:?}", other),
+                    msg: format!(
+                        "format: expected mode name (commas, default), got {:?}",
+                        other
+                    ),
                 });
             }
         };
@@ -595,20 +726,29 @@ impl Parser {
 
     /// `[IDENT, IDENT, ...] =` (not `==`) at statement level
     fn is_multi_assign(&self) -> bool {
-        if !matches!(self.peek_token(), Token::LBracket) { return false; }
+        if !matches!(self.peek_token(), Token::LBracket) {
+            return false;
+        }
         let mut p = self.pos + 1;
         // Expect at least one IDENT
-        if !matches!(self.tokens.get(p).map(|s| &s.token), Some(Token::Ident(_))) { return false; }
+        if !matches!(self.tokens.get(p).map(|s| &s.token), Some(Token::Ident(_))) {
+            return false;
+        }
         p += 1;
         // Optional , IDENT pairs
         loop {
             match self.tokens.get(p).map(|s| &s.token) {
                 Some(Token::Comma) => {
                     p += 1;
-                    if !matches!(self.tokens.get(p).map(|s| &s.token), Some(Token::Ident(_))) { return false; }
+                    if !matches!(self.tokens.get(p).map(|s| &s.token), Some(Token::Ident(_))) {
+                        return false;
+                    }
                     p += 1;
                 }
-                Some(Token::RBracket) => { p += 1; break; }
+                Some(Token::RBracket) => {
+                    p += 1;
+                    break;
+                }
                 _ => return false,
             }
         }
@@ -621,43 +761,68 @@ impl Parser {
         self.advance(); // consume '['
         let mut names = Vec::new();
         names.push(match self.peek_token().clone() {
-            Token::Ident(s) => { self.advance(); s }
+            Token::Ident(s) => {
+                self.advance();
+                s
+            }
             _ => unreachable!(),
         });
         while self.peek_token() == &Token::Comma {
             self.advance();
             names.push(match self.peek_token().clone() {
-                Token::Ident(s) => { self.advance(); s }
-                other => return Err(ScriptError::Parse {
-                    line: self.current_line(),
-                    msg: format!("expected name in multi-assign list, got {:?}", other),
-                }),
+                Token::Ident(s) => {
+                    self.advance();
+                    s
+                }
+                other => {
+                    return Err(ScriptError::Parse {
+                        line: self.current_line(),
+                        msg: format!("expected name in multi-assign list, got {:?}", other),
+                    })
+                }
             });
         }
         self.expect(&Token::RBracket)?;
         self.advance(); // consume '='
         let expr = self.parse_range_expr()?;
         let suppress = self.consume_stmt_end()?;
-        Ok(Stmt::new(StmtKind::MultiAssign { names, expr, suppress }, line))
+        Ok(Stmt::new(
+            StmtKind::MultiAssign {
+                names,
+                expr,
+                suppress,
+            },
+            line,
+        ))
     }
 
     fn parse_param_list(&mut self) -> Result<Vec<String>, ScriptError> {
         let mut params = Vec::new();
         params.push(match self.peek_token().clone() {
-            Token::Ident(s) => { self.advance(); s }
-            other => return Err(ScriptError::Parse {
-                line: self.current_line(),
-                msg: format!("expected parameter name, got {:?}", other),
-            }),
+            Token::Ident(s) => {
+                self.advance();
+                s
+            }
+            other => {
+                return Err(ScriptError::Parse {
+                    line: self.current_line(),
+                    msg: format!("expected parameter name, got {:?}", other),
+                })
+            }
         });
         while self.peek_token() == &Token::Comma {
             self.advance();
             params.push(match self.peek_token().clone() {
-                Token::Ident(s) => { self.advance(); s }
-                other => return Err(ScriptError::Parse {
-                    line: self.current_line(),
-                    msg: format!("expected parameter name, got {:?}", other),
-                }),
+                Token::Ident(s) => {
+                    self.advance();
+                    s
+                }
+                other => {
+                    return Err(ScriptError::Parse {
+                        line: self.current_line(),
+                        msg: format!("expected parameter name, got {:?}", other),
+                    })
+                }
             });
         }
         Ok(params)
@@ -671,11 +836,26 @@ impl Parser {
         };
         // Check for compound assignment (+=, -=, *=, /=) or plain =
         let compound_op = match self.peek_token() {
-            Token::PlusEq  => { self.advance(); Some(BinOp::Add) }
-            Token::MinusEq => { self.advance(); Some(BinOp::Sub) }
-            Token::StarEq  => { self.advance(); Some(BinOp::Mul) }
-            Token::SlashEq => { self.advance(); Some(BinOp::Div) }
-            _ => { self.advance(); None } // plain '='
+            Token::PlusEq => {
+                self.advance();
+                Some(BinOp::Add)
+            }
+            Token::MinusEq => {
+                self.advance();
+                Some(BinOp::Sub)
+            }
+            Token::StarEq => {
+                self.advance();
+                Some(BinOp::Mul)
+            }
+            Token::SlashEq => {
+                self.advance();
+                Some(BinOp::Div)
+            }
+            _ => {
+                self.advance();
+                None
+            } // plain '='
         };
         let rhs = self.parse_range_expr()?;
         let expr = match compound_op {
@@ -687,7 +867,14 @@ impl Parser {
             None => rhs,
         };
         let suppress = self.consume_stmt_end()?;
-        Ok(Stmt::new(StmtKind::Assign { name, expr, suppress }, line))
+        Ok(Stmt::new(
+            StmtKind::Assign {
+                name,
+                expr,
+                suppress,
+            },
+            line,
+        ))
     }
 
     fn parse_expr_stmt(&mut self) -> Result<Stmt, ScriptError> {
@@ -710,15 +897,15 @@ impl Parser {
                 // start:step:stop
                 Ok(Expr::Range {
                     start: Box::new(first),
-                    step:  Some(Box::new(second)),
-                    stop:  Box::new(third),
+                    step: Some(Box::new(second)),
+                    stop: Box::new(third),
                 })
             } else {
                 // start:stop  (step defaults to 1)
                 Ok(Expr::Range {
                     start: Box::new(first),
-                    step:  None,
-                    stop:  Box::new(second),
+                    step: None,
+                    stop: Box::new(second),
                 })
             }
         } else {
@@ -736,12 +923,20 @@ impl Parser {
             false
         };
         match self.peek_token() {
-            Token::Newline => { self.advance(); Ok(suppress) }
-            Token::Eof     => Ok(suppress),
+            Token::Newline => {
+                self.advance();
+                Ok(suppress)
+            }
+            Token::Eof => Ok(suppress),
             // Comma acts as a statement separator (e.g. single-line if: `if cond, body; end`)
-            Token::Comma   => { self.advance(); Ok(suppress) }
+            Token::Comma => {
+                self.advance();
+                Ok(suppress)
+            }
             // Allow implicit end when the next token is a keyword that terminates a block
-            Token::End | Token::Else | Token::ElseIf | Token::Case | Token::Otherwise => Ok(suppress),
+            Token::End | Token::Else | Token::ElseIf | Token::Case | Token::Otherwise => {
+                Ok(suppress)
+            }
             // Semicolon already consumed → next token starts a new statement on same line
             _ if suppress => Ok(suppress),
             other => Err(ScriptError::Parse {
@@ -757,7 +952,11 @@ impl Parser {
         while self.peek_token() == &Token::PipePipe {
             self.advance();
             let rhs = self.parse_logical_and()?;
-            lhs = Expr::BinOp { op: BinOp::Or, lhs: Box::new(lhs), rhs: Box::new(rhs) };
+            lhs = Expr::BinOp {
+                op: BinOp::Or,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            };
         }
         Ok(lhs)
     }
@@ -768,7 +967,11 @@ impl Parser {
         while self.peek_token() == &Token::AmpAmp {
             self.advance();
             let rhs = self.parse_comparison()?;
-            lhs = Expr::BinOp { op: BinOp::And, lhs: Box::new(lhs), rhs: Box::new(rhs) };
+            lhs = Expr::BinOp {
+                op: BinOp::And,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            };
         }
         Ok(lhs)
     }
@@ -777,17 +980,21 @@ impl Parser {
     fn parse_comparison(&mut self) -> Result<Expr, ScriptError> {
         let lhs = self.parse_expr()?;
         let op = match self.peek_token() {
-            Token::EqEq  => BinOp::Eq,
+            Token::EqEq => BinOp::Eq,
             Token::BangEq => BinOp::Ne,
-            Token::Lt    => BinOp::Lt,
-            Token::LtEq  => BinOp::Le,
-            Token::Gt    => BinOp::Gt,
-            Token::GtEq  => BinOp::Ge,
+            Token::Lt => BinOp::Lt,
+            Token::LtEq => BinOp::Le,
+            Token::Gt => BinOp::Gt,
+            Token::GtEq => BinOp::Ge,
             _ => return Ok(lhs),
         };
         self.advance();
         let rhs = self.parse_expr()?;
-        Ok(Expr::BinOp { op, lhs: Box::new(lhs), rhs: Box::new(rhs) })
+        Ok(Expr::BinOp {
+            op,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        })
     }
 
     // expr = term (('+' | '-') term)*
@@ -798,12 +1005,20 @@ impl Parser {
                 Token::Plus => {
                     self.advance();
                     let rhs = self.parse_term()?;
-                    lhs = Expr::BinOp { op: BinOp::Add, lhs: Box::new(lhs), rhs: Box::new(rhs) };
+                    lhs = Expr::BinOp {
+                        op: BinOp::Add,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    };
                 }
                 Token::Minus => {
                     self.advance();
                     let rhs = self.parse_term()?;
-                    lhs = Expr::BinOp { op: BinOp::Sub, lhs: Box::new(lhs), rhs: Box::new(rhs) };
+                    lhs = Expr::BinOp {
+                        op: BinOp::Sub,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    };
                 }
                 _ => break,
             }
@@ -816,10 +1031,42 @@ impl Parser {
         let mut lhs = self.parse_unary()?;
         loop {
             match self.peek_token() {
-                Token::Star     => { self.advance(); let r = self.parse_unary()?; lhs = Expr::BinOp { op: BinOp::Mul,     lhs: Box::new(lhs), rhs: Box::new(r) }; }
-                Token::Slash    => { self.advance(); let r = self.parse_unary()?; lhs = Expr::BinOp { op: BinOp::Div,     lhs: Box::new(lhs), rhs: Box::new(r) }; }
-                Token::DotStar  => { self.advance(); let r = self.parse_unary()?; lhs = Expr::BinOp { op: BinOp::ElemMul, lhs: Box::new(lhs), rhs: Box::new(r) }; }
-                Token::DotSlash => { self.advance(); let r = self.parse_unary()?; lhs = Expr::BinOp { op: BinOp::ElemDiv, lhs: Box::new(lhs), rhs: Box::new(r) }; }
+                Token::Star => {
+                    self.advance();
+                    let r = self.parse_unary()?;
+                    lhs = Expr::BinOp {
+                        op: BinOp::Mul,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(r),
+                    };
+                }
+                Token::Slash => {
+                    self.advance();
+                    let r = self.parse_unary()?;
+                    lhs = Expr::BinOp {
+                        op: BinOp::Div,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(r),
+                    };
+                }
+                Token::DotStar => {
+                    self.advance();
+                    let r = self.parse_unary()?;
+                    lhs = Expr::BinOp {
+                        op: BinOp::ElemMul,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(r),
+                    };
+                }
+                Token::DotSlash => {
+                    self.advance();
+                    let r = self.parse_unary()?;
+                    lhs = Expr::BinOp {
+                        op: BinOp::ElemDiv,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(r),
+                    };
+                }
                 _ => break,
             }
         }
@@ -854,12 +1101,20 @@ impl Parser {
             Token::Caret => {
                 self.advance();
                 let exp = self.parse_unary()?;
-                Ok(Expr::BinOp { op: BinOp::Pow, lhs: Box::new(base), rhs: Box::new(exp) })
+                Ok(Expr::BinOp {
+                    op: BinOp::Pow,
+                    lhs: Box::new(base),
+                    rhs: Box::new(exp),
+                })
             }
             Token::DotCaret => {
                 self.advance();
                 let exp = self.parse_unary()?;
-                Ok(Expr::BinOp { op: BinOp::ElemPow, lhs: Box::new(base), rhs: Box::new(exp) })
+                Ok(Expr::BinOp {
+                    op: BinOp::ElemPow,
+                    lhs: Box::new(base),
+                    rhs: Box::new(exp),
+                })
             }
             _ => Ok(base),
         }
@@ -889,16 +1144,24 @@ impl Parser {
                     };
                     self.skip_newlines();
                     self.expect(&Token::RParen)?;
-                    expr = Expr::Index { expr: Box::new(expr), args };
+                    expr = Expr::Index {
+                        expr: Box::new(expr),
+                        args,
+                    };
                 }
                 Token::Dot => {
                     self.advance(); // consume '.'
                     let field = match self.peek_token().clone() {
-                        Token::Ident(name) => { self.advance(); name }
-                        other => return Err(ScriptError::Parse {
-                            line: self.current_line(),
-                            msg: format!("expected field name after '.', got {:?}", other),
-                        }),
+                        Token::Ident(name) => {
+                            self.advance();
+                            name
+                        }
+                        other => {
+                            return Err(ScriptError::Parse {
+                                line: self.current_line(),
+                                msg: format!("expected field name after '.', got {:?}", other),
+                            })
+                        }
                     };
                     if self.peek_token() == &Token::LParen {
                         // Method-call sugar: obj.method(args) → method(obj, args)
@@ -912,7 +1175,10 @@ impl Parser {
                         self.expect(&Token::RParen)?;
                         expr = Expr::Call { name: field, args };
                     } else {
-                        expr = Expr::Field { object: Box::new(expr), field };
+                        expr = Expr::Field {
+                            object: Box::new(expr),
+                            field,
+                        };
                     }
                 }
                 _ => break,
@@ -988,7 +1254,9 @@ impl Parser {
                         if self.peek_token() == &Token::Comma {
                             self.advance();
                             self.skip_newlines();
-                            if self.peek_token() == &Token::RBrace { break; }
+                            if self.peek_token() == &Token::RBrace {
+                                break;
+                            }
                             elems.push(self.parse_range_expr()?);
                         } else {
                             break;
@@ -1019,14 +1287,23 @@ impl Parser {
                     };
                     self.expect(&Token::RParen)?;
                     let body = self.parse_range_expr()?;
-                    Ok(Expr::Lambda { params, body: Box::new(body) })
+                    Ok(Expr::Lambda {
+                        params,
+                        body: Box::new(body),
+                    })
                 } else {
                     // @name
                     match self.peek_token().clone() {
-                        Token::Ident(name) => { self.advance(); Ok(Expr::FuncHandle(name)) }
+                        Token::Ident(name) => {
+                            self.advance();
+                            Ok(Expr::FuncHandle(name))
+                        }
                         other => Err(ScriptError::Parse {
                             line: self.current_line(),
-                            msg: format!("expected function name or '(' after '@', got {:?}", other),
+                            msg: format!(
+                                "expected function name or '(' after '@', got {:?}",
+                                other
+                            ),
                         }),
                     }
                 }
@@ -1064,7 +1341,14 @@ impl Parser {
     fn parse_index_arg(&mut self) -> Result<Expr, ScriptError> {
         if self.peek_token() == &Token::Colon {
             let next = self.tokens.get(self.pos + 1).map(|s| &s.token);
-            if matches!(next, Some(Token::Comma) | Some(Token::RParen) | Some(Token::Newline) | Some(Token::Eof) | None) {
+            if matches!(
+                next,
+                Some(Token::Comma)
+                    | Some(Token::RParen)
+                    | Some(Token::Newline)
+                    | Some(Token::Eof)
+                    | None
+            ) {
                 self.advance(); // consume ':'
                 return Ok(Expr::All);
             }

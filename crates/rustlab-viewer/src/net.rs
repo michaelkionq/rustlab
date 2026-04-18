@@ -1,6 +1,6 @@
 //! Socket listener for incoming rustlab connections.
 
-use rustlab_proto::{ViewerMsg, ViewerReply, default_socket_path, read_msg, write_msg};
+use rustlab_proto::{default_socket_path, read_msg, write_msg, ViewerMsg, ViewerReply};
 use std::io::BufWriter;
 use std::sync::mpsc;
 
@@ -32,7 +32,10 @@ fn run_listener(tx: mpsc::Sender<ViewerMsg>) -> std::io::Result<()> {
                 // Try a ping to see if it's alive
                 if write_msg(&mut stream, &ViewerMsg::Ping).is_ok() {
                     if let Ok(Some(ViewerReply::Pong)) = read_msg::<_, ViewerReply>(&mut stream) {
-                        eprintln!("rustlab-viewer: another viewer is already running on {}", path.display());
+                        eprintln!(
+                            "rustlab-viewer: another viewer is already running on {}",
+                            path.display()
+                        );
                         eprintln!("  use --name <NAME> to start a separate session");
                         std::process::exit(1);
                     }

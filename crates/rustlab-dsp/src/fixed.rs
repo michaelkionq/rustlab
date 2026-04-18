@@ -11,8 +11,8 @@
 //!    output [`QFmtSpec`] and quantizes its result accordingly.
 //! 4. Measure degradation with [`snr_db`].
 
-use rustlab_core::{RoundMode, OverflowMode};
 use crate::error::DspError;
+use rustlab_core::{OverflowMode, RoundMode};
 
 // ─── QFmtSpec ─────────────────────────────────────────────────────────────
 
@@ -22,33 +22,47 @@ use crate::error::DspError;
 /// The representable range is `[−2^(word−1−frac), 2^(word−1−frac) − 2^(−frac)]`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct QFmtSpec {
-    pub word:     u8,
-    pub frac:     u8,
-    pub round:    RoundMode,
+    pub word: u8,
+    pub frac: u8,
+    pub round: RoundMode,
     pub overflow: OverflowMode,
 }
 
 impl QFmtSpec {
     /// Create and validate a Q-format spec.
-    pub fn new(word: u8, frac: u8, round: RoundMode, overflow: OverflowMode)
-        -> Result<Self, DspError>
-    {
+    pub fn new(
+        word: u8,
+        frac: u8,
+        round: RoundMode,
+        overflow: OverflowMode,
+    ) -> Result<Self, DspError> {
         if word < 2 {
-            return Err(DspError::InvalidQFmt(
-                format!("word_bits must be >= 2, got {word}")
-            ));
+            return Err(DspError::InvalidQFmt(format!(
+                "word_bits must be >= 2, got {word}"
+            )));
         }
         if frac >= word {
-            return Err(DspError::InvalidQFmt(
-                format!("frac_bits ({frac}) must be < word_bits ({word})")
-            ));
+            return Err(DspError::InvalidQFmt(format!(
+                "frac_bits ({frac}) must be < word_bits ({word})"
+            )));
         }
-        Ok(Self { word, frac, round, overflow })
+        Ok(Self {
+            word,
+            frac,
+            round,
+            overflow,
+        })
     }
 
-    fn min_int(&self) -> i64 { -(1i64 << (self.word - 1)) }
-    fn max_int(&self) -> i64 {  (1i64 << (self.word - 1)) - 1 }
-    fn scale(&self) -> f64   {  (1i64 << self.frac) as f64 }
+    fn min_int(&self) -> i64 {
+        -(1i64 << (self.word - 1))
+    }
+    fn max_int(&self) -> i64 {
+        (1i64 << (self.word - 1)) - 1
+    }
+    fn scale(&self) -> f64 {
+        (1i64 << self.frac) as f64
+    }
 }
 
 // ─── Internal helpers ──────────────────────────────────────────────────────
@@ -56,21 +70,25 @@ impl QFmtSpec {
 /// Apply rounding to a scaled float, producing an integer.
 fn apply_round(scaled: f64, mode: &RoundMode) -> i64 {
     match mode {
-        RoundMode::Floor     => scaled.floor() as i64,
-        RoundMode::Ceil      => scaled.ceil()  as i64,
-        RoundMode::Zero      => scaled.trunc() as i64,
-        RoundMode::Round     => scaled.round() as i64,  // half away from zero
+        RoundMode::Floor => scaled.floor() as i64,
+        RoundMode::Ceil => scaled.ceil() as i64,
+        RoundMode::Zero => scaled.trunc() as i64,
+        RoundMode::Round => scaled.round() as i64, // half away from zero
         RoundMode::RoundEven => {
-            let f    = scaled.floor();
+            let f = scaled.floor();
             let frac = scaled - f;
-            let fi   = f as i64;
+            let fi = f as i64;
             if frac < 0.5 {
                 fi
             } else if frac > 0.5 {
                 fi + 1
             } else {
                 // Exactly 0.5 — pick the even neighbour.
-                if fi % 2 == 0 { fi } else { fi + 1 }
+                if fi % 2 == 0 {
+                    fi
+                } else {
+                    fi + 1
+                }
             }
         }
     }
@@ -83,7 +101,7 @@ fn apply_overflow(val: i64, spec: &QFmtSpec) -> i64 {
     match spec.overflow {
         OverflowMode::Saturate => val.clamp(min, max),
         OverflowMode::Wrap => {
-            let range   = 1i64 << spec.word;
+            let range = 1i64 << spec.word;
             let shifted = val - min;
             ((shifted % range + range) % range) + min
         }
@@ -92,7 +110,7 @@ fn apply_overflow(val: i64, spec: &QFmtSpec) -> i64 {
 
 /// Core scalar quantise: float → integer grid → float.
 fn quantize_f64(x: f64, spec: &QFmtSpec) -> f64 {
-    let scaled  = x * spec.scale();
+    let scaled = x * spec.scale();
     let int_val = apply_round(scaled, &spec.round);
     let bounded = apply_overflow(int_val, spec);
     bounded as f64 / spec.scale()
@@ -113,11 +131,14 @@ pub fn quantize_vec(v: &[f64], spec: &QFmtSpec) -> Vec<f64> {
 /// Element-wise add two real slices, quantizing the output to `spec`.
 pub fn qadd(a: &[f64], b: &[f64], spec: &QFmtSpec) -> Result<Vec<f64>, DspError> {
     if a.len() != b.len() {
-        return Err(DspError::InvalidQFmt(
-            format!("qadd: length mismatch {} vs {}", a.len(), b.len())
-        ));
+        return Err(DspError::InvalidQFmt(format!(
+            "qadd: length mismatch {} vs {}",
+            a.len(),
+            b.len()
+        )));
     }
-    Ok(a.iter().zip(b.iter())
+    Ok(a.iter()
+        .zip(b.iter())
         .map(|(&x, &y)| quantize_f64(x + y, spec))
         .collect())
 }
@@ -128,11 +149,14 @@ pub fn qadd(a: &[f64], b: &[f64], spec: &QFmtSpec) -> Result<Vec<f64>, DspError>
 /// (equivalent to the exact integer product) before rounding to `spec`.
 pub fn qmul(a: &[f64], b: &[f64], spec: &QFmtSpec) -> Result<Vec<f64>, DspError> {
     if a.len() != b.len() {
-        return Err(DspError::InvalidQFmt(
-            format!("qmul: length mismatch {} vs {}", a.len(), b.len())
-        ));
+        return Err(DspError::InvalidQFmt(format!(
+            "qmul: length mismatch {} vs {}",
+            a.len(),
+            b.len()
+        )));
     }
-    Ok(a.iter().zip(b.iter())
+    Ok(a.iter()
+        .zip(b.iter())
         .map(|(&x, &y)| quantize_f64(x * y, spec))
         .collect())
 }
@@ -163,17 +187,26 @@ pub fn qconv(x: &[f64], h: &[f64], spec: &QFmtSpec) -> Vec<f64> {
 /// is all-zeros.
 pub fn snr_db(x_ref: &[f64], x_q: &[f64]) -> Result<f64, DspError> {
     if x_ref.len() != x_q.len() {
-        return Err(DspError::InvalidQFmt(
-            format!("snr: length mismatch {} vs {}", x_ref.len(), x_q.len())
-        ));
+        return Err(DspError::InvalidQFmt(format!(
+            "snr: length mismatch {} vs {}",
+            x_ref.len(),
+            x_q.len()
+        )));
     }
     let n = x_ref.len() as f64;
     let sig_pwr: f64 = x_ref.iter().map(|&x| x * x).sum::<f64>() / n;
-    let nse_pwr: f64 = x_ref.iter().zip(x_q.iter())
+    let nse_pwr: f64 = x_ref
+        .iter()
+        .zip(x_q.iter())
         .map(|(&r, &q)| (r - q) * (r - q))
-        .sum::<f64>() / n;
-    if nse_pwr == 0.0 { return Ok(f64::INFINITY); }
-    if sig_pwr == 0.0 { return Ok(f64::NEG_INFINITY); }
+        .sum::<f64>()
+        / n;
+    if nse_pwr == 0.0 {
+        return Ok(f64::INFINITY);
+    }
+    if sig_pwr == 0.0 {
+        return Ok(f64::NEG_INFINITY);
+    }
     Ok(10.0 * (sig_pwr / nse_pwr).log10())
 }
 
@@ -191,7 +224,9 @@ mod tests {
         QFmtSpec::new(16, 15, RoundMode::Round, OverflowMode::Saturate).unwrap()
     }
 
-    fn close(a: f64, b: f64, eps: f64) -> bool { (a - b).abs() <= eps }
+    fn close(a: f64, b: f64, eps: f64) -> bool {
+        (a - b).abs() <= eps
+    }
 
     // ── QFmtSpec validation ──────────────────────────────────────────────
 
@@ -236,7 +271,7 @@ mod tests {
     fn zero_truncates_toward_zero() {
         let spec = QFmtSpec::new(16, 4, RoundMode::Zero, OverflowMode::Saturate).unwrap();
         // 1.1 → trunc(17.6) = 17 → 1.0625
-        assert!(close(quantize_scalar( 1.1, &spec),  1.0625, 1e-9));
+        assert!(close(quantize_scalar(1.1, &spec), 1.0625, 1e-9));
         // -1.1 → trunc(-17.6) = -17 → -1.0625
         assert!(close(quantize_scalar(-1.1, &spec), -1.0625, 1e-9));
     }
@@ -245,9 +280,15 @@ mod tests {
     fn round_half_away_from_zero() {
         let spec = QFmtSpec::new(16, 4, RoundMode::Round, OverflowMode::Saturate).unwrap();
         // 1.09375 = 17.5/16 → round → 18 → 1.125
-        assert!(close(quantize_scalar(1.09375, &spec), 1.125, 1e-9), "half up");
+        assert!(
+            close(quantize_scalar(1.09375, &spec), 1.125, 1e-9),
+            "half up"
+        );
         // 1.03125 = 16.5/16 → round → 17 → 1.0625
-        assert!(close(quantize_scalar(1.03125, &spec), 1.0625, 1e-9), "below half");
+        assert!(
+            close(quantize_scalar(1.03125, &spec), 1.0625, 1e-9),
+            "below half"
+        );
     }
 
     #[test]
@@ -271,14 +312,20 @@ mod tests {
         let spec = q15();
         // Max representable Q15 = 1 - 2^-15 ≈ 0.999969
         let max_q15 = 32767.0 / 32768.0;
-        assert!(close(quantize_scalar(2.0, &spec), max_q15, 1e-6), "saturate high");
+        assert!(
+            close(quantize_scalar(2.0, &spec), max_q15, 1e-6),
+            "saturate high"
+        );
     }
 
     #[test]
     fn saturate_clamps_low() {
         let spec = q15();
         // Min representable Q15 = -1.0
-        assert!(close(quantize_scalar(-2.0, &spec), -1.0, 1e-9), "saturate low");
+        assert!(
+            close(quantize_scalar(-2.0, &spec), -1.0, 1e-9),
+            "saturate low"
+        );
     }
 
     #[test]
@@ -286,11 +333,20 @@ mod tests {
         // Q8.0 (8-bit integer): range [-128, 127]
         let spec = QFmtSpec::new(8, 0, RoundMode::Floor, OverflowMode::Wrap).unwrap();
         // 128 wraps to -128
-        assert!(close(quantize_scalar(128.0, &spec), -128.0, 1e-9), "wrap 128→-128");
+        assert!(
+            close(quantize_scalar(128.0, &spec), -128.0, 1e-9),
+            "wrap 128→-128"
+        );
         // 129 wraps to -127
-        assert!(close(quantize_scalar(129.0, &spec), -127.0, 1e-9), "wrap 129→-127");
+        assert!(
+            close(quantize_scalar(129.0, &spec), -127.0, 1e-9),
+            "wrap 129→-127"
+        );
         // -129 wraps to 127
-        assert!(close(quantize_scalar(-129.0, &spec), 127.0, 1e-9), "wrap -129→127");
+        assert!(
+            close(quantize_scalar(-129.0, &spec), 127.0, 1e-9),
+            "wrap -129→127"
+        );
     }
 
     // ── Identity: values already on grid pass through unchanged ──────────
@@ -322,7 +378,10 @@ mod tests {
         let q = quantize_vec(&v, &spec);
         for (i, (&orig, &quant)) in v.iter().zip(q.iter()).enumerate() {
             let expected = quantize_scalar(orig, &spec);
-            assert!(close(quant, expected, 1e-12), "element {i}: got {quant}, expected {expected}");
+            assert!(
+                close(quant, expected, 1e-12),
+                "element {i}: got {quant}, expected {expected}"
+            );
         }
     }
 
@@ -332,10 +391,10 @@ mod tests {
     fn qadd_sums_and_quantizes() {
         let spec = q15();
         let a = vec![0.25, -0.25];
-        let b = vec![0.25,  0.25];
+        let b = vec![0.25, 0.25];
         let y = qadd(&a, &b, &spec).unwrap();
-        assert!(close(y[0], 0.5,  1e-6));
-        assert!(close(y[1], 0.0,  1e-6));
+        assert!(close(y[0], 0.5, 1e-6));
+        assert!(close(y[1], 0.0, 1e-6));
     }
 
     #[test]
@@ -392,7 +451,10 @@ mod tests {
         let h = vec![1.0];
         let y = qconv(&x, &h, &spec);
         for (i, (&xi, &yi)) in x.iter().zip(y.iter()).enumerate() {
-            assert!(close(yi, quantize_scalar(xi, &spec), 1e-9), "impulse identity failed at {i}");
+            assert!(
+                close(yi, quantize_scalar(xi, &spec), 1e-9),
+                "impulse identity failed at {i}"
+            );
         }
     }
 
@@ -442,8 +504,10 @@ mod tests {
         let x_q = quantize_vec(&x_ref, &spec);
         let snr = snr_db(&x_ref, &x_q).unwrap();
         // Should be close to 90 dB (generous bounds for test stability).
-        assert!(snr > 85.0 && snr < 100.0,
-            "Q15 SNR should be ~90 dB, got {snr:.1} dB");
+        assert!(
+            snr > 85.0 && snr < 100.0,
+            "Q15 SNR should be ~90 dB, got {snr:.1} dB"
+        );
     }
 
     #[test]
@@ -452,10 +516,10 @@ mod tests {
         let x_ref: Vec<f64> = (0..n)
             .map(|i| (2.0 * std::f64::consts::PI * i as f64 / n as f64).sin() * 0.999)
             .collect();
-        let spec8  = QFmtSpec::new(8,  7,  RoundMode::Round, OverflowMode::Saturate).unwrap();
+        let spec8 = QFmtSpec::new(8, 7, RoundMode::Round, OverflowMode::Saturate).unwrap();
         let spec12 = QFmtSpec::new(12, 11, RoundMode::Round, OverflowMode::Saturate).unwrap();
         let spec16 = QFmtSpec::new(16, 15, RoundMode::Round, OverflowMode::Saturate).unwrap();
-        let snr8  = snr_db(&x_ref, &quantize_vec(&x_ref, &spec8)).unwrap();
+        let snr8 = snr_db(&x_ref, &quantize_vec(&x_ref, &spec8)).unwrap();
         let snr12 = snr_db(&x_ref, &quantize_vec(&x_ref, &spec12)).unwrap();
         let snr16 = snr_db(&x_ref, &quantize_vec(&x_ref, &spec16)).unwrap();
         assert!(snr8 < snr12, "8-bit SNR should be < 12-bit SNR");

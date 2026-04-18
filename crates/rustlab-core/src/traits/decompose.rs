@@ -18,13 +18,13 @@ pub trait Decomposable {
 // Marker traits — future crates implement these on CMatrix
 
 /// Marker trait for types that support LU decomposition.
-pub trait LuDecomposable:       Decomposable {}
+pub trait LuDecomposable: Decomposable {}
 
 /// Marker trait for types that support Cholesky decomposition.
 pub trait CholeskyDecomposable: Decomposable {}
 
 /// Marker trait for types that support Singular Value Decomposition (SVD).
-pub trait SvdDecomposable:      Decomposable {}
+pub trait SvdDecomposable: Decomposable {}
 
 /// Marker trait for types that support eigenvalue decomposition.
-pub trait EigenDecomposable:    Decomposable {}
+pub trait EigenDecomposable: Decomposable {}

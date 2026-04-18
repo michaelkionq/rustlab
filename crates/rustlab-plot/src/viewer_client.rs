@@ -1,6 +1,8 @@
 //! Thin socket client for communicating with `rustlab-viewer`.
 
-use rustlab_proto::{ViewerMsg, ViewerReply, default_socket_path, socket_path_for_name, read_msg, write_msg};
+use rustlab_proto::{
+    default_socket_path, read_msg, socket_path_for_name, write_msg, ViewerMsg, ViewerReply,
+};
 use std::io::BufWriter;
 
 /// Connection to a running `rustlab-viewer` process.

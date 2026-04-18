@@ -1,9 +1,9 @@
-use clap::Args;
 use anyhow::{bail, Context, Result};
+use clap::Args;
+use ndarray::Array1;
 use num_complex::Complex;
 use rustlab_core::CVector;
 use rustlab_dsp::convolution::{convolve, overlap_add};
-use ndarray::Array1;
 use std::path::Path;
 
 #[derive(Args)]
@@ -21,8 +21,8 @@ pub struct ConvolveArgs {
 
 /// Read a signal from a CSV file. Each line is either `re` or `re,im`.
 fn read_signal(path: &Path) -> Result<CVector> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {:?}", path))?;
+    let content =
+        std::fs::read_to_string(path).with_context(|| format!("failed to read {:?}", path))?;
 
     let mut values: Vec<Complex<f64>> = Vec::new();
     for (line_no, line) in content.lines().enumerate() {
@@ -41,10 +41,18 @@ fn read_signal(path: &Path) -> Result<CVector> {
             }
             2 => {
                 let re: f64 = parts[0].trim().parse().with_context(|| {
-                    format!("line {}: cannot parse re '{}' as f64", line_no + 1, parts[0])
+                    format!(
+                        "line {}: cannot parse re '{}' as f64",
+                        line_no + 1,
+                        parts[0]
+                    )
                 })?;
                 let im: f64 = parts[1].trim().parse().with_context(|| {
-                    format!("line {}: cannot parse im '{}' as f64", line_no + 1, parts[1])
+                    format!(
+                        "line {}: cannot parse im '{}' as f64",
+                        line_no + 1,
+                        parts[1]
+                    )
                 })?;
                 values.push(Complex::new(re, im));
             }
@@ -60,14 +68,11 @@ pub fn execute(args: ConvolveArgs) -> Result<()> {
     let kernel = read_signal(&args.kernel)?;
 
     let result = match args.method.to_ascii_lowercase().as_str() {
-        "direct" => {
-            convolve(&signal, &kernel).map_err(|e| anyhow::anyhow!("{}", e))?
-        }
+        "direct" => convolve(&signal, &kernel).map_err(|e| anyhow::anyhow!("{}", e))?,
         "overlap-add" | "overlap_add" | "ola" => {
             // Choose a reasonable block size: 8 × kernel length, minimum 64
             let block_size = (8 * kernel.len()).max(64);
-            overlap_add(&signal, &kernel, block_size)
-                .map_err(|e| anyhow::anyhow!("{}", e))?
+            overlap_add(&signal, &kernel, block_size).map_err(|e| anyhow::anyhow!("{}", e))?
         }
         other => bail!("unknown method '{}': use direct or overlap-add", other),
     };

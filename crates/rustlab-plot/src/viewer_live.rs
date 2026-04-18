@@ -4,8 +4,8 @@
 //! Also provides `connect_viewer()` / `disconnect_viewer()` / `viewer_active()`
 //! / `sync_viewer()` for routing regular (non-live) plot commands to the viewer.
 
-use crate::viewer_client::ViewerClient;
 use crate::figure::{FigureState, LineStyle, PlotKind, SeriesColor, FIGURE};
+use crate::viewer_client::ViewerClient;
 use crate::{LivePlot, PlotError};
 use rustlab_proto::{ViewerMsg, WireColor, WireHeatmap, WireLineStyle, WirePlotKind, WireSeries};
 use std::cell::RefCell;
@@ -42,9 +42,9 @@ impl ViewerFigure {
         };
         let fig_id = next_fig_id();
         let msg = ViewerMsg::FigureOpen {
-            id:    fig_id,
-            rows:  rows as u16,
-            cols:  cols as u16,
+            id: fig_id,
+            rows: rows as u16,
+            cols: cols as u16,
             title: String::new(),
         };
         client.send(&msg).ok()?;
@@ -56,14 +56,14 @@ impl LivePlot for ViewerFigure {
     fn update_panel(&mut self, idx: usize, x: Vec<f64>, y: Vec<f64>) {
         let msg = ViewerMsg::PanelUpdate {
             fig_id: self.fig_id,
-            panel:  idx as u16,
+            panel: idx as u16,
             series: vec![WireSeries {
                 label: String::new(),
                 x,
                 y,
                 color: WireColor::Named("cyan".into()),
                 style: WireLineStyle::Solid,
-                kind:  WirePlotKind::Line,
+                kind: WirePlotKind::Line,
                 x_labels: None,
             }],
         };
@@ -73,18 +73,23 @@ impl LivePlot for ViewerFigure {
     fn set_panel_labels(&mut self, idx: usize, title: &str, xlabel: &str, ylabel: &str) {
         let msg = ViewerMsg::PanelLabels {
             fig_id: self.fig_id,
-            panel:  idx as u16,
-            title:  title.to_string(),
+            panel: idx as u16,
+            title: title.to_string(),
             xlabel: xlabel.to_string(),
             ylabel: ylabel.to_string(),
         };
         let _ = self.client.send_nowait(&msg);
     }
 
-    fn set_panel_limits(&mut self, idx: usize, xlim: (Option<f64>, Option<f64>), ylim: (Option<f64>, Option<f64>)) {
+    fn set_panel_limits(
+        &mut self,
+        idx: usize,
+        xlim: (Option<f64>, Option<f64>),
+        ylim: (Option<f64>, Option<f64>),
+    ) {
         let msg = ViewerMsg::PanelLimits {
             fig_id: self.fig_id,
-            panel:  idx as u16,
+            panel: idx as u16,
             xlim,
             ylim,
         };
@@ -92,7 +97,9 @@ impl LivePlot for ViewerFigure {
     }
 
     fn redraw(&mut self) -> Result<(), PlotError> {
-        let msg = ViewerMsg::Redraw { fig_id: self.fig_id };
+        let msg = ViewerMsg::Redraw {
+            fig_id: self.fig_id,
+        };
         self.client.send(&msg)?;
         Ok(())
     }
@@ -100,7 +107,9 @@ impl LivePlot for ViewerFigure {
 
 impl Drop for ViewerFigure {
     fn drop(&mut self) {
-        let msg = ViewerMsg::Close { fig_id: self.fig_id };
+        let msg = ViewerMsg::Close {
+            fig_id: self.fig_id,
+        };
         let _ = self.client.send_nowait(&msg);
     }
 }
@@ -109,30 +118,30 @@ impl Drop for ViewerFigure {
 
 pub fn color_to_wire(c: &SeriesColor) -> WireColor {
     match c {
-        SeriesColor::Blue    => WireColor::Named("blue".into()),
-        SeriesColor::Red     => WireColor::Named("red".into()),
-        SeriesColor::Green   => WireColor::Named("green".into()),
-        SeriesColor::Cyan    => WireColor::Named("cyan".into()),
+        SeriesColor::Blue => WireColor::Named("blue".into()),
+        SeriesColor::Red => WireColor::Named("red".into()),
+        SeriesColor::Green => WireColor::Named("green".into()),
+        SeriesColor::Cyan => WireColor::Named("cyan".into()),
         SeriesColor::Magenta => WireColor::Named("magenta".into()),
-        SeriesColor::Yellow  => WireColor::Named("yellow".into()),
-        SeriesColor::Black   => WireColor::Named("black".into()),
-        SeriesColor::White   => WireColor::Named("white".into()),
+        SeriesColor::Yellow => WireColor::Named("yellow".into()),
+        SeriesColor::Black => WireColor::Named("black".into()),
+        SeriesColor::White => WireColor::Named("white".into()),
         SeriesColor::Rgb(r, g, b) => WireColor::Rgb(*r, *g, *b),
     }
 }
 
 pub fn style_to_wire(s: &LineStyle) -> WireLineStyle {
     match s {
-        LineStyle::Solid  => WireLineStyle::Solid,
+        LineStyle::Solid => WireLineStyle::Solid,
         LineStyle::Dashed => WireLineStyle::Dashed,
     }
 }
 
 pub fn kind_to_wire(k: &PlotKind) -> WirePlotKind {
     match k {
-        PlotKind::Line    => WirePlotKind::Line,
-        PlotKind::Stem    => WirePlotKind::Stem,
-        PlotKind::Bar     => WirePlotKind::Bar,
+        PlotKind::Line => WirePlotKind::Line,
+        PlotKind::Stem => WirePlotKind::Stem,
+        PlotKind::Bar => WirePlotKind::Bar,
         PlotKind::Scatter => WirePlotKind::Scatter,
     }
 }
@@ -180,11 +189,13 @@ fn connect_viewer_impl(client: Option<ViewerClient>) -> Result<bool, PlotError> 
     // Clear any figures from previous sessions
     let _ = client.send(&ViewerMsg::Reset);
     let fig_id = next_fig_id();
-    VIEWER_CONN.with(|c| *c.borrow_mut() = Some(ViewerConn {
-        client,
-        fig_id,
-        layout: (0, 0), // forces FigureOpen on first sync
-    }));
+    VIEWER_CONN.with(|c| {
+        *c.borrow_mut() = Some(ViewerConn {
+            client,
+            fig_id,
+            layout: (0, 0), // forces FigureOpen on first sync
+        })
+    });
     Ok(true)
 }
 
@@ -193,7 +204,9 @@ fn connect_viewer_impl(client: Option<ViewerClient>) -> Result<bool, PlotError> 
 pub fn disconnect_viewer() {
     VIEWER_CONN.with(|c| {
         if let Some(mut conn) = c.borrow_mut().take() {
-            let _ = conn.client.send_nowait(&ViewerMsg::Close { fig_id: conn.fig_id });
+            let _ = conn.client.send_nowait(&ViewerMsg::Close {
+                fig_id: conn.fig_id,
+            });
         }
     });
     VIEWER_SESSION.with(|s| *s.borrow_mut() = None);
@@ -240,7 +253,9 @@ pub fn allocate_viewer_fig_id() -> u32 {
 pub fn sync_viewer() {
     VIEWER_CONN.with(|c| {
         let mut guard = c.borrow_mut();
-        let Some(ref mut conn) = *guard else { return; };
+        let Some(ref mut conn) = *guard else {
+            return;
+        };
         FIGURE.with(|fig| {
             let fig = fig.borrow();
             let _ = send_figure_state(conn, &fig);
@@ -249,10 +264,7 @@ pub fn sync_viewer() {
 }
 
 /// Serialize a full FigureState to the viewer via protocol messages.
-fn send_figure_state(
-    conn: &mut ViewerConn,
-    fig: &FigureState,
-) -> Result<(), PlotError> {
+fn send_figure_state(conn: &mut ViewerConn, fig: &FigureState) -> Result<(), PlotError> {
     let rows = fig.subplot_rows;
     let cols = fig.subplot_cols;
     let n_panels = rows * cols;
@@ -261,9 +273,9 @@ fn send_figure_state(
     // Only send FigureOpen when layout changes (or on first sync)
     if conn.layout != (rows, cols) {
         conn.client.send(&ViewerMsg::FigureOpen {
-            id:    fig_id,
-            rows:  rows as u16,
-            cols:  cols as u16,
+            id: fig_id,
+            rows: rows as u16,
+            cols: cols as u16,
             title: String::new(),
         })?;
         conn.layout = (rows, cols);
@@ -280,8 +292,12 @@ fn send_figure_state(
                 let mut max_v = f64::NEG_INFINITY;
                 for row in &hm.z {
                     for &v in row {
-                        if v < min_v { min_v = v; }
-                        if v > max_v { max_v = v; }
+                        if v < min_v {
+                            min_v = v;
+                        }
+                        if v > max_v {
+                            max_v = v;
+                        }
                     }
                 }
                 let range = (max_v - min_v).max(1e-12);
@@ -308,18 +324,23 @@ fn send_figure_state(
         }
 
         // Convert series
-        let wire_series: Vec<WireSeries> = panel.series.iter().enumerate().map(|(i, s)| {
-            WireSeries {
-                label: s.label.clone(),
-                x: s.x_data.clone(),
-                y: s.y_data.clone(),
-                color: color_to_wire(&s.color),
-                style: style_to_wire(&s.style),
-                kind:  kind_to_wire(&s.kind),
-                // Attach categorical labels to the first series
-                x_labels: if i == 0 { panel.x_labels.clone() } else { None },
-            }
-        }).collect();
+        let wire_series: Vec<WireSeries> = panel
+            .series
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                WireSeries {
+                    label: s.label.clone(),
+                    x: s.x_data.clone(),
+                    y: s.y_data.clone(),
+                    color: color_to_wire(&s.color),
+                    style: style_to_wire(&s.style),
+                    kind: kind_to_wire(&s.kind),
+                    // Attach categorical labels to the first series
+                    x_labels: if i == 0 { panel.x_labels.clone() } else { None },
+                }
+            })
+            .collect();
 
         conn.client.send_nowait(&ViewerMsg::PanelUpdate {
             fig_id,
@@ -330,7 +351,7 @@ fn send_figure_state(
         conn.client.send_nowait(&ViewerMsg::PanelLabels {
             fig_id,
             panel: idx as u16,
-            title:  panel.title.clone(),
+            title: panel.title.clone(),
             xlabel: panel.xlabel.clone(),
             ylabel: panel.ylabel.clone(),
         })?;
@@ -363,8 +384,11 @@ mod tests {
         let id = next_fig_id();
         let pid = std::process::id() as u32;
         let embedded_pid = id >> 16;
-        assert_eq!(embedded_pid, pid & 0xFFFF,
-            "upper 16 bits should contain truncated PID");
+        assert_eq!(
+            embedded_pid,
+            pid & 0xFFFF,
+            "upper 16 bits should contain truncated PID"
+        );
     }
 
     #[test]
@@ -373,8 +397,7 @@ mod tests {
         let b = next_fig_id();
         let low_a = a & 0xFFFF;
         let low_b = b & 0xFFFF;
-        assert_eq!(low_b, low_a + 1,
-            "lower 16 bits should increment");
+        assert_eq!(low_b, low_a + 1, "lower 16 bits should increment");
     }
 
     #[test]
@@ -383,21 +406,34 @@ mod tests {
         assert!(matches!(color_to_wire(&SeriesColor::Red), WireColor::Named(s) if s == "red"));
         assert!(matches!(color_to_wire(&SeriesColor::Green), WireColor::Named(s) if s == "green"));
         assert!(matches!(color_to_wire(&SeriesColor::Cyan), WireColor::Named(s) if s == "cyan"));
-        assert!(matches!(color_to_wire(&SeriesColor::Magenta), WireColor::Named(s) if s == "magenta"));
-        assert!(matches!(color_to_wire(&SeriesColor::Yellow), WireColor::Named(s) if s == "yellow"));
+        assert!(
+            matches!(color_to_wire(&SeriesColor::Magenta), WireColor::Named(s) if s == "magenta")
+        );
+        assert!(
+            matches!(color_to_wire(&SeriesColor::Yellow), WireColor::Named(s) if s == "yellow")
+        );
         assert!(matches!(color_to_wire(&SeriesColor::Black), WireColor::Named(s) if s == "black"));
         assert!(matches!(color_to_wire(&SeriesColor::White), WireColor::Named(s) if s == "white"));
     }
 
     #[test]
     fn color_to_wire_rgb() {
-        assert!(matches!(color_to_wire(&SeriesColor::Rgb(10, 20, 30)), WireColor::Rgb(10, 20, 30)));
+        assert!(matches!(
+            color_to_wire(&SeriesColor::Rgb(10, 20, 30)),
+            WireColor::Rgb(10, 20, 30)
+        ));
     }
 
     #[test]
     fn style_to_wire_variants() {
-        assert!(matches!(style_to_wire(&LineStyle::Solid), WireLineStyle::Solid));
-        assert!(matches!(style_to_wire(&LineStyle::Dashed), WireLineStyle::Dashed));
+        assert!(matches!(
+            style_to_wire(&LineStyle::Solid),
+            WireLineStyle::Solid
+        ));
+        assert!(matches!(
+            style_to_wire(&LineStyle::Dashed),
+            WireLineStyle::Dashed
+        ));
     }
 
     #[test]
@@ -405,6 +441,9 @@ mod tests {
         assert!(matches!(kind_to_wire(&PlotKind::Line), WirePlotKind::Line));
         assert!(matches!(kind_to_wire(&PlotKind::Stem), WirePlotKind::Stem));
         assert!(matches!(kind_to_wire(&PlotKind::Bar), WirePlotKind::Bar));
-        assert!(matches!(kind_to_wire(&PlotKind::Scatter), WirePlotKind::Scatter));
+        assert!(matches!(
+            kind_to_wire(&PlotKind::Scatter),
+            WirePlotKind::Scatter
+        ));
     }
 }

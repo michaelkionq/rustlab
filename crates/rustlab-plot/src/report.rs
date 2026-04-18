@@ -16,10 +16,7 @@ use crate::theme::{Theme, ThemeColors};
 #[derive(Debug, Clone)]
 pub enum ReportEntry {
     /// A captured figure with an optional section title.
-    Figure {
-        title: String,
-        state: FigureState,
-    },
+    Figure { title: String, state: FigureState },
 }
 
 /// A report being assembled.
@@ -57,11 +54,19 @@ pub fn report_auto_capture() {
         let mut r = r.borrow_mut();
         if let Some(report) = r.as_mut() {
             let fig = FIGURE.with(|f| f.borrow().clone());
-            if fig.subplots.iter().any(|s| !s.series.is_empty() || s.heatmap.is_some()) {
-                let title = fig.subplots.first()
+            if fig
+                .subplots
+                .iter()
+                .any(|s| !s.series.is_empty() || s.heatmap.is_some())
+            {
+                let title = fig
+                    .subplots
+                    .first()
                     .map(|s| s.title.clone())
                     .unwrap_or_default();
-                report.entries.push(ReportEntry::Figure { title, state: fig });
+                report
+                    .entries
+                    .push(ReportEntry::Figure { title, state: fig });
             }
         }
     });
@@ -73,16 +78,21 @@ pub fn report_auto_capture() {
 pub fn report_add(section: &str) -> Result<(), String> {
     ACTIVE_REPORT.with(|r| {
         let mut r = r.borrow_mut();
-        let report = r.as_mut().ok_or("no report session — use 'report start \"title\"' first")?;
+        let report = r
+            .as_mut()
+            .ok_or("no report session — use 'report start \"title\"' first")?;
         let fig = FIGURE.with(|f| f.borrow().clone());
         let title = if section.is_empty() {
-            fig.subplots.first()
+            fig.subplots
+                .first()
                 .map(|s| s.title.clone())
                 .unwrap_or_default()
         } else {
             section.to_string()
         };
-        report.entries.push(ReportEntry::Figure { title, state: fig });
+        report
+            .entries
+            .push(ReportEntry::Figure { title, state: fig });
         Ok(())
     })
 }
@@ -94,7 +104,8 @@ pub fn report_save(path: &str) -> Result<usize, String> {
     // Auto-capture any remaining figure before saving
     report_auto_capture();
 
-    let report = ACTIVE_REPORT.with(|r| r.borrow_mut().take())
+    let report = ACTIVE_REPORT
+        .with(|r| r.borrow_mut().take())
         .ok_or("no report session — use 'report start \"title\"' first")?;
 
     let count = report.entries.len();
@@ -103,12 +114,10 @@ pub fn report_save(path: &str) -> Result<usize, String> {
     // Ensure parent directory exists
     if let Some(parent) = std::path::Path::new(path).parent() {
         if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("cannot create directory: {e}"))?;
+            std::fs::create_dir_all(parent).map_err(|e| format!("cannot create directory: {e}"))?;
         }
     }
-    std::fs::write(path, html)
-        .map_err(|e| format!("cannot write report: {e}"))?;
+    std::fs::write(path, html).map_err(|e| format!("cannot write report: {e}"))?;
 
     Ok(count)
 }
@@ -120,9 +129,7 @@ pub fn report_end() {
 
 /// Number of entries captured so far (0 if no session).
 pub fn report_len() -> usize {
-    ACTIVE_REPORT.with(|r| {
-        r.borrow().as_ref().map_or(0, |rep| rep.entries.len())
-    })
+    ACTIVE_REPORT.with(|r| r.borrow().as_ref().map_or(0, |rep| rep.entries.len()))
 }
 
 // ─── HTML rendering ──────────────────────────────────────────────────────────
@@ -275,7 +282,7 @@ fn render_report_html_themed(report: &Report, c: &ThemeColors) -> String {
 
 fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
-     .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }

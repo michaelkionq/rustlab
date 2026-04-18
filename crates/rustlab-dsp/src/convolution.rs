@@ -1,7 +1,7 @@
-use rustlab_core::{C64, CVector, CoreError};
+use crate::fft::{fft_raw, ifft_raw};
 use ndarray::Array1;
 use num_complex::Complex;
-use crate::fft::{fft_raw, ifft_raw};
+use rustlab_core::{CVector, CoreError, C64};
 
 /// Compute the linear convolution of two complex signals using a direct O(n·m) algorithm.
 ///
@@ -65,14 +65,18 @@ pub fn overlap_add(x: &CVector, h: &CVector, block_size: usize) -> Result<CVecto
     }
 
     if block_size == 0 {
-        return Err(CoreError::InvalidParameter("block_size must be > 0".to_string()));
+        return Err(CoreError::InvalidParameter(
+            "block_size must be > 0".to_string(),
+        ));
     }
 
     // FFT size must be at least block_size + nh - 1
     let fft_size = next_power_of_two(block_size + nh - 1);
 
     // Pad h to fft_size and compute its FFT
-    let h_padded: Vec<C64> = h.iter().copied()
+    let h_padded: Vec<C64> = h
+        .iter()
+        .copied()
         .chain(std::iter::repeat(Complex::new(0.0, 0.0)))
         .take(fft_size)
         .collect();
@@ -95,7 +99,9 @@ pub fn overlap_add(x: &CVector, h: &CVector, block_size: usize) -> Result<CVecto
 
         // Frequency-domain multiply
         let block_freq = fft_raw(&block);
-        let product: Vec<C64> = block_freq.iter().zip(h_freq.iter())
+        let product: Vec<C64> = block_freq
+            .iter()
+            .zip(h_freq.iter())
             .map(|(a, b)| a * b)
             .collect();
 

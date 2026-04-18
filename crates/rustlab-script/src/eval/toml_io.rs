@@ -1,31 +1,32 @@
-use std::collections::HashMap;
-use num_complex::Complex;
-use ndarray::Array1;
-use toml::Value as Toml;
 use super::value::Value;
+use ndarray::Array1;
+use num_complex::Complex;
+use std::collections::HashMap;
+use toml::Value as Toml;
 
 // ─── Save ────────────────────────────────────────────────────────────────────
 
 pub fn save_toml(path: &str, value: &Value) -> Result<(), String> {
     let table = match value {
         Value::Struct(_) => value_to_toml(value)?,
-        other => return Err(format!(
-            "save: TOML requires a struct at the top level, got {}",
-            other.type_name()
-        )),
+        other => {
+            return Err(format!(
+                "save: TOML requires a struct at the top level, got {}",
+                other.type_name()
+            ))
+        }
     };
     let text = toml::to_string_pretty(&table)
         .map_err(|e| format!("save: TOML serialization failed: {e}"))?;
-    std::fs::write(path, text)
-        .map_err(|e| format!("save: {e}"))
+    std::fs::write(path, text).map_err(|e| format!("save: {e}"))
 }
 
 // ─── Load ────────────────────────────────────────────────────────────────────
 
 pub fn load_toml(path: &str) -> Result<Value, String> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| format!("load: {e}"))?;
-    let table: Toml = text.parse::<Toml>()
+    let text = std::fs::read_to_string(path).map_err(|e| format!("load: {e}"))?;
+    let table: Toml = text
+        .parse::<Toml>()
         .map_err(|e| format!("load: TOML parse error: {e}"))?;
     Ok(toml_to_value(table))
 }
@@ -108,7 +109,8 @@ fn scalar_to_toml(f: f64) -> Toml {
 fn toml_to_value(tv: Toml) -> Value {
     match tv {
         Toml::Table(map) => {
-            let fields: HashMap<String, Value> = map.into_iter()
+            let fields: HashMap<String, Value> = map
+                .into_iter()
                 .map(|(k, v)| (k, toml_to_value(v)))
                 .collect();
             Value::Struct(fields)
@@ -128,17 +130,21 @@ fn array_to_value(arr: Vec<Toml>) -> Value {
     }
 
     // Check if all elements are numeric (Integer or Float)
-    let all_numeric = arr.iter().all(|v| matches!(v, Toml::Integer(_) | Toml::Float(_)));
+    let all_numeric = arr
+        .iter()
+        .all(|v| matches!(v, Toml::Integer(_) | Toml::Float(_)));
     if all_numeric {
         let cvec: Array1<Complex<f64>> = Array1::from_vec(
-            arr.into_iter().map(|v| {
-                let f = match v {
-                    Toml::Integer(i) => i as f64,
-                    Toml::Float(f) => f,
-                    _ => unreachable!(),
-                };
-                Complex::new(f, 0.0)
-            }).collect()
+            arr.into_iter()
+                .map(|v| {
+                    let f = match v {
+                        Toml::Integer(i) => i as f64,
+                        Toml::Float(f) => f,
+                        _ => unreachable!(),
+                    };
+                    Complex::new(f, 0.0)
+                })
+                .collect(),
         );
         return Value::Vector(cvec);
     }

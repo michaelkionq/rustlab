@@ -1,9 +1,9 @@
-use std::f64::consts::PI;
-use ndarray::Array1;
-use num_complex::Complex;
-use rustlab_core::{C64, CVector, RVector, CoreError, Transform};
 use crate::convolution::next_power_of_two;
 use crate::error::DspError;
+use ndarray::Array1;
+use num_complex::Complex;
+use rustlab_core::{CVector, CoreError, RVector, Transform, C64};
+use std::f64::consts::PI;
 
 /// FFT transform implementing the [`Transform`] trait.
 pub struct FftTransform;
@@ -26,7 +26,9 @@ pub fn fft(x: &CVector) -> Result<CVector, DspError> {
         return Ok(Array1::zeros(0));
     }
     let n = next_power_of_two(x.len());
-    let mut buf: Vec<C64> = x.iter().copied()
+    let mut buf: Vec<C64> = x
+        .iter()
+        .copied()
         .chain(std::iter::repeat(Complex::new(0.0, 0.0)))
         .take(n)
         .collect();
@@ -43,9 +45,9 @@ pub fn ifft(x: &CVector) -> Result<CVector, DspError> {
     }
     let n = x.len();
     if n & (n.wrapping_sub(1)) != 0 {
-        return Err(DspError::InvalidParameter(
-            format!("ifft: input length {n} is not a power of two"),
-        ));
+        return Err(DspError::InvalidParameter(format!(
+            "ifft: input length {n} is not a power of two"
+        )));
     }
     let mut buf: Vec<C64> = x.iter().copied().collect();
     fft_inplace(&mut buf, true);
@@ -63,8 +65,12 @@ pub fn fftshift(x: &CVector) -> CVector {
     }
     let half = (n + 1) / 2; // ceil(n/2)
     let mut out: Vec<C64> = Vec::with_capacity(n);
-    for i in half..n { out.push(x[i]); }
-    for i in 0..half { out.push(x[i]); }
+    for i in half..n {
+        out.push(x[i]);
+    }
+    for i in 0..half {
+        out.push(x[i]);
+    }
     Array1::from_vec(out)
 }
 

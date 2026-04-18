@@ -38,10 +38,10 @@ pub mod parser;
 #[cfg(test)]
 mod tests;
 
+pub use error::ScriptError;
+pub use eval::output::{capturing, start_capture, stop_capture};
 pub use eval::Evaluator;
 pub use eval::Value;
-pub use eval::output::{start_capture, stop_capture, capturing};
-pub use error::ScriptError;
 
 /// Execute a `.r` script from source text.
 ///
@@ -63,7 +63,7 @@ pub use error::ScriptError;
 /// ```
 pub fn run(source: &str) -> Result<(), ScriptError> {
     let tokens = lexer::tokenize(source)?;
-    let stmts  = parser::parse(tokens)?;
+    let stmts = parser::parse(tokens)?;
     let mut ev = Evaluator::new();
     ev.run_script(&stmts)
 }
@@ -73,7 +73,7 @@ pub fn run(source: &str) -> Result<(), ScriptError> {
 /// The profiling report is printed to stderr at the end.
 pub fn run_profiled(source: &str) -> Result<(), ScriptError> {
     let tokens = lexer::tokenize(source)?;
-    let stmts  = parser::parse(tokens)?;
+    let stmts = parser::parse(tokens)?;
     let mut ev = Evaluator::new();
     ev.enable_profiling(None);
     ev.run_script(&stmts)

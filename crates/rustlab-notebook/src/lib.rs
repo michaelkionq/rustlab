@@ -1,10 +1,10 @@
-pub mod parse;
 pub mod execute;
+pub mod parse;
 pub mod render;
 pub mod render_latex;
 
-use std::path::PathBuf;
 use rustlab_plot::theme::ThemeColors;
+use std::path::PathBuf;
 
 /// Render a single notebook file to the chosen format.
 pub fn cmd_render(input: PathBuf, output: Option<PathBuf>, format: Format, theme: &ThemeColors) {
@@ -68,7 +68,8 @@ pub fn cmd_render_dir(
     md_files.sort();
 
     // Split out `index.md` so it is not listed as a notebook entry.
-    let index_md_path = md_files.iter()
+    let index_md_path = md_files
+        .iter()
         .position(|p| p.file_name().map_or(false, |n| n == "index.md"))
         .map(|i| md_files.remove(i));
 
@@ -108,13 +109,11 @@ pub fn cmd_render_dir(
 
     // Entries without an explicit order sort after those that have one, in
     // filename order. Among entries that share an order, filename breaks ties.
-    index_entries.sort_by(|a, b| {
-        match (a.0, b.0) {
-            (Some(x), Some(y)) => x.cmp(&y).then_with(|| a.2.cmp(&b.2)),
-            (Some(_), None)    => std::cmp::Ordering::Less,
-            (None, Some(_))    => std::cmp::Ordering::Greater,
-            (None, None)       => a.2.cmp(&b.2),
-        }
+    index_entries.sort_by(|a, b| match (a.0, b.0) {
+        (Some(x), Some(y)) => x.cmp(&y).then_with(|| a.2.cmp(&b.2)),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a.2.cmp(&b.2),
     });
 
     if matches!(format, Format::Html) {
@@ -123,16 +122,26 @@ pub fn cmd_render_dir(
             Some(p) => read_and_render_index_md(p, &dir, theme),
             None => (String::new(), None),
         };
-        let resolved_title = index_title
-            .or(index_md_title)
-            .unwrap_or_else(|| dir.file_name().unwrap_or_default().to_string_lossy().to_string());
+        let resolved_title = index_title.or(index_md_title).unwrap_or_else(|| {
+            dir.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
+        });
 
-        let entries_simple: Vec<(String, String)> =
-            index_entries.iter().map(|(_, t, f)| (t.clone(), f.clone())).collect();
-        let index_html = generate_index_html(&resolved_title, &entries_simple, theme, &index_body_html);
+        let entries_simple: Vec<(String, String)> = index_entries
+            .iter()
+            .map(|(_, t, f)| (t.clone(), f.clone()))
+            .collect();
+        let index_html =
+            generate_index_html(&resolved_title, &entries_simple, theme, &index_body_html);
         let index_path = out_dir.join("index.html");
         write_output(&index_path, index_html.as_bytes());
-        println!("Generated {} ({} notebooks)", index_path.display(), entries_simple.len());
+        println!(
+            "Generated {} ({} notebooks)",
+            index_path.display(),
+            entries_simple.len()
+        );
     }
 }
 
@@ -141,7 +150,11 @@ pub fn cmd_render_dir(
 /// rendered as plain markdown (not executed) to keep the landing page
 /// lightweight — put executable content in regular notebooks and link to
 /// them from `index.md`.
-fn read_and_render_index_md(path: &PathBuf, _dir: &PathBuf, _theme: &ThemeColors) -> (String, Option<String>) {
+fn read_and_render_index_md(
+    path: &PathBuf,
+    _dir: &PathBuf,
+    _theme: &ThemeColors,
+) -> (String, Option<String>) {
     let source = match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -167,7 +180,11 @@ fn strip_leading_h1(src: &str) -> &str {
     // Skip any blank lines.
     loop {
         let trimmed = rest.trim_start_matches(|c: char| c == '\n' || c == '\r');
-        if trimmed.len() == rest.len() { break; } else { rest = trimmed; }
+        if trimmed.len() == rest.len() {
+            break;
+        } else {
+            rest = trimmed;
+        }
     }
     let first_line = rest.lines().next().unwrap_or("");
     if first_line.trim_start().starts_with("# ") {
@@ -225,17 +242,29 @@ fn render_output(
 }
 
 fn print_summary(input: &PathBuf, out_path: &PathBuf, rendered: &[execute::Rendered]) {
-    let n_code = rendered.iter().filter(|b| matches!(b, execute::Rendered::Code { .. })).count();
-    let n_plots: usize = rendered.iter()
+    let n_code = rendered
+        .iter()
+        .filter(|b| matches!(b, execute::Rendered::Code { .. }))
+        .count();
+    let n_plots: usize = rendered
+        .iter()
         .map(|b| match b {
             execute::Rendered::Code { figures, .. } => figures.len(),
             _ => 0,
         })
         .sum();
-    let n_errors = rendered.iter().filter(|b| matches!(b, execute::Rendered::Code { error: Some(_), .. })).count();
+    let n_errors = rendered
+        .iter()
+        .filter(|b| matches!(b, execute::Rendered::Code { error: Some(_), .. }))
+        .count();
 
-    print!("Rendered {} → {} ({} code blocks, {} plots",
-        input.display(), out_path.display(), n_code, n_plots);
+    print!(
+        "Rendered {} → {} ({} code blocks, {} plots",
+        input.display(),
+        out_path.display(),
+        n_code,
+        n_plots
+    );
     if n_errors > 0 {
         print!(", {} errors", n_errors);
     }
@@ -267,7 +296,10 @@ fn compile_pdf(tex_path: &PathBuf, pdf_path: &PathBuf) {
     let tex_dir = tex_path.parent().unwrap_or(std::path::Path::new("."));
 
     let (cmd, args): (&str, Vec<&str>) = if which_exists("pdflatex") {
-        ("pdflatex", vec!["-interaction=nonstopmode", "-halt-on-error"])
+        (
+            "pdflatex",
+            vec!["-interaction=nonstopmode", "-halt-on-error"],
+        )
     } else if which_exists("tectonic") {
         ("tectonic", vec![])
     } else {
@@ -298,7 +330,10 @@ fn compile_pdf(tex_path: &PathBuf, pdf_path: &PathBuf) {
         }
         Ok(s) => {
             eprintln!("error: {cmd} exited with status {s}");
-            eprintln!("  Check {} for details", tex_path.with_extension("log").display());
+            eprintln!(
+                "  Check {} for details",
+                tex_path.with_extension("log").display()
+            );
             std::process::exit(1);
         }
         Err(e) => {
@@ -463,9 +498,9 @@ pub fn generate_index_html(
 
 fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
-     .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 #[cfg(test)]
@@ -512,9 +547,7 @@ mod tests {
 
     #[test]
     fn generate_index_single() {
-        let entries = vec![
-            ("Solo".to_string(), "solo.html".to_string()),
-        ];
+        let entries = vec![("Solo".to_string(), "solo.html".to_string())];
         let html = generate_index_html("test", &entries, Theme::Dark.colors(), "");
         assert!(html.contains("1 notebook"));
         assert!(!html.contains("notebooks")); // singular
@@ -528,9 +561,7 @@ mod tests {
 
     #[test]
     fn generate_index_escapes_html() {
-        let entries = vec![
-            ("A <script> & \"test\"".to_string(), "test.html".to_string()),
-        ];
+        let entries = vec![("A <script> & \"test\"".to_string(), "test.html".to_string())];
         let html = generate_index_html("dir", &entries, Theme::Dark.colors(), "");
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("&amp;"));

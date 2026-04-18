@@ -11,9 +11,8 @@ static COLOR_ENABLED: OnceLock<bool> = OnceLock::new();
 
 /// Returns `true` when ANSI color codes should be emitted.
 pub fn is_color_enabled() -> bool {
-    *COLOR_ENABLED.get_or_init(|| {
-        std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal()
-    })
+    *COLOR_ENABLED
+        .get_or_init(|| std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal())
 }
 
 // ── ANSI codes ───────────────────────────────────────────────────────────────
@@ -38,12 +37,30 @@ fn wrap(code: &str, s: &str) -> String {
     }
 }
 
-pub fn green(s: &str) -> String { wrap(GREEN, s) }
-pub fn yellow(s: &str) -> String { wrap(YELLOW, s) }
-pub fn cyan(s: &str) -> String { wrap(CYAN, s) }
-pub fn bold(s: &str) -> String { wrap(BOLD, s) }
-pub fn dim(s: &str) -> String { wrap(DIM, s) }
-pub fn bold_red(s: &str) -> String { wrap(BOLD_RED, s) }
-pub fn bold_green(s: &str) -> String { wrap(BOLD_GREEN, s) }
-pub fn bold_cyan(s: &str) -> String { wrap(BOLD_CYAN, s) }
-pub fn bold_yellow(s: &str) -> String { wrap(BOLD_YELLOW, s) }
+pub fn green(s: &str) -> String {
+    wrap(GREEN, s)
+}
+pub fn yellow(s: &str) -> String {
+    wrap(YELLOW, s)
+}
+pub fn cyan(s: &str) -> String {
+    wrap(CYAN, s)
+}
+pub fn bold(s: &str) -> String {
+    wrap(BOLD, s)
+}
+pub fn dim(s: &str) -> String {
+    wrap(DIM, s)
+}
+pub fn bold_red(s: &str) -> String {
+    wrap(BOLD_RED, s)
+}
+pub fn bold_green(s: &str) -> String {
+    wrap(BOLD_GREEN, s)
+}
+pub fn bold_cyan(s: &str) -> String {
+    wrap(BOLD_CYAN, s)
+}
+pub fn bold_yellow(s: &str) -> String {
+    wrap(BOLD_YELLOW, s)
+}

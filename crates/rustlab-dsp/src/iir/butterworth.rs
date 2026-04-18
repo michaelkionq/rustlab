@@ -1,8 +1,8 @@
-use std::f64::consts::PI;
+use crate::error::DspError;
 use ndarray::Array1;
 use num_complex::Complex;
-use rustlab_core::{C64, CVector, CoreError, Filter};
-use crate::error::DspError;
+use rustlab_core::{CVector, CoreError, Filter, C64};
+use std::f64::consts::PI;
 
 /// An IIR filter defined by its numerator (`b`) and denominator (`a`)
 /// polynomial coefficients in direct-form II transposed representation.
@@ -64,7 +64,9 @@ impl IirFilter {
     ///   5. Extract center portion corresponding to original signal.
     pub fn filtfilt(&self, x: &[f64]) -> Vec<f64> {
         let nx = x.len();
-        if nx == 0 { return vec![]; }
+        if nx == 0 {
+            return vec![];
+        }
         let nb = self.b.len();
         let na = self.a.len();
         let n = nb.max(na);
@@ -85,11 +87,19 @@ impl IirFilter {
         // Steady-state DC gain
         let sum_b: f64 = b.iter().sum();
         let sum_a: f64 = a.iter().sum();
-        let kdc = if sum_a.abs() > 1e-300 { sum_b / sum_a } else { 0.0 };
+        let kdc = if sum_a.abs() > 1e-300 {
+            sum_b / sum_a
+        } else {
+            0.0
+        };
 
         // si = fliplr(cumsum(fliplr(b - kdc*a))); si(1) = []
         // i.e., b - kdc*a reversed, cumulative sum, reversed, drop first element
-        let diff: Vec<f64> = b.iter().zip(a.iter()).map(|(&bi, &ai)| bi - kdc * ai).collect();
+        let diff: Vec<f64> = b
+            .iter()
+            .zip(a.iter())
+            .map(|(&bi, &ai)| bi - kdc * ai)
+            .collect();
         // fliplr then cumsum
         let mut rev_diff: Vec<f64> = diff.iter().rev().cloned().collect();
         // cumsum in-place
@@ -137,7 +147,9 @@ impl IirFilter {
         let na = self.a.len();
         let mut w = vec![0.0f64; state_len];
         for (i, &v) in ic.iter().enumerate() {
-            if i < state_len { w[i] = v; }
+            if i < state_len {
+                w[i] = v;
+            }
         }
         let mut output = vec![0.0f64; input.len()];
         for (idx, &x) in input.iter().enumerate() {
@@ -163,7 +175,10 @@ impl Filter for IirFilter {
         let im_out = self.apply_real(&im);
 
         let result = Array1::from_iter(
-            re_out.iter().zip(im_out.iter()).map(|(&r, &i)| Complex::new(r, i))
+            re_out
+                .iter()
+                .zip(im_out.iter())
+                .map(|(&r, &i)| Complex::new(r, i)),
         );
         Ok(result)
     }
@@ -173,27 +188,39 @@ impl Filter for IirFilter {
             return Ok(Array1::zeros(0));
         }
 
-        let response = (0..n_points).map(|i| {
-            // Normalized frequency omega in [0, pi)
-            let omega = PI * i as f64 / n_points as f64;
+        let response = (0..n_points)
+            .map(|i| {
+                // Normalized frequency omega in [0, pi)
+                let omega = PI * i as f64 / n_points as f64;
 
-            // Evaluate B(z) and A(z) at z = e^{j*omega}
-            let bz: C64 = self.b.iter().enumerate().map(|(k, &bk)| {
-                let angle = -(omega * k as f64);
-                Complex::new(bk, 0.0) * Complex::new(angle.cos(), angle.sin())
-            }).sum();
+                // Evaluate B(z) and A(z) at z = e^{j*omega}
+                let bz: C64 = self
+                    .b
+                    .iter()
+                    .enumerate()
+                    .map(|(k, &bk)| {
+                        let angle = -(omega * k as f64);
+                        Complex::new(bk, 0.0) * Complex::new(angle.cos(), angle.sin())
+                    })
+                    .sum();
 
-            let az: C64 = self.a.iter().enumerate().map(|(k, &ak)| {
-                let angle = -(omega * k as f64);
-                Complex::new(ak, 0.0) * Complex::new(angle.cos(), angle.sin())
-            }).sum();
+                let az: C64 = self
+                    .a
+                    .iter()
+                    .enumerate()
+                    .map(|(k, &ak)| {
+                        let angle = -(omega * k as f64);
+                        Complex::new(ak, 0.0) * Complex::new(angle.cos(), angle.sin())
+                    })
+                    .sum();
 
-            if az.norm() < 1e-15 {
-                Complex::new(0.0, 0.0)
-            } else {
-                bz / az
-            }
-        }).collect::<Vec<_>>();
+                if az.norm() < 1e-15 {
+                    Complex::new(0.0, 0.0)
+                } else {
+                    bz / az
+                }
+            })
+            .collect::<Vec<_>>();
 
         Ok(Array1::from_vec(response))
     }
@@ -243,13 +270,20 @@ fn poly_multiply(a: &[f64], b: &[f64]) -> Vec<f64> {
 /// # Errors
 /// Returns [`DspError::InvalidOrder`] if `order == 0`, or
 /// [`DspError::InvalidCutoff`] if `cutoff_hz` is out of range.
-pub fn butterworth_lowpass(order: usize, cutoff_hz: f64, sample_rate: f64) -> Result<IirFilter, DspError> {
+pub fn butterworth_lowpass(
+    order: usize,
+    cutoff_hz: f64,
+    sample_rate: f64,
+) -> Result<IirFilter, DspError> {
     if order == 0 {
         return Err(DspError::InvalidOrder(order));
     }
     let nyquist = sample_rate / 2.0;
     if cutoff_hz <= 0.0 || cutoff_hz >= nyquist {
-        return Err(DspError::InvalidCutoff { cutoff: cutoff_hz, nyquist });
+        return Err(DspError::InvalidCutoff {
+            cutoff: cutoff_hz,
+            nyquist,
+        });
     }
 
     let sections = butterworth_lp_sections(order, cutoff_hz, sample_rate);
@@ -260,7 +294,10 @@ pub fn butterworth_lowpass(order: usize, cutoff_hz: f64, sample_rate: f64) -> Re
         b_total = poly_multiply(&b_total, &section.b);
         a_total = poly_multiply(&a_total, &section.a);
     }
-    Ok(IirFilter { b: b_total, a: a_total })
+    Ok(IirFilter {
+        b: b_total,
+        a: a_total,
+    })
 }
 
 /// Design an Nth-order Butterworth highpass IIR filter.
@@ -283,13 +320,20 @@ pub fn butterworth_lowpass(order: usize, cutoff_hz: f64, sample_rate: f64) -> Re
 /// # Errors
 /// Returns [`DspError::InvalidOrder`] if `order == 0`, or
 /// [`DspError::InvalidCutoff`] if `cutoff_hz` is out of range.
-pub fn butterworth_highpass(order: usize, cutoff_hz: f64, sample_rate: f64) -> Result<IirFilter, DspError> {
+pub fn butterworth_highpass(
+    order: usize,
+    cutoff_hz: f64,
+    sample_rate: f64,
+) -> Result<IirFilter, DspError> {
     if order == 0 {
         return Err(DspError::InvalidOrder(order));
     }
     let nyquist = sample_rate / 2.0;
     if cutoff_hz <= 0.0 || cutoff_hz >= nyquist {
-        return Err(DspError::InvalidCutoff { cutoff: cutoff_hz, nyquist });
+        return Err(DspError::InvalidCutoff {
+            cutoff: cutoff_hz,
+            nyquist,
+        });
     }
 
     let sections = butterworth_hp_sections(order, cutoff_hz, sample_rate);
@@ -299,7 +343,10 @@ pub fn butterworth_highpass(order: usize, cutoff_hz: f64, sample_rate: f64) -> R
         b_total = poly_multiply(&b_total, &section.b);
         a_total = poly_multiply(&a_total, &section.a);
     }
-    Ok(IirFilter { b: b_total, a: a_total })
+    Ok(IirFilter {
+        b: b_total,
+        a: a_total,
+    })
 }
 
 /// Build Butterworth lowpass as a list of 1st/2nd order IirFilter sections.

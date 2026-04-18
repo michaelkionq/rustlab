@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 use rustlab_plot::Theme;
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
@@ -99,7 +99,13 @@ enum Command {
 fn main() {
     let cli = Cli::parse();
     match cli.command {
-        Command::Render { input, output, format, theme, title } => {
+        Command::Render {
+            input,
+            output,
+            format,
+            theme,
+            title,
+        } => {
             let theme = match theme {
                 CliTheme::Dark => Theme::Dark,
                 CliTheme::Light => Theme::Light,

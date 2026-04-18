@@ -1,5 +1,5 @@
-use clap::{Parser, Subcommand};
 use anyhow::Result;
+use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
@@ -38,14 +38,14 @@ pub enum Commands {
 impl Cli {
     pub fn execute(self) -> Result<()> {
         match self.command.unwrap_or(Commands::Repl) {
-            Commands::Repl           => crate::commands::repl::execute(),
-            Commands::Run(args)      => crate::commands::run::execute(args),
-            Commands::Filter(cmd)    => crate::commands::filter::execute(cmd),
+            Commands::Repl => crate::commands::repl::execute(),
+            Commands::Run(args) => crate::commands::run::execute(args),
+            Commands::Filter(cmd) => crate::commands::filter::execute(cmd),
             Commands::Convolve(args) => crate::commands::convolve::execute(args),
-            Commands::Window(args)   => crate::commands::window::execute(args),
-            Commands::Plot(args)     => crate::commands::plot::execute(args),
-            Commands::Notebook(cmd)  => crate::commands::notebook::execute(cmd),
-            Commands::Info           => crate::commands::info::execute(),
+            Commands::Window(args) => crate::commands::window::execute(args),
+            Commands::Plot(args) => crate::commands::plot::execute(args),
+            Commands::Notebook(cmd) => crate::commands::notebook::execute(cmd),
+            Commands::Info => crate::commands::info::execute(),
         }
     }
 }

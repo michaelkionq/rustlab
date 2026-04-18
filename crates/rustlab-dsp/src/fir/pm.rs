@@ -12,11 +12,11 @@
 //! Parks & McClellan, "Chebyshev Approximation for Nonrecursive Digital Filters
 //! with Linear Phase", *IEEE Trans. Circuit Theory*, 1972.
 
-use std::f64::consts::PI;
+use super::design::FirFilter;
+use crate::error::DspError;
 use ndarray::Array1;
 use num_complex::Complex;
-use crate::error::DspError;
-use super::design::FirFilter;
+use std::f64::consts::PI;
 
 // ── Tuning constants ─────────────────────────────────────────────────────────
 
@@ -35,19 +35,19 @@ const GRID_DENSITY: usize = 16;
 /// One specified frequency band.
 #[derive(Debug, Clone)]
 struct Band {
-    lower:         f64, // normalised [0, 1] where 1 = Nyquist
-    upper:         f64,
+    lower: f64, // normalised [0, 1] where 1 = Nyquist
+    upper: f64,
     desired_lower: f64, // desired amplitude at the lower edge
     desired_upper: f64, // desired amplitude at the upper edge (linear interpolation within band)
-    weight:        f64, // error weight for this band
+    weight: f64,        // error weight for this band
 }
 
 /// One point on the dense frequency grid.
 #[derive(Debug, Clone, Copy)]
 struct Pt {
-    freq:    f64, // normalised frequency [0, 1]
+    freq: f64,    // normalised frequency [0, 1]
     desired: f64, // desired amplitude at this frequency
-    weight:  f64, // error weight
+    weight: f64,  // error weight
 }
 
 impl Pt {
@@ -89,84 +89,88 @@ impl Pt {
 /// Returns [`DspError::InvalidPmSpec`] if the arguments are malformed (wrong
 /// lengths, out-of-range frequencies, etc.).
 pub fn firpm(
-    n_taps:  usize,
-    bands:   &[f64],
+    n_taps: usize,
+    bands: &[f64],
     desired: &[f64],
     weights: &[f64],
 ) -> Result<FirFilter, DspError> {
-
     // ── Validate ──────────────────────────────────────────────────────────────
     if n_taps < 3 {
-        return Err(DspError::InvalidPmSpec(
-            format!("n_taps must be >= 3, got {n_taps}")
-        ));
+        return Err(DspError::InvalidPmSpec(format!(
+            "n_taps must be >= 3, got {n_taps}"
+        )));
     }
     if bands.len() < 4 || bands.len() % 2 != 0 {
         return Err(DspError::InvalidPmSpec(
-            "bands must have an even length >= 4 (one pair per band)".into()
+            "bands must have an even length >= 4 (one pair per band)".into(),
         ));
     }
     if desired.len() != bands.len() {
-        return Err(DspError::InvalidPmSpec(
-            format!("desired must have the same length as bands ({}), got {}",
-                bands.len(), desired.len())
-        ));
+        return Err(DspError::InvalidPmSpec(format!(
+            "desired must have the same length as bands ({}), got {}",
+            bands.len(),
+            desired.len()
+        )));
     }
     for (i, &f) in bands.iter().enumerate() {
         if !(0.0..=1.0).contains(&f) {
-            return Err(DspError::InvalidPmSpec(
-                format!("bands[{i}] = {f} is outside [0, 1]")
-            ));
+            return Err(DspError::InvalidPmSpec(format!(
+                "bands[{i}] = {f} is outside [0, 1]"
+            )));
         }
     }
     for i in 0..bands.len() - 1 {
         if bands[i] > bands[i + 1] {
-            return Err(DspError::InvalidPmSpec(
-                format!("bands must be non-decreasing; bands[{i}] > bands[{}]", i + 1)
-            ));
+            return Err(DspError::InvalidPmSpec(format!(
+                "bands must be non-decreasing; bands[{i}] > bands[{}]",
+                i + 1
+            )));
         }
     }
     let n_bands = bands.len() / 2;
     let weights: Vec<f64> = if weights.is_empty() {
         vec![1.0; n_bands]
     } else if weights.len() != n_bands {
-        return Err(DspError::InvalidPmSpec(
-            format!("weights must have length {n_bands} (one per band), got {}", weights.len())
-        ));
+        return Err(DspError::InvalidPmSpec(format!(
+            "weights must have length {n_bands} (one per band), got {}",
+            weights.len()
+        )));
     } else {
         for (i, &w) in weights.iter().enumerate() {
             if w < 0.0 {
-                return Err(DspError::InvalidPmSpec(
-                    format!("weights[{i}] = {w} is negative")
-                ));
+                return Err(DspError::InvalidPmSpec(format!(
+                    "weights[{i}] = {w} is negative"
+                )));
             }
         }
         weights.to_vec()
     };
 
     // ── Build band structs ────────────────────────────────────────────────────
-    let band_specs: Vec<Band> = (0..n_bands).map(|i| Band {
-        lower:         bands[2 * i],
-        upper:         bands[2 * i + 1],
-        desired_lower: desired[2 * i],
-        desired_upper: desired[2 * i + 1],
-        weight:        weights[i],
-    }).collect();
+    let band_specs: Vec<Band> = (0..n_bands)
+        .map(|i| Band {
+            lower: bands[2 * i],
+            upper: bands[2 * i + 1],
+            desired_lower: desired[2 * i],
+            desired_upper: desired[2 * i + 1],
+            weight: weights[i],
+        })
+        .collect();
 
     // ── Force odd tap count (Type I) ──────────────────────────────────────────
     let n_taps = if n_taps % 2 == 0 { n_taps + 1 } else { n_taps };
     let m = (n_taps - 1) / 2; // half-order: H(ω) = Σ_{k=0}^{m} a[k] cos(kω)
 
     // ── Run Remez ─────────────────────────────────────────────────────────────
-    let n_ext  = m + 2;
+    let n_ext = m + 2;
     let n_grid = (GRID_DENSITY * n_ext).max(512);
-    let grid   = build_grid(&band_specs, n_grid);
+    let grid = build_grid(&band_specs, n_grid);
 
     if grid.len() < n_ext {
-        return Err(DspError::InvalidPmSpec(
-            format!("grid too small ({}) for {n_ext} extremals — widen the bands or reduce n_taps",
-                grid.len())
-        ));
+        return Err(DspError::InvalidPmSpec(format!(
+            "grid too small ({}) for {n_ext} extremals — widen the bands or reduce n_taps",
+            grid.len()
+        )));
     }
 
     let cos_coeffs = remez(&grid, m)?;
@@ -207,25 +211,24 @@ pub fn firpm(
 /// - `n_iter` — number of iterative-compensation passes.  0 = plain round
 ///   with no refinement; 4–8 iterations are usually sufficient.
 pub fn firpmq(
-    n_taps:  usize,
-    bands:   &[f64],
+    n_taps: usize,
+    bands: &[f64],
     desired: &[f64],
     weights: &[f64],
-    bits:    u32,
-    n_iter:  usize,
+    bits: u32,
+    n_iter: usize,
 ) -> Result<FirFilter, DspError> {
-
     if !(2..=32).contains(&bits) {
-        return Err(DspError::InvalidPmSpec(
-            format!("firpmq: bits must be in [2, 32], got {bits}")
-        ));
+        return Err(DspError::InvalidPmSpec(format!(
+            "firpmq: bits must be in [2, 32], got {bits}"
+        )));
     }
 
     let i_max = (1i64 << (bits - 1)) as f64 - 1.0; // e.g. 32 767 for 16-bit
 
     // ── Initial float design ──────────────────────────────────────────────────
     let h0 = firpm(n_taps, bands, desired, weights)?;
-    let n   = h0.coefficients.len();
+    let n = h0.coefficients.len();
     let mut h_float: Vec<f64> = h0.coefficients.iter().map(|c| c.re).collect();
 
     // Scale so that max(|h|) maps to i_max.
@@ -236,7 +239,8 @@ pub fn firpmq(
     let scale = i_max / peak;
 
     // ── Initial round ─────────────────────────────────────────────────────────
-    let mut h_int: Vec<f64> = h_float.iter()
+    let mut h_int: Vec<f64> = h_float
+        .iter()
         .map(|&x| (x * scale).round().clamp(-i_max, i_max))
         .collect();
 
@@ -253,22 +257,27 @@ pub fn firpmq(
 
     for _ in 0..n_iter {
         // Residual = fractional part lost to rounding, in integer-scaled units.
-        let residual: Vec<f64> = h_float.iter().zip(h_int.iter())
+        let residual: Vec<f64> = h_float
+            .iter()
+            .zip(h_int.iter())
             .map(|(&f, &i)| f * scale - i)
             .collect();
 
         // Evaluate the residual's frequency response at each band edge and
         // add it back to the desired target (pre-distortion).
-        let adjusted_desired: Vec<f64> = bands.iter().zip(desired.iter())
+        let adjusted_desired: Vec<f64> = bands
+            .iter()
+            .zip(desired.iter())
             .map(|(&freq, &d)| d + eval_fir_response(&residual, freq) / scale)
             .collect();
 
         let h_new = match firpm(n, bands, &adjusted_desired, &cur_weights) {
-            Ok(f)  => f,
+            Ok(f) => f,
             Err(_) => break,
         };
         h_float = h_new.coefficients.iter().map(|c| c.re).collect();
-        h_int   = h_float.iter()
+        h_int = h_float
+            .iter()
             .map(|&x| (x * scale).round().clamp(-i_max, i_max))
             .collect();
     }
@@ -279,7 +288,7 @@ pub fn firpmq(
     let m = (n - 1) / 2;
     for k in 0..m {
         let avg = ((h_int[k] + h_int[n - 1 - k]) / 2.0).round();
-        h_int[k]         = avg;
+        h_int[k] = avg;
         h_int[n - 1 - k] = avg;
     }
 
@@ -294,8 +303,9 @@ pub fn firpmq(
 /// `H(f) = Σ_k h[k] · cos((k − m) · π · f)`, valid for any real h.
 fn eval_fir_response(h: &[f64], f: f64) -> f64 {
     let omega = PI * f;
-    let m     = (h.len() as f64 - 1.0) / 2.0;
-    h.iter().enumerate()
+    let m = (h.len() as f64 - 1.0) / 2.0;
+    h.iter()
+        .enumerate()
         .map(|(k, &hk)| hk * ((k as f64 - m) * omega).cos())
         .sum()
 }
@@ -306,18 +316,26 @@ fn eval_fir_response(h: &[f64], f: f64) -> f64 {
 /// proportionally across all specified bands.
 fn build_grid(bands: &[Band], n_grid: usize) -> Vec<Pt> {
     let total_bw: f64 = bands.iter().map(|b| (b.upper - b.lower).max(0.0)).sum();
-    if total_bw == 0.0 { return vec![]; }
+    if total_bw == 0.0 {
+        return vec![];
+    }
 
     let mut grid = Vec::with_capacity(n_grid + bands.len());
     for band in bands {
         let bw = (band.upper - band.lower).max(0.0);
-        if bw == 0.0 { continue; }
+        if bw == 0.0 {
+            continue;
+        }
         let n_pts = ((bw / total_bw * n_grid as f64).ceil() as usize).max(2);
         for i in 0..n_pts {
-            let t       = i as f64 / (n_pts - 1) as f64;
-            let freq    = band.lower + t * bw;
+            let t = i as f64 / (n_pts - 1) as f64;
+            let freq = band.lower + t * bw;
             let desired = band.desired_lower + t * (band.desired_upper - band.desired_lower);
-            grid.push(Pt { freq, desired, weight: band.weight });
+            grid.push(Pt {
+                freq,
+                desired,
+                weight: band.weight,
+            });
         }
     }
     grid
@@ -329,12 +347,10 @@ fn build_grid(bands: &[Band], n_grid: usize) -> Vec<Pt> {
 /// `a[0], a[1], …, a[m]` of the optimal filter.
 fn remez(grid: &[Pt], m: usize) -> Result<Vec<f64>, DspError> {
     let n_grid = grid.len();
-    let n_ext  = m + 2;
+    let n_ext = m + 2;
 
     // Initial extremals: evenly spaced across the grid indices
-    let mut ext: Vec<usize> = (0..n_ext)
-        .map(|i| i * (n_grid - 1) / (n_ext - 1))
-        .collect();
+    let mut ext: Vec<usize> = (0..n_ext).map(|i| i * (n_grid - 1) / (n_ext - 1)).collect();
 
     let mut delta = 0.0_f64;
 
@@ -401,9 +417,16 @@ fn bary_magnitudes(x: &[f64]) -> Vec<f64> {
         }
     }
     let max_log = log_m.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    log_m.iter()
-         .map(|&l| if l.is_finite() { (l - max_log).exp() } else { 0.0 })
-         .collect()
+    log_m
+        .iter()
+        .map(|&l| {
+            if l.is_finite() {
+                (l - max_log).exp()
+            } else {
+                0.0
+            }
+        })
+        .collect()
 }
 
 // ── δ computation ─────────────────────────────────────────────────────────────
@@ -422,16 +445,25 @@ fn bary_magnitudes(x: &[f64]) -> Vec<f64> {
 /// so the true λ_k = (−1)^k |λ_k|), D_k is the desired response, and W_k the
 /// weight at extremal k.
 fn compute_delta(ext: &[usize], grid: &[Pt], mag: &[f64]) -> f64 {
-    let numer: f64 = ext.iter().zip(mag.iter()).enumerate()
+    let numer: f64 = ext
+        .iter()
+        .zip(mag.iter())
+        .enumerate()
         .map(|(k, (&i, &m))| {
             let sign = if k % 2 == 0 { 1.0 } else { -1.0 };
             sign * m * grid[i].desired
         })
         .sum();
-    let denom: f64 = ext.iter().zip(mag.iter())
+    let denom: f64 = ext
+        .iter()
+        .zip(mag.iter())
         .map(|(&i, &m)| m / grid[i].weight)
         .sum();
-    if denom.abs() < 1e-30 { 0.0 } else { numer / denom }
+    if denom.abs() < 1e-30 {
+        0.0
+    } else {
+        numer / denom
+    }
 }
 
 // ── Error evaluation ──────────────────────────────────────────────────────────
@@ -452,31 +484,39 @@ fn compute_errors(grid: &[Pt], ext: &[usize], mag: &[f64], delta: f64) -> Vec<f6
     let x_ext: Vec<f64> = ext.iter().map(|&i| grid[i].x()).collect();
 
     // Target values at each extremal: v_k = D_k − (−1)^k δ/W_k
-    let v_ext: Vec<f64> = (0..n_ext).map(|k| {
-        let sign = if k % 2 == 0 { 1.0 } else { -1.0 };
-        grid[ext[k]].desired - sign * delta / grid[ext[k]].weight
-    }).collect();
-
-    grid.iter().map(|pt| {
-        let x = pt.x();
-
-        // If x coincides with an extremal node return the exact value
-        if let Some(k) = x_ext.iter().position(|&xe| (x - xe).abs() < 1e-13) {
-            return pt.weight * (pt.desired - v_ext[k]);
-        }
-
-        // Barycentric Lagrange: apply (−1)^k sign from decreasing-order convention
-        let mut numer = 0.0_f64;
-        let mut denom = 0.0_f64;
-        for k in 0..n_ext {
+    let v_ext: Vec<f64> = (0..n_ext)
+        .map(|k| {
             let sign = if k % 2 == 0 { 1.0 } else { -1.0 };
-            let t = sign * mag[k] / (x - x_ext[k]);
-            numer += t * v_ext[k];
-            denom += t;
-        }
-        let h = if denom.abs() < 1e-30 { v_ext[0] } else { numer / denom };
-        pt.weight * (pt.desired - h)
-    }).collect()
+            grid[ext[k]].desired - sign * delta / grid[ext[k]].weight
+        })
+        .collect();
+
+    grid.iter()
+        .map(|pt| {
+            let x = pt.x();
+
+            // If x coincides with an extremal node return the exact value
+            if let Some(k) = x_ext.iter().position(|&xe| (x - xe).abs() < 1e-13) {
+                return pt.weight * (pt.desired - v_ext[k]);
+            }
+
+            // Barycentric Lagrange: apply (−1)^k sign from decreasing-order convention
+            let mut numer = 0.0_f64;
+            let mut denom = 0.0_f64;
+            for k in 0..n_ext {
+                let sign = if k % 2 == 0 { 1.0 } else { -1.0 };
+                let t = sign * mag[k] / (x - x_ext[k]);
+                numer += t * v_ext[k];
+                denom += t;
+            }
+            let h = if denom.abs() < 1e-30 {
+                v_ext[0]
+            } else {
+                numer / denom
+            };
+            pt.weight * (pt.desired - h)
+        })
+        .collect()
 }
 
 // ── Extremal search ───────────────────────────────────────────────────────────
@@ -499,8 +539,16 @@ fn find_extremals(errors: &[f64], n_ext: usize, n_grid: usize) -> Vec<usize> {
     let mut cur_region: Vec<usize> = Vec::new();
 
     for (i, &e) in errors.iter().enumerate() {
-        let s = if e > 0.0 { 1.0 } else if e < 0.0 { -1.0 } else { 0.0 };
-        if s == 0.0 { continue; }
+        let s = if e > 0.0 {
+            1.0
+        } else if e < 0.0 {
+            -1.0
+        } else {
+            0.0
+        };
+        if s == 0.0 {
+            continue;
+        }
         if s != cur_sign {
             if !cur_region.is_empty() {
                 regions.push(cur_region.clone());
@@ -515,11 +563,20 @@ fn find_extremals(errors: &[f64], n_ext: usize, n_grid: usize) -> Vec<usize> {
     }
 
     // ── Best index per sign region (max |E|) ──────────────────────────────────
-    let mut ext: Vec<usize> = regions.iter().map(|region| {
-        *region.iter()
-               .max_by(|&&a, &&b| errors[a].abs().partial_cmp(&errors[b].abs()).unwrap_or(std::cmp::Ordering::Equal))
-               .unwrap()
-    }).collect();
+    let mut ext: Vec<usize> = regions
+        .iter()
+        .map(|region| {
+            *region
+                .iter()
+                .max_by(|&&a, &&b| {
+                    errors[a]
+                        .abs()
+                        .partial_cmp(&errors[b].abs())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .unwrap()
+        })
+        .collect();
 
     // ── Trim to exactly n_ext ─────────────────────────────────────────────────
     if ext.len() < n_ext {
@@ -528,7 +585,7 @@ fn find_extremals(errors: &[f64], n_ext: usize, n_grid: usize) -> Vec<usize> {
     }
     while ext.len() > n_ext {
         let e_first = errors[ext[0]].abs();
-        let e_last  = errors[*ext.last().unwrap()].abs();
+        let e_last = errors[*ext.last().unwrap()].abs();
         if e_first <= e_last {
             ext.remove(0);
         } else {
@@ -550,39 +607,51 @@ fn find_extremals(errors: &[f64], n_ext: usize, n_grid: usize) -> Vec<usize> {
 /// a[n>0] = (2/m) [H₀/2 + Σ_{k=1}^{m−1} H_k cos(nkπ/m) + (−1)^n H_m/2]
 /// ```
 fn extract_cosine_coeffs(
-    grid:  &[Pt],
-    ext:   &[usize],
-    mag:   &[f64],
+    grid: &[Pt],
+    ext: &[usize],
+    mag: &[f64],
     delta: f64,
-    m:     usize,
+    m: usize,
 ) -> Vec<f64> {
     let n_ext = ext.len();
     let x_ext: Vec<f64> = ext.iter().map(|&i| grid[i].x()).collect();
-    let v_ext: Vec<f64> = (0..n_ext).map(|k| {
-        let sign = if k % 2 == 0 { 1.0 } else { -1.0 };
-        grid[ext[k]].desired - sign * delta / grid[ext[k]].weight
-    }).collect();
+    let v_ext: Vec<f64> = (0..n_ext)
+        .map(|k| {
+            let sign = if k % 2 == 0 { 1.0 } else { -1.0 };
+            grid[ext[k]].desired - sign * delta / grid[ext[k]].weight
+        })
+        .collect();
 
     // Evaluate H at the m+1 DCT-I sample frequencies
-    let h_vals: Vec<f64> = (0..=m).map(|k| {
-        let x = if m == 0 { 1.0 } else { (k as f64 * PI / m as f64).cos() };
+    let h_vals: Vec<f64> = (0..=m)
+        .map(|k| {
+            let x = if m == 0 {
+                1.0
+            } else {
+                (k as f64 * PI / m as f64).cos()
+            };
 
-        // Exact match with an extremal node?
-        if let Some(j) = x_ext.iter().position(|&xe| (x - xe).abs() < 1e-13) {
-            return v_ext[j];
-        }
+            // Exact match with an extremal node?
+            if let Some(j) = x_ext.iter().position(|&xe| (x - xe).abs() < 1e-13) {
+                return v_ext[j];
+            }
 
-        // Barycentric formula
-        let mut numer = 0.0_f64;
-        let mut denom = 0.0_f64;
-        for j in 0..n_ext {
-            let sign = if j % 2 == 0 { 1.0 } else { -1.0 };
-            let t = sign * mag[j] / (x - x_ext[j]);
-            numer += t * v_ext[j];
-            denom += t;
-        }
-        if denom.abs() < 1e-30 { v_ext[0] } else { numer / denom }
-    }).collect();
+            // Barycentric formula
+            let mut numer = 0.0_f64;
+            let mut denom = 0.0_f64;
+            for j in 0..n_ext {
+                let sign = if j % 2 == 0 { 1.0 } else { -1.0 };
+                let t = sign * mag[j] / (x - x_ext[j]);
+                numer += t * v_ext[j];
+                denom += t;
+            }
+            if denom.abs() < 1e-30 {
+                v_ext[0]
+            } else {
+                numer / denom
+            }
+        })
+        .collect();
 
     if m == 0 {
         return vec![h_vals[0]];

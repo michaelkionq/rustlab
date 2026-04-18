@@ -22,10 +22,10 @@
 //! | Blackman    | 3× rect        | ~−57 dB      |
 //! | Kaiser(β)   | Parametric     | Parametric   |
 
-use std::f64::consts::PI;
-use rustlab_core::RVector;
-use ndarray::Array1;
 use crate::error::DspError;
+use ndarray::Array1;
+use rustlab_core::RVector;
+use std::f64::consts::PI;
 
 /// Available window functions for FIR filter design and spectral analysis.
 ///
@@ -103,13 +103,13 @@ impl WindowFunction {
         match self {
             WindowFunction::Rectangular => Array1::ones(n),
 
-            WindowFunction::Hann => Array1::from_iter((0..n).map(|i| {
-                0.5 * (1.0 - (2.0 * PI * i as f64 / m).cos())
-            })),
+            WindowFunction::Hann => {
+                Array1::from_iter((0..n).map(|i| 0.5 * (1.0 - (2.0 * PI * i as f64 / m).cos())))
+            }
 
-            WindowFunction::Hamming => Array1::from_iter((0..n).map(|i| {
-                0.54 - 0.46 * (2.0 * PI * i as f64 / m).cos()
-            })),
+            WindowFunction::Hamming => {
+                Array1::from_iter((0..n).map(|i| 0.54 - 0.46 * (2.0 * PI * i as f64 / m).cos()))
+            }
 
             WindowFunction::Blackman => Array1::from_iter((0..n).map(|i| {
                 let x = 2.0 * PI * i as f64 / m;

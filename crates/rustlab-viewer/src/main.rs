@@ -67,9 +67,7 @@ fn main() {
     eframe::run_native(
         &title,
         options,
-        Box::new(move |_cc| {
-            Ok(Box::new(app::ViewerApp::new(rx)))
-        }),
+        Box::new(move |_cc| Ok(Box::new(app::ViewerApp::new(rx)))),
     )
     .expect("failed to run eframe");
 

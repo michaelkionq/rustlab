@@ -1,5 +1,5 @@
-use clap::Args;
 use anyhow::Result;
+use clap::Args;
 use rustlab_dsp::WindowFunction;
 
 #[derive(Args)]
@@ -19,8 +19,8 @@ pub struct WindowArgs {
 }
 
 pub fn execute(args: WindowArgs) -> Result<()> {
-    let window = WindowFunction::from_str(&args.r#type, args.beta)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let window =
+        WindowFunction::from_str(&args.r#type, args.beta).map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let samples = window.generate(args.length);
 
@@ -31,8 +31,7 @@ pub fn execute(args: WindowArgs) -> Result<()> {
 
     if args.plot {
         let title = format!("{} window (N={})", args.r#type, args.length);
-        rustlab_plot::stem_real(&samples, &title)
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        rustlab_plot::stem_real(&samples, &title).map_err(|e| anyhow::anyhow!("{}", e))?;
     }
 
     Ok(())

@@ -4,7 +4,9 @@
 mod window_tests {
     use crate::window::WindowFunction;
 
-    fn close(a: f64, b: f64) -> bool { (a - b).abs() < 1e-9 }
+    fn close(a: f64, b: f64) -> bool {
+        (a - b).abs() < 1e-9
+    }
 
     #[test]
     fn rectangular_all_ones() {
@@ -25,7 +27,10 @@ mod window_tests {
         let n = 17;
         let w = WindowFunction::Hann.generate(n);
         let center_val = w[(n - 1) / 2];
-        assert!(close(center_val, 1.0), "Hann center should be 1.0, got {center_val}");
+        assert!(
+            close(center_val, 1.0),
+            "Hann center should be 1.0, got {center_val}"
+        );
     }
 
     #[test]
@@ -56,7 +61,10 @@ mod window_tests {
     fn kaiser_beta_zero_is_rectangular() {
         let w = WindowFunction::Kaiser { beta: 0.0 }.generate(16);
         // Kaiser(beta=0) -> all ones (I0(0)=1, I0(0·√...)=1)
-        assert!(w.iter().all(|&x| close(x, 1.0)), "Kaiser(beta=0) should equal rectangular");
+        assert!(
+            w.iter().all(|&x| close(x, 1.0)),
+            "Kaiser(beta=0) should equal rectangular"
+        );
     }
 
     #[test]
@@ -119,13 +127,15 @@ mod window_tests {
 
 #[cfg(test)]
 mod fir_tests {
-    use crate::fir::design::{fir_lowpass, fir_highpass, fir_bandpass};
+    use crate::fir::design::{fir_bandpass, fir_highpass, fir_lowpass};
     use crate::window::WindowFunction;
-    use rustlab_core::Filter;
     use ndarray::Array1;
     use num_complex::Complex;
+    use rustlab_core::Filter;
 
-    fn close(a: f64, b: f64, tol: f64) -> bool { (a - b).abs() < tol }
+    fn close(a: f64, b: f64, tol: f64) -> bool {
+        (a - b).abs() < tol
+    }
 
     /// Sum of squared imaginary parts — should be ~0 for windowed-sinc filters.
     fn imag_energy(coeffs: &rustlab_core::CVector) -> f64 {
@@ -141,7 +151,10 @@ mod fir_tests {
     #[test]
     fn lowpass_real_coefficients() {
         let f = fir_lowpass(31, 1000.0, 8000.0, WindowFunction::Hann).unwrap();
-        assert!(imag_energy(&f.coefficients) < 1e-20, "FIR coefficients should be real");
+        assert!(
+            imag_energy(&f.coefficients) < 1e-20,
+            "FIR coefficients should be real"
+        );
     }
 
     #[test]
@@ -241,12 +254,14 @@ mod fir_tests {
 
 #[cfg(test)]
 mod iir_tests {
-    use crate::iir::butterworth::{butterworth_lowpass, butterworth_highpass};
-    use rustlab_core::Filter;
+    use crate::iir::butterworth::{butterworth_highpass, butterworth_lowpass};
     use ndarray::Array1;
     use num_complex::Complex;
+    use rustlab_core::Filter;
 
-    fn close(a: f64, b: f64, tol: f64) -> bool { (a - b).abs() < tol }
+    fn close(a: f64, b: f64, tol: f64) -> bool {
+        (a - b).abs() < tol
+    }
 
     #[test]
     fn zero_order_returns_error() {
@@ -306,7 +321,10 @@ mod iir_tests {
         let sum_b: f64 = f.b.iter().sum();
         let sum_a: f64 = f.a.iter().sum();
         let dc_gain = sum_b / sum_a;
-        assert!(close(dc_gain, 1.0, 0.02), "Butterworth LP DC gain ~1, got {dc_gain}");
+        assert!(
+            close(dc_gain, 1.0, 0.02),
+            "Butterworth LP DC gain ~1, got {dc_gain}"
+        );
     }
 
     #[test]
@@ -340,7 +358,11 @@ mod iir_tests {
         let n = 1000;
         let signal = Array1::from_elem(n, Complex::new(1.0, 0.0));
         let out = f.apply(&signal).unwrap();
-        assert!(close(out[n - 1].re, 1.0, 0.02), "LP steady-state should be ~1.0, got {}", out[n-1].re);
+        assert!(
+            close(out[n - 1].re, 1.0, 0.02),
+            "LP steady-state should be ~1.0, got {}",
+            out[n - 1].re
+        );
     }
 
     #[test]
@@ -350,11 +372,17 @@ mod iir_tests {
         // For a digital Butterworth, |a[2]| < 1 and |a[1]| < 1 + a[2] (Jury stability).
         // We use the simpler proxy: |a[1]| < 2.0 and |a[2]| < 1.0.
         let f = butterworth_lowpass(2, 1000.0, 8000.0).unwrap();
-        assert!(f.a.len() >= 3, "order-2 filter should have at least 3 'a' coefficients");
+        assert!(
+            f.a.len() >= 3,
+            "order-2 filter should have at least 3 'a' coefficients"
+        );
         let a1 = f.a[1].abs();
         let a2 = f.a[2].abs();
         assert!(a1 < 2.0, "stability proxy: |a[1]|={a1} should be < 2.0");
-        assert!(a2 < 1.0, "stability proxy: |a[2]|={a2} should be < 1.0 (inside unit circle)");
+        assert!(
+            a2 < 1.0,
+            "stability proxy: |a[2]|={a2} should be < 1.0 (inside unit circle)"
+        );
     }
 }
 
@@ -368,7 +396,9 @@ mod convolution_tests {
         Array1::from_iter(v.iter().map(|&x| Complex::new(x, 0.0)))
     }
 
-    fn close(a: f64, b: f64) -> bool { (a - b).abs() < 1e-9 }
+    fn close(a: f64, b: f64) -> bool {
+        (a - b).abs() < 1e-9
+    }
 
     #[test]
     fn output_length() {
@@ -427,8 +457,12 @@ mod convolution_tests {
         let ola = overlap_add(&x, &h, 4).unwrap();
         assert_eq!(direct.len(), ola.len());
         for i in 0..direct.len() {
-            assert!(close(direct[i].re, ola[i].re),
-                "index {i}: direct={:.6} ola={:.6}", direct[i].re, ola[i].re);
+            assert!(
+                close(direct[i].re, ola[i].re),
+                "index {i}: direct={:.6} ola={:.6}",
+                direct[i].re,
+                ola[i].re
+            );
         }
     }
 
@@ -449,10 +483,7 @@ mod convolution_tests {
     #[test]
     fn convolve_complex_signal() {
         // Convolve [1+j, 2+j] * [1, 1]
-        let x = Array1::from_vec(vec![
-            Complex::new(1.0, 1.0),
-            Complex::new(2.0, 1.0),
-        ]);
+        let x = Array1::from_vec(vec![Complex::new(1.0, 1.0), Complex::new(2.0, 1.0)]);
         let h = Array1::from_vec(vec![Complex::new(1.0, 0.0), Complex::new(1.0, 0.0)]);
         let y = convolve(&x, &h).unwrap();
         assert_eq!(y.len(), 3);
@@ -466,13 +497,17 @@ mod convolution_tests {
 
 #[cfg(test)]
 mod fft_tests {
+    use crate::convolution::overlap_add;
+    use crate::fft::{fft, fftfreq, fftshift, ifft};
     use ndarray::Array1;
     use num_complex::Complex;
-    use crate::fft::{fft, fftfreq, fftshift, ifft};
-    use crate::convolution::overlap_add;
 
-    fn close(a: f64, b: f64) -> bool { (a - b).abs() < 1e-9 }
-    fn close_eps(a: f64, b: f64, eps: f64) -> bool { (a - b).abs() < eps }
+    fn close(a: f64, b: f64) -> bool {
+        (a - b).abs() < 1e-9
+    }
+    fn close_eps(a: f64, b: f64, eps: f64) -> bool {
+        (a - b).abs() < eps
+    }
 
     #[test]
     fn fft_length_is_next_pow2() {
@@ -505,21 +540,39 @@ mod fft_tests {
         }));
         let y = fft(&x).unwrap();
         // Peak should be at bin k0 and n-k0
-        let peak_k = y.iter().enumerate().max_by(|a, b| a.1.norm().partial_cmp(&b.1.norm()).unwrap()).unwrap().0;
-        assert!(peak_k == k0 || peak_k == n - k0, "peak at {peak_k}, expected {k0} or {}", n - k0);
+        let peak_k = y
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.norm().partial_cmp(&b.1.norm()).unwrap())
+            .unwrap()
+            .0;
+        assert!(
+            peak_k == k0 || peak_k == n - k0,
+            "peak at {peak_k}, expected {k0} or {}",
+            n - k0
+        );
     }
 
     #[test]
     fn ifft_inverts_fft() {
         let n = 8usize;
-        let x: Array1<Complex<f64>> = Array1::from_iter((0..n).map(|i| Complex::new(i as f64, 0.0)));
+        let x: Array1<Complex<f64>> =
+            Array1::from_iter((0..n).map(|i| Complex::new(i as f64, 0.0)));
         let y = fft(&x).unwrap();
         let x_rec = ifft(&y).unwrap();
         for i in 0..n {
-            assert!(close_eps(x_rec[i].re, x[i].re, 1e-10),
-                "real[{i}]: got {}, expected {}", x_rec[i].re, x[i].re);
-            assert!(close_eps(x_rec[i].im, x[i].im, 1e-10),
-                "imag[{i}]: got {}, expected {}", x_rec[i].im, x[i].im);
+            assert!(
+                close_eps(x_rec[i].re, x[i].re, 1e-10),
+                "real[{i}]: got {}, expected {}",
+                x_rec[i].re,
+                x[i].re
+            );
+            assert!(
+                close_eps(x_rec[i].im, x[i].im, 1e-10),
+                "imag[{i}]: got {}, expected {}",
+                x_rec[i].im,
+                x[i].im
+            );
         }
     }
 
@@ -529,7 +582,12 @@ mod fft_tests {
         let y = fftshift(&x);
         let expected = [2.0, 3.0, 0.0, 1.0];
         for (k, &e) in expected.iter().enumerate() {
-            assert!(close(y[k].re, e), "fftshift_even[{k}]: got {}, expected {}", y[k].re, e);
+            assert!(
+                close(y[k].re, e),
+                "fftshift_even[{k}]: got {}, expected {}",
+                y[k].re,
+                e
+            );
         }
     }
 
@@ -539,7 +597,12 @@ mod fft_tests {
         let y = fftshift(&x);
         let expected = [3.0, 4.0, 0.0, 1.0, 2.0];
         for (k, &e) in expected.iter().enumerate() {
-            assert!(close(y[k].re, e), "fftshift_odd[{k}]: got {}, expected {}", y[k].re, e);
+            assert!(
+                close(y[k].re, e),
+                "fftshift_odd[{k}]: got {}, expected {}",
+                y[k].re,
+                e
+            );
         }
     }
 
@@ -552,32 +615,44 @@ mod fft_tests {
     #[test]
     fn fftfreq_nyquist() {
         let freqs = fftfreq(8, 8000.0);
-        assert!(close(freqs[4], -4000.0), "bin 4 (Nyquist) should be -4000 Hz, got {}", freqs[4]);
+        assert!(
+            close(freqs[4], -4000.0),
+            "bin 4 (Nyquist) should be -4000 Hz, got {}",
+            freqs[4]
+        );
     }
 
     #[test]
     fn fft_parseval() {
         // Parseval: Σ|x|² = (1/N) Σ|X|²
         let n = 8usize;
-        let x: Array1<Complex<f64>> = Array1::from_iter((0..n).map(|i| Complex::new(i as f64 + 1.0, 0.0)));
+        let x: Array1<Complex<f64>> =
+            Array1::from_iter((0..n).map(|i| Complex::new(i as f64 + 1.0, 0.0)));
         let y = fft(&x).unwrap();
         let energy_x: f64 = x.iter().map(|c| c.norm_sqr()).sum();
         let energy_y: f64 = y.iter().map(|c| c.norm_sqr()).sum::<f64>() / n as f64;
-        assert!(close_eps(energy_x, energy_y, 1e-8),
-            "Parseval: Σ|x|²={energy_x} ≠ (1/N)Σ|X|²={energy_y}");
+        assert!(
+            close_eps(energy_x, energy_y, 1e-8),
+            "Parseval: Σ|x|²={energy_x} ≠ (1/N)Σ|X|²={energy_y}"
+        );
     }
 
     #[test]
     fn overlap_add_still_matches_direct() {
         use crate::convolution::convolve;
-        let x: Array1<Complex<f64>> = Array1::from_iter((0..32).map(|i| Complex::new(i as f64, 0.0)));
-        let h: Array1<Complex<f64>> = Array1::from_iter((0..5).map(|i| Complex::new((i + 1) as f64, 0.0)));
-        let direct    = convolve(&x, &h).unwrap();
-        let ola       = overlap_add(&x, &h, 8).unwrap();
+        let x: Array1<Complex<f64>> =
+            Array1::from_iter((0..32).map(|i| Complex::new(i as f64, 0.0)));
+        let h: Array1<Complex<f64>> =
+            Array1::from_iter((0..5).map(|i| Complex::new((i + 1) as f64, 0.0)));
+        let direct = convolve(&x, &h).unwrap();
+        let ola = overlap_add(&x, &h, 8).unwrap();
         assert_eq!(direct.len(), ola.len());
         for i in 0..direct.len() {
             let diff = (direct[i] - ola[i]).norm();
-            assert!(diff < 1e-8, "overlap_add mismatch at index {i}: diff = {diff}");
+            assert!(
+                diff < 1e-8,
+                "overlap_add mismatch at index {i}: diff = {diff}"
+            );
         }
     }
 
@@ -586,7 +661,11 @@ mod fft_tests {
         // Input of length 5 should be zero-padded to length 8 (next power of 2)
         let x = Array1::from_iter((0..5).map(|i| Complex::new(i as f64, 0.0)));
         let y = fft(&x).unwrap();
-        assert_eq!(y.len(), 8, "FFT of 5-element input should have length 8 (next power of 2)");
+        assert_eq!(
+            y.len(),
+            8,
+            "FFT of 5-element input should have length 8 (next power of 2)"
+        );
     }
 }
 
@@ -596,15 +675,13 @@ mod fft_tests {
 mod pm_tests {
     use crate::fir::pm::firpm;
 
-    fn close(a: f64, b: f64, tol: f64) -> bool { (a - b).abs() < tol }
+    fn close(a: f64, b: f64, tol: f64) -> bool {
+        (a - b).abs() < tol
+    }
 
     /// Lowpass: passband 0–0.4, transition 0.4–0.5, stopband 0.5–1.0
     fn lp_bands() -> (&'static [f64], &'static [f64], &'static [f64]) {
-        (
-            &[0.0, 0.4, 0.5, 1.0],
-            &[1.0, 1.0, 0.0, 0.0],
-            &[1.0, 1.0],
-        )
+        (&[0.0, 0.4, 0.5, 1.0], &[1.0, 1.0, 0.0, 0.0], &[1.0, 1.0])
     }
 
     #[test]
@@ -622,7 +699,13 @@ mod pm_tests {
         let n = h.len();
         for i in 0..n / 2 {
             let diff = (h[i] - h[n - 1 - i]).abs();
-            assert!(diff < 1e-10, "symmetry broken at i={i}: h[{i}]={} h[{}]={}", h[i], n-1-i, h[n-1-i]);
+            assert!(
+                diff < 1e-10,
+                "symmetry broken at i={i}: h[{i}]={} h[{}]={}",
+                h[i],
+                n - 1 - i,
+                h[n - 1 - i]
+            );
         }
     }
 
@@ -632,7 +715,10 @@ mod pm_tests {
         let (bands, desired, weights) = lp_bands();
         let f = firpm(31, bands, desired, weights).unwrap();
         let dc: f64 = f.coefficients.iter().map(|c| c.re).sum();
-        assert!(close(dc, 1.0, 0.05), "lowpass DC gain should be ≈1.0, got {dc}");
+        assert!(
+            close(dc, 1.0, 0.05),
+            "lowpass DC gain should be ≈1.0, got {dc}"
+        );
     }
 
     #[test]
@@ -640,16 +726,28 @@ mod pm_tests {
         // Alternating sum ≈ 0.0 for lowpass (Nyquist gain = 0)
         let (bands, desired, weights) = lp_bands();
         let f = firpm(31, bands, desired, weights).unwrap();
-        let alt: f64 = f.coefficients.iter().enumerate()
+        let alt: f64 = f
+            .coefficients
+            .iter()
+            .enumerate()
             .map(|(i, c)| if i % 2 == 0 { c.re } else { -c.re })
             .sum();
-        assert!(alt.abs() < 0.05, "lowpass Nyquist gain should be ≈0.0, got {alt}");
+        assert!(
+            alt.abs() < 0.05,
+            "lowpass Nyquist gain should be ≈0.0, got {alt}"
+        );
     }
 
     #[test]
     fn pm_highpass_dc_gain() {
         // Highpass: passband 0.5–1.0, stopband 0–0.4
-        let f = firpm(31, &[0.0, 0.4, 0.5, 1.0], &[0.0, 0.0, 1.0, 1.0], &[1.0, 1.0]).unwrap();
+        let f = firpm(
+            31,
+            &[0.0, 0.4, 0.5, 1.0],
+            &[0.0, 0.0, 1.0, 1.0],
+            &[1.0, 1.0],
+        )
+        .unwrap();
         let dc: f64 = f.coefficients.iter().map(|c| c.re).sum();
         assert!(dc.abs() < 0.05, "highpass DC gain should be ≈0.0, got {dc}");
     }
@@ -658,17 +756,35 @@ mod pm_tests {
     fn pm_highpass_nyquist_gain() {
         // Alternating sum magnitude ≈ 1.0 for highpass (Nyquist gain = 1)
         // The sign may be negative depending on the filter's linear phase offset.
-        let f = firpm(31, &[0.0, 0.4, 0.5, 1.0], &[0.0, 0.0, 1.0, 1.0], &[1.0, 1.0]).unwrap();
-        let alt: f64 = f.coefficients.iter().enumerate()
+        let f = firpm(
+            31,
+            &[0.0, 0.4, 0.5, 1.0],
+            &[0.0, 0.0, 1.0, 1.0],
+            &[1.0, 1.0],
+        )
+        .unwrap();
+        let alt: f64 = f
+            .coefficients
+            .iter()
+            .enumerate()
             .map(|(i, c)| if i % 2 == 0 { c.re } else { -c.re })
             .sum();
-        assert!(close(alt.abs(), 1.0, 0.1), "highpass Nyquist gain magnitude should be ≈1.0, got {alt}");
+        assert!(
+            close(alt.abs(), 1.0, 0.1),
+            "highpass Nyquist gain magnitude should be ≈1.0, got {alt}"
+        );
     }
 
     #[test]
     fn pm_bandpass_symmetry() {
         // Bandpass: passband 0.3–0.6, stopbands 0–0.2 and 0.7–1.0
-        let f = firpm(31, &[0.0, 0.2, 0.3, 0.6, 0.7, 1.0], &[0.0, 0.0, 1.0, 1.0, 0.0, 0.0], &[1.0, 1.0, 1.0]).unwrap();
+        let f = firpm(
+            31,
+            &[0.0, 0.2, 0.3, 0.6, 0.7, 1.0],
+            &[0.0, 0.0, 1.0, 1.0, 0.0, 0.0],
+            &[1.0, 1.0, 1.0],
+        )
+        .unwrap();
         let h: Vec<f64> = f.coefficients.iter().map(|c| c.re).collect();
         let n = h.len();
         for i in 0..n / 2 {
@@ -680,7 +796,13 @@ mod pm_tests {
     #[test]
     fn pm_bandpass_dc_gain() {
         // Bandpass should have near-zero DC gain (stopband at DC)
-        let f = firpm(31, &[0.0, 0.2, 0.3, 0.6, 0.7, 1.0], &[0.0, 0.0, 1.0, 1.0, 0.0, 0.0], &[1.0, 1.0, 1.0]).unwrap();
+        let f = firpm(
+            31,
+            &[0.0, 0.2, 0.3, 0.6, 0.7, 1.0],
+            &[0.0, 0.0, 1.0, 1.0, 0.0, 0.0],
+            &[1.0, 1.0, 1.0],
+        )
+        .unwrap();
         let dc: f64 = f.coefficients.iter().map(|c| c.re).sum();
         assert!(dc.abs() < 0.1, "bandpass DC gain should be ≈0.0, got {dc}");
     }
@@ -694,7 +816,10 @@ mod pm_tests {
         // Per the implementation, even tap counts are rounded up to odd — so it succeeds.
         // The returned filter should have length 33 (next odd after 32).
         match result {
-            Ok(f) => assert!(f.coefficients.len() % 2 == 1, "even input should produce odd-length filter"),
+            Ok(f) => assert!(
+                f.coefficients.len() % 2 == 1,
+                "even input should produce odd-length filter"
+            ),
             Err(_) => {} // also acceptable if the implementation decides to reject even
         }
     }
@@ -702,7 +827,12 @@ mod pm_tests {
     #[test]
     fn pm_rejects_mismatched_weights() {
         // Wrong number of weights (2 bands need 2 weights, not 3)
-        let result = firpm(31, &[0.0, 0.4, 0.5, 1.0], &[1.0, 1.0, 0.0, 0.0], &[1.0, 1.0, 1.0]);
+        let result = firpm(
+            31,
+            &[0.0, 0.4, 0.5, 1.0],
+            &[1.0, 1.0, 0.0, 0.0],
+            &[1.0, 1.0, 1.0],
+        );
         assert!(result.is_err(), "mismatched weight count should return Err");
     }
 
@@ -710,13 +840,24 @@ mod pm_tests {
     fn pm_rejects_mismatched_desired() {
         // desired must have same length as bands
         let result = firpm(31, &[0.0, 0.4, 0.5, 1.0], &[1.0, 1.0, 0.0], &[1.0, 1.0]);
-        assert!(result.is_err(), "mismatched desired length should return Err");
+        assert!(
+            result.is_err(),
+            "mismatched desired length should return Err"
+        );
     }
 
     #[test]
     fn firpmq_integer_coefficients() {
         use crate::fir::pm::firpmq;
-        let f = firpmq(31, &[0.0, 0.4, 0.5, 1.0], &[1.0, 1.0, 0.0, 0.0], &[1.0, 1.0], 16, 8).unwrap();
+        let f = firpmq(
+            31,
+            &[0.0, 0.4, 0.5, 1.0],
+            &[1.0, 1.0, 0.0, 0.0],
+            &[1.0, 1.0],
+            16,
+            8,
+        )
+        .unwrap();
         let h: Vec<f64> = f.coefficients.iter().map(|c| c.re).collect();
         // All coefficients must be integers (no fractional part)
         for &v in &h {
@@ -738,15 +879,36 @@ mod pm_tests {
         // The integer filter's DC gain, normalized the same way as the float filter, should be ~1.
         // Normalization: scale = i_max / peak_float, so dc_gain = sum(h_int) / scale
         //              = sum(h_int) * peak_float / i_max
-        let float_f = firpm(31, &[0.0, 0.4, 0.5, 1.0], &[1.0, 1.0, 0.0, 0.0], &[1.0, 1.0]).unwrap();
-        let peak_float: f64 = float_f.coefficients.iter().map(|c| c.re.abs()).fold(0.0_f64, f64::max);
+        let float_f = firpm(
+            31,
+            &[0.0, 0.4, 0.5, 1.0],
+            &[1.0, 1.0, 0.0, 0.0],
+            &[1.0, 1.0],
+        )
+        .unwrap();
+        let peak_float: f64 = float_f
+            .coefficients
+            .iter()
+            .map(|c| c.re.abs())
+            .fold(0.0_f64, f64::max);
 
-        let f = firpmq(31, &[0.0, 0.4, 0.5, 1.0], &[1.0, 1.0, 0.0, 0.0], &[1.0, 1.0], 16, 8).unwrap();
+        let f = firpmq(
+            31,
+            &[0.0, 0.4, 0.5, 1.0],
+            &[1.0, 1.0, 0.0, 0.0],
+            &[1.0, 1.0],
+            16,
+            8,
+        )
+        .unwrap();
         let h: Vec<f64> = f.coefficients.iter().map(|c| c.re).collect();
         let i_max = 32767.0_f64;
         // DC gain of integer filter: sum(h_int) / scale = sum(h_int) * peak_float / i_max
         let dc_gain: f64 = h.iter().sum::<f64>() * peak_float / i_max;
-        assert!((dc_gain - 1.0).abs() < 0.03, "DC gain deviates from unity: {dc_gain}");
+        assert!(
+            (dc_gain - 1.0).abs() < 0.03,
+            "DC gain deviates from unity: {dc_gain}"
+        );
     }
 }
 
@@ -754,15 +916,16 @@ mod pm_tests {
 
 #[cfg(test)]
 mod kaiser_fir_tests {
+    use crate::fir::kaiser::{
+        fir_bandpass_kaiser, fir_highpass_kaiser, fir_lowpass_kaiser, fir_notch, freqz,
+        kaiser_beta, kaiser_num_taps,
+    };
     use ndarray::Array1;
     use num_complex::Complex;
-    use crate::fir::kaiser::{
-        kaiser_beta, kaiser_num_taps,
-        fir_lowpass_kaiser, fir_highpass_kaiser, fir_bandpass_kaiser,
-        fir_notch, freqz,
-    };
 
-    fn close(a: f64, b: f64, eps: f64) -> bool { (a - b).abs() < eps }
+    fn close(a: f64, b: f64, eps: f64) -> bool {
+        (a - b).abs() < eps
+    }
 
     #[test]
     fn kaiser_beta_high() {
@@ -792,7 +955,10 @@ mod kaiser_fir_tests {
     fn kaiser_num_taps_scales_with_attn() {
         let n40 = kaiser_num_taps(200.0, 40.0, 8000.0);
         let n80 = kaiser_num_taps(200.0, 80.0, 8000.0);
-        assert!(n80 > n40, "more attenuation should require more taps ({n40} vs {n80})");
+        assert!(
+            n80 > n40,
+            "more attenuation should require more taps ({n40} vs {n80})"
+        );
     }
 
     #[test]
@@ -810,21 +976,30 @@ mod kaiser_fir_tests {
     fn lowpass_kaiser_dc_gain() {
         let f = fir_lowpass_kaiser(1000.0, 200.0, 60.0, 8000.0).unwrap();
         let dc_gain: f64 = f.coefficients.iter().map(|c| c.re).sum();
-        assert!(close(dc_gain, 1.0, 5e-3), "lowpass DC gain should be ≈1.0, got {dc_gain}");
+        assert!(
+            close(dc_gain, 1.0, 5e-3),
+            "lowpass DC gain should be ≈1.0, got {dc_gain}"
+        );
     }
 
     #[test]
     fn highpass_kaiser_dc_gain() {
         let f = fir_highpass_kaiser(1000.0, 200.0, 60.0, 8000.0).unwrap();
         let dc_gain: f64 = f.coefficients.iter().map(|c| c.re).sum();
-        assert!(dc_gain.abs() < 0.01, "highpass DC gain should be ≈0.0, got {dc_gain}");
+        assert!(
+            dc_gain.abs() < 0.01,
+            "highpass DC gain should be ≈0.0, got {dc_gain}"
+        );
     }
 
     #[test]
     fn bandpass_kaiser_dc_gain() {
         let f = fir_bandpass_kaiser(500.0, 1500.0, 200.0, 60.0, 8000.0).unwrap();
         let dc_gain: f64 = f.coefficients.iter().map(|c| c.re).sum();
-        assert!(dc_gain.abs() < 0.01, "bandpass DC gain should be ≈0.0, got {dc_gain}");
+        assert!(
+            dc_gain.abs() < 0.01,
+            "bandpass DC gain should be ≈0.0, got {dc_gain}"
+        );
     }
 
     #[test]
@@ -832,7 +1007,10 @@ mod kaiser_fir_tests {
         use crate::window::WindowFunction;
         let f = fir_notch(1000.0, 200.0, 8000.0, 65, WindowFunction::Hann).unwrap();
         let dc_gain: f64 = f.coefficients.iter().map(|c| c.re).sum();
-        assert!(close(dc_gain, 1.0, 5e-3), "notch DC gain should be ≈1.0, got {dc_gain}");
+        assert!(
+            close(dc_gain, 1.0, 5e-3),
+            "notch DC gain should be ≈1.0, got {dc_gain}"
+        );
     }
 
     #[test]
@@ -850,24 +1028,35 @@ mod kaiser_fir_tests {
         let h_sum: f64 = f.coefficients.iter().map(|c| c.re).sum();
         let (_, h_out) = freqz(&f.coefficients, 512, 8000.0).unwrap();
         let h0_mag = h_out[0].norm();
-        assert!((h0_mag - h_sum.abs()).abs() < 1e-6,
-            "|H[0]|={h0_mag} should equal |Σh|={}", h_sum.abs());
+        assert!(
+            (h0_mag - h_sum.abs()).abs() < 1e-6,
+            "|H[0]|={h0_mag} should equal |Σh|={}",
+            h_sum.abs()
+        );
     }
 
     #[test]
     fn invalid_trans_bw_errors() {
-        assert!(fir_lowpass_kaiser(1000.0, 0.0, 60.0, 8000.0).is_err(),
-            "trans_bw=0 should error");
-        assert!(fir_lowpass_kaiser(1000.0, -100.0, 60.0, 8000.0).is_err(),
-            "negative trans_bw should error");
+        assert!(
+            fir_lowpass_kaiser(1000.0, 0.0, 60.0, 8000.0).is_err(),
+            "trans_bw=0 should error"
+        );
+        assert!(
+            fir_lowpass_kaiser(1000.0, -100.0, 60.0, 8000.0).is_err(),
+            "negative trans_bw should error"
+        );
     }
 
     #[test]
     fn invalid_attn_errors() {
-        assert!(fir_lowpass_kaiser(1000.0, 200.0, 0.0, 8000.0).is_err(),
-            "attn=0 should error");
-        assert!(fir_lowpass_kaiser(1000.0, 200.0, -10.0, 8000.0).is_err(),
-            "negative attn should error");
+        assert!(
+            fir_lowpass_kaiser(1000.0, 200.0, 0.0, 8000.0).is_err(),
+            "attn=0 should error"
+        );
+        assert!(
+            fir_lowpass_kaiser(1000.0, 200.0, -10.0, 8000.0).is_err(),
+            "negative attn should error"
+        );
     }
 
     #[test]
@@ -880,27 +1069,45 @@ mod kaiser_fir_tests {
         let (freqs, h_out) = freqz(&f.coefficients, 1024, sr).unwrap();
         // Find the bin closest to 2*cutoff
         let target = 2.0 * cutoff;
-        let idx = freqs.iter().enumerate()
-            .min_by(|a, b| (a.1 - target).abs().partial_cmp(&(b.1 - target).abs()).unwrap())
-            .map(|(i, _)| i).unwrap();
+        let idx = freqs
+            .iter()
+            .enumerate()
+            .min_by(|a, b| {
+                (a.1 - target)
+                    .abs()
+                    .partial_cmp(&(b.1 - target).abs())
+                    .unwrap()
+            })
+            .map(|(i, _)| i)
+            .unwrap();
         let mag = h_out[idx].norm();
-        assert!(mag < 0.001, "stopband magnitude at {target}Hz should be < 0.001, got {mag}");
+        assert!(
+            mag < 0.001,
+            "stopband magnitude at {target}Hz should be < 0.001, got {mag}"
+        );
     }
 }
 
-
 #[cfg(test)]
 mod upfirdn_tests {
+    use crate::upfirdn::upfirdn;
     use ndarray::Array1;
     use num_complex::Complex;
-    use crate::upfirdn::upfirdn;
 
-    fn c(re: f64) -> Complex<f64> { Complex::new(re, 0.0) }
-    fn close(a: f64, b: f64) -> bool { (a - b).abs() < 1e-10 }
+    fn c(re: f64) -> Complex<f64> {
+        Complex::new(re, 0.0)
+    }
+    fn close(a: f64, b: f64) -> bool {
+        (a - b).abs() < 1e-10
+    }
 
     fn run(x: &[f64], h: &[f64], p: usize, q: usize) -> Vec<f64> {
         let xv = Array1::from_iter(x.iter().map(|&v| c(v)));
-        upfirdn(&xv, h, p, q).unwrap().iter().map(|c| c.re).collect()
+        upfirdn(&xv, h, p, q)
+            .unwrap()
+            .iter()
+            .map(|c| c.re)
+            .collect()
     }
 
     // identity: p=1, q=1, h=[1] → input unchanged
@@ -952,8 +1159,11 @@ mod upfirdn_tests {
             let h: Vec<f64> = vec![1.0; n_h];
             let y = upfirdn(&x, &h, p, q).unwrap();
             let expected = ((n_x - 1) * p + n_h - 1) / q + 1;
-            assert_eq!(y.len(), expected,
-                "len mismatch for n_x={n_x} n_h={n_h} p={p} q={q}");
+            assert_eq!(
+                y.len(),
+                expected,
+                "len mismatch for n_x={n_x} n_h={n_h} p={p} q={q}"
+            );
         }
     }
 
@@ -970,7 +1180,9 @@ mod upfirdn_tests {
         // Brute-force: build full upsampled signal, convolve, decimate
         let n_up = (n_x - 1) * p + 1;
         let mut x_up = vec![0.0f64; n_up];
-        for (i, &v) in x_vals.iter().enumerate() { x_up[i * p] = v; }
+        for (i, &v) in x_vals.iter().enumerate() {
+            x_up[i * p] = v;
+        }
 
         let conv_len = n_up + n_h - 1;
         let mut y_full = vec![0.0f64; conv_len];
@@ -981,7 +1193,9 @@ mod upfirdn_tests {
                 }
             }
         }
-        let y_ref: Vec<f64> = y_full.iter().copied()
+        let y_ref: Vec<f64> = y_full
+            .iter()
+            .copied()
             .enumerate()
             .filter(|&(i, _)| i % q == 0)
             .map(|(_, v)| v)
@@ -989,8 +1203,13 @@ mod upfirdn_tests {
 
         let y_poly = run(&x_vals, &h_vals, p, q);
 
-        assert_eq!(y_poly.len(), y_ref.len(),
-            "length mismatch: poly={} brute={}", y_poly.len(), y_ref.len());
+        assert_eq!(
+            y_poly.len(),
+            y_ref.len(),
+            "length mismatch: poly={} brute={}",
+            y_poly.len(),
+            y_ref.len()
+        );
         for (i, (&a, &b)) in y_poly.iter().zip(y_ref.iter()).enumerate() {
             assert!(close(a, b), "mismatch at index {i}: poly={a} brute={b}");
         }
@@ -998,11 +1217,19 @@ mod upfirdn_tests {
 
     // error cases
     #[test]
-    fn error_p_zero()    { assert!(upfirdn(&Array1::zeros(4), &[1.0], 0, 1).is_err()); }
+    fn error_p_zero() {
+        assert!(upfirdn(&Array1::zeros(4), &[1.0], 0, 1).is_err());
+    }
     #[test]
-    fn error_q_zero()    { assert!(upfirdn(&Array1::zeros(4), &[1.0], 1, 0).is_err()); }
+    fn error_q_zero() {
+        assert!(upfirdn(&Array1::zeros(4), &[1.0], 1, 0).is_err());
+    }
     #[test]
-    fn error_empty_h()   { assert!(upfirdn(&Array1::zeros(4), &[],    1, 1).is_err()); }
+    fn error_empty_h() {
+        assert!(upfirdn(&Array1::zeros(4), &[], 1, 1).is_err());
+    }
     #[test]
-    fn empty_input_ok()  { assert_eq!(upfirdn(&Array1::zeros(0), &[1.0], 2, 3).unwrap().len(), 0); }
+    fn empty_input_ok() {
+        assert_eq!(upfirdn(&Array1::zeros(0), &[1.0], 2, 3).unwrap().len(), 0);
+    }
 }

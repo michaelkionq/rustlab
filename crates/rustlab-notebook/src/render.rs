@@ -1,8 +1,8 @@
-use pulldown_cmark::{Parser, Options, html::push_html};
-use rustlab_plot::render_figure_plotly_div;
-use rustlab_plot::ThemeColors;
 use crate::execute::Rendered;
 use crate::parse::CalloutKind;
+use pulldown_cmark::{html::push_html, Options, Parser};
+use rustlab_plot::render_figure_plotly_div;
+use rustlab_plot::ThemeColors;
 
 /// Render executed notebook blocks into a self-contained HTML string.
 pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> String {
@@ -49,7 +49,15 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
                 body.push_str(&html);
                 body.push_str("</div>\n");
             }
-            Rendered::Code { source, text_output, error, figures, hidden, details, grid_cols } => {
+            Rendered::Code {
+                source,
+                text_output,
+                error,
+                figures,
+                hidden,
+                details,
+                grid_cols,
+            } => {
                 body.push_str("<div class=\"code-block\">\n");
 
                 // Source code (unless hidden)
@@ -113,8 +121,8 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
             }
             Rendered::Callout { kind, content } => {
                 let (class, label) = match kind {
-                    CalloutKind::Note    => ("note",    "Note"),
-                    CalloutKind::Tip     => ("tip",     "Tip"),
+                    CalloutKind::Note => ("note", "Note"),
+                    CalloutKind::Tip => ("tip", "Tip"),
                     CalloutKind::Warning => ("warning", "Warning"),
                 };
                 body.push_str(&format!("<div class=\"callout callout-{class}\">\n"));
@@ -494,10 +502,14 @@ fn inject_heading_ids(html: &str, nav: &mut String, idx: &mut usize) -> String {
         let close = format!("</{tag}>");
         let mut search_from = 0;
         loop {
-            let Some(start) = result[search_from..].find(&open) else { break };
+            let Some(start) = result[search_from..].find(&open) else {
+                break;
+            };
             let abs_open = search_from + start;
             let content_start = abs_open + open.len();
-            let Some(rel_end) = result[content_start..].find(&close) else { break };
+            let Some(rel_end) = result[content_start..].find(&close) else {
+                break;
+            };
             let content = result[content_start..content_start + rel_end].to_string();
             let clean = strip_tags(&content);
             if !clean.is_empty() {
@@ -539,16 +551,25 @@ fn strip_tags(s: &str) -> String {
 
 fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
-     .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 // ── Syntax highlighting ─────────────────────────────────────────────────────
 
 const KEYWORDS: &[&str] = &[
-    "function", "end", "return", "if", "elseif", "else",
-    "for", "while", "switch", "case", "otherwise",
+    "function",
+    "end",
+    "return",
+    "if",
+    "elseif",
+    "else",
+    "for",
+    "while",
+    "switch",
+    "case",
+    "otherwise",
 ];
 
 /// Produce syntax-highlighted HTML for a rustlab code snippet.
@@ -604,8 +625,14 @@ fn highlight_rustlab(source: &str) -> String {
         // Number: digits, optionally with . or e
         if ch.is_ascii_digit() || (ch == '.' && i + 1 < len && chars[i + 1].is_ascii_digit()) {
             out.push_str("<span class=\"syn-num\">");
-            while i < len && (chars[i].is_ascii_digit() || chars[i] == '.' || chars[i] == 'e' || chars[i] == 'E'
-                || ((chars[i] == '+' || chars[i] == '-') && i > 0 && (chars[i-1] == 'e' || chars[i-1] == 'E')))
+            while i < len
+                && (chars[i].is_ascii_digit()
+                    || chars[i] == '.'
+                    || chars[i] == 'e'
+                    || chars[i] == 'E'
+                    || ((chars[i] == '+' || chars[i] == '-')
+                        && i > 0
+                        && (chars[i - 1] == 'e' || chars[i - 1] == 'E')))
             {
                 push_escaped_char(&mut out, chars[i]);
                 i += 1;
@@ -674,7 +701,9 @@ fn highlight_rustlab(source: &str) -> String {
 /// Determine if a single quote at position `i` starts a string literal
 /// (as opposed to being the transpose operator).
 fn is_string_quote(chars: &[char], i: usize) -> bool {
-    if i == 0 { return true; }
+    if i == 0 {
+        return true;
+    }
     let prev = chars[i - 1];
     // After ), ], identifier char, or digit — it's transpose
     if prev == ')' || prev == ']' || prev.is_ascii_alphanumeric() || prev == '_' || prev == '.' {
@@ -684,7 +713,10 @@ fn is_string_quote(chars: &[char], i: usize) -> bool {
 }
 
 fn is_operator(ch: char) -> bool {
-    matches!(ch, '+' | '-' | '*' | '/' | '\\' | '^' | '=' | '<' | '>' | '~' | '&' | '|' | ':' | ';' | ',')
+    matches!(
+        ch,
+        '+' | '-' | '*' | '/' | '\\' | '^' | '=' | '<' | '>' | '~' | '&' | '|' | ':' | ';' | ','
+    )
 }
 
 fn push_escaped_char(out: &mut String, ch: char) {
@@ -700,8 +732,7 @@ fn push_escaped_char(out: &mut String, ch: char) {
 /// Rewrite relative `.md` links to `.html` in markdown text.
 /// Converts `](something.md)` to `](something.html)` for cross-notebook links.
 fn rewrite_md_links(md: &str) -> String {
-    md.replace(".md)", ".html)")
-      .replace(".md#", ".html#")
+    md.replace(".md)", ".html)").replace(".md#", ".html#")
 }
 
 #[cfg(test)]
@@ -718,7 +749,10 @@ mod tests {
 
     #[test]
     fn escape_html_special_chars() {
-        assert_eq!(escape_html("<b>\"a & b\"</b>"), "&lt;b&gt;&quot;a &amp; b&quot;&lt;/b&gt;");
+        assert_eq!(
+            escape_html("<b>\"a & b\"</b>"),
+            "&lt;b&gt;&quot;a &amp; b&quot;&lt;/b&gt;"
+        );
     }
 
     #[test]
@@ -921,9 +955,15 @@ mod tests {
         for op in &[".*", "./", ".^", "==", "~=", "<=", ">=", "&&", "||"] {
             let out = highlight_rustlab(op);
             // Should be a single span, not two separate ones
-            assert!(out.contains(&format!("<span class=\"syn-op\">{}</span>",
-                op.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;"))),
-                "two-char op {op} not highlighted as unit");
+            assert!(
+                out.contains(&format!(
+                    "<span class=\"syn-op\">{}</span>",
+                    op.replace('&', "&amp;")
+                        .replace('<', "&lt;")
+                        .replace('>', "&gt;")
+                )),
+                "two-char op {op} not highlighted as unit"
+            );
         }
     }
 
@@ -958,9 +998,7 @@ mod tests {
 
     #[test]
     fn render_html_basic_structure() {
-        let blocks = vec![
-            Rendered::Markdown("# Hello".to_string()),
-        ];
+        let blocks = vec![Rendered::Markdown("# Hello".to_string())];
         let html = render_html("Test", &blocks, test_theme());
         assert!(html.contains("<!DOCTYPE html>"));
         assert!(html.contains("<title>Test</title>"));
@@ -970,17 +1008,15 @@ mod tests {
 
     #[test]
     fn render_html_code_block() {
-        let blocks = vec![
-            Rendered::Code {
-                source: "x = 42".to_string(),
-                text_output: "ans = 42".to_string(),
-                error: None,
-                figures: Vec::new(),
-                hidden: false,
-                details: None,
-                grid_cols: None,
-            },
-        ];
+        let blocks = vec![Rendered::Code {
+            source: "x = 42".to_string(),
+            text_output: "ans = 42".to_string(),
+            error: None,
+            figures: Vec::new(),
+            hidden: false,
+            details: None,
+            grid_cols: None,
+        }];
         let html = render_html("Test", &blocks, test_theme());
         assert!(html.contains("class=\"source\""));
         assert!(html.contains("class=\"output\""));
@@ -989,17 +1025,15 @@ mod tests {
 
     #[test]
     fn render_html_error_block() {
-        let blocks = vec![
-            Rendered::Code {
-                source: "bad".to_string(),
-                text_output: String::new(),
-                error: Some("undefined variable".to_string()),
-                figures: Vec::new(),
-                hidden: false,
-                details: None,
-                grid_cols: None,
-            },
-        ];
+        let blocks = vec![Rendered::Code {
+            source: "bad".to_string(),
+            text_output: String::new(),
+            error: Some("undefined variable".to_string()),
+            figures: Vec::new(),
+            hidden: false,
+            details: None,
+            grid_cols: None,
+        }];
         let html = render_html("Test", &blocks, test_theme());
         assert!(html.contains("class=\"error\""));
         assert!(html.contains("undefined variable"));
@@ -1007,17 +1041,15 @@ mod tests {
 
     #[test]
     fn render_html_hidden_block() {
-        let blocks = vec![
-            Rendered::Code {
-                source: "secret = 42".to_string(),
-                text_output: "ans = 42".to_string(),
-                error: None,
-                figures: Vec::new(),
-                hidden: true,
-                details: None,
-                grid_cols: None,
-            },
-        ];
+        let blocks = vec![Rendered::Code {
+            source: "secret = 42".to_string(),
+            text_output: "ans = 42".to_string(),
+            error: None,
+            figures: Vec::new(),
+            hidden: true,
+            details: None,
+            grid_cols: None,
+        }];
         let html = render_html("Test", &blocks, test_theme());
         // Source should not appear
         assert!(!html.contains("secret = 42"));
@@ -1028,17 +1060,15 @@ mod tests {
 
     #[test]
     fn render_html_empty_output_not_shown() {
-        let blocks = vec![
-            Rendered::Code {
-                source: "x = 1;".to_string(),
-                text_output: "   \n  ".to_string(), // whitespace only
-                error: None,
-                figures: Vec::new(),
-                hidden: false,
-                details: None,
-                grid_cols: None,
-            },
-        ];
+        let blocks = vec![Rendered::Code {
+            source: "x = 1;".to_string(),
+            text_output: "   \n  ".to_string(), // whitespace only
+            error: None,
+            figures: Vec::new(),
+            hidden: false,
+            details: None,
+            grid_cols: None,
+        }];
         let html = render_html("Test", &blocks, test_theme());
         // Source shown, but no output div
         assert!(html.contains("class=\"source\""));
@@ -1072,17 +1102,15 @@ mod tests {
 
     #[test]
     fn render_html_syntax_highlighting_in_code() {
-        let blocks = vec![
-            Rendered::Code {
-                source: "for k = 1:10\n  plot(k)\nend".to_string(),
-                text_output: String::new(),
-                error: None,
-                figures: Vec::new(),
-                hidden: false,
-                details: None,
-                grid_cols: None,
-            },
-        ];
+        let blocks = vec![Rendered::Code {
+            source: "for k = 1:10\n  plot(k)\nend".to_string(),
+            text_output: String::new(),
+            error: None,
+            figures: Vec::new(),
+            hidden: false,
+            details: None,
+            grid_cols: None,
+        }];
         let html = render_html("Test", &blocks, test_theme());
         assert!(html.contains("syn-kw"));
         assert!(html.contains("syn-fn"));
@@ -1091,9 +1119,9 @@ mod tests {
 
     #[test]
     fn render_html_nav_from_headings() {
-        let blocks = vec![
-            Rendered::Markdown("# Section One\n\n## Sub Section".to_string()),
-        ];
+        let blocks = vec![Rendered::Markdown(
+            "# Section One\n\n## Sub Section".to_string(),
+        )];
         let html = render_html("Test", &blocks, test_theme());
         assert!(html.contains("heading-1"));
         assert!(html.contains("heading-2"));
@@ -1105,14 +1133,18 @@ mod tests {
 
     #[test]
     fn rewrite_md_links_basic() {
-        assert_eq!(rewrite_md_links("See [filter](filter.md) for details"),
-                   "See [filter](filter.html) for details");
+        assert_eq!(
+            rewrite_md_links("See [filter](filter.md) for details"),
+            "See [filter](filter.html) for details"
+        );
     }
 
     #[test]
     fn rewrite_md_links_with_anchor() {
-        assert_eq!(rewrite_md_links("[section](other.md#intro)"),
-                   "[section](other.html#intro)");
+        assert_eq!(
+            rewrite_md_links("[section](other.md#intro)"),
+            "[section](other.html#intro)"
+        );
     }
 
     #[test]
@@ -1123,15 +1155,17 @@ mod tests {
 
     #[test]
     fn rewrite_md_links_multiple() {
-        assert_eq!(rewrite_md_links("[a](a.md) and [b](b.md)"),
-                   "[a](a.html) and [b](b.html)");
+        assert_eq!(
+            rewrite_md_links("[a](a.md) and [b](b.md)"),
+            "[a](a.html) and [b](b.html)"
+        );
     }
 
     #[test]
     fn render_html_rewrites_md_links() {
-        let blocks = vec![
-            Rendered::Markdown("See [other](other.md) for details".to_string()),
-        ];
+        let blocks = vec![Rendered::Markdown(
+            "See [other](other.md) for details".to_string(),
+        )];
         let html = render_html("Test", &blocks, test_theme());
         assert!(html.contains("other.html"));
         assert!(!html.contains("other.md"));

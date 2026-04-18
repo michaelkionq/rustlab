@@ -2,7 +2,7 @@ use ndarray::{Array1, Array2};
 use num_complex::Complex;
 
 /// Complex 64-bit float (the native scalar type throughout rustlab)
-pub type C64     = Complex<f64>;
+pub type C64 = Complex<f64>;
 /// Complex column vector
 pub type CVector = Array1<C64>;
 /// Complex matrix
@@ -18,7 +18,7 @@ const SPARSE_ZERO_TOL: f64 = 1e-15;
 /// Sparse vector in COO format.  Entries are sorted by index (0-based internally).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SparseVec {
-    pub len:     usize,
+    pub len: usize,
     pub entries: Vec<(usize, C64)>,
 }
 
@@ -31,18 +31,22 @@ impl SparseVec {
         for (i, v) in raw {
             *map.entry(i).or_insert(Complex::new(0.0, 0.0)) += v;
         }
-        let mut entries: Vec<(usize, C64)> = map.into_iter()
+        let mut entries: Vec<(usize, C64)> = map
+            .into_iter()
             .filter(|(_, v)| v.norm() >= SPARSE_ZERO_TOL)
             .collect();
         entries.sort_by_key(|(i, _)| *i);
         Self { len, entries }
     }
 
-    pub fn nnz(&self) -> usize { self.entries.len() }
+    pub fn nnz(&self) -> usize {
+        self.entries.len()
+    }
 
     /// Look up by 0-based index; returns 0 if absent.
     pub fn get(&self, idx: usize) -> C64 {
-        self.entries.iter()
+        self.entries
+            .iter()
             .find(|(i, _)| *i == idx)
             .map(|(_, v)| *v)
             .unwrap_or(Complex::new(0.0, 0.0))
@@ -69,26 +73,39 @@ impl SparseVec {
 
     /// Create from a dense CVector, dropping near-zeros.
     pub fn from_dense(v: &CVector) -> Self {
-        let entries: Vec<(usize, C64)> = v.iter().enumerate()
+        let entries: Vec<(usize, C64)> = v
+            .iter()
+            .enumerate()
             .filter(|(_, c)| c.norm() >= SPARSE_ZERO_TOL)
             .map(|(i, &c)| (i, c))
             .collect();
-        Self { len: v.len(), entries }
+        Self {
+            len: v.len(),
+            entries,
+        }
     }
 
     /// Scale all entries by a complex scalar.
     pub fn scale(&self, c: C64) -> Self {
-        let entries: Vec<(usize, C64)> = self.entries.iter()
+        let entries: Vec<(usize, C64)> = self
+            .entries
+            .iter()
             .map(|&(i, v)| (i, v * c))
             .filter(|(_, v)| v.norm() >= SPARSE_ZERO_TOL)
             .collect();
-        Self { len: self.len, entries }
+        Self {
+            len: self.len,
+            entries,
+        }
     }
 
     /// Add two sparse vectors (must have equal length).
     pub fn add(&self, other: &SparseVec) -> Result<Self, String> {
         if self.len != other.len {
-            return Err(format!("sparse vector add: length mismatch ({} vs {})", self.len, other.len));
+            return Err(format!(
+                "sparse vector add: length mismatch ({} vs {})",
+                self.len, other.len
+            ));
         }
         let mut combined = self.entries.clone();
         combined.extend_from_slice(&other.entries);
@@ -109,9 +126,9 @@ impl SparseVec {
             let (a_idx, a_val) = self.entries[ai];
             let (b_idx, b_val) = other.entries[bi];
             match a_idx.cmp(&b_idx) {
-                std::cmp::Ordering::Less    => ai += 1,
+                std::cmp::Ordering::Less => ai += 1,
                 std::cmp::Ordering::Greater => bi += 1,
-                std::cmp::Ordering::Equal   => {
+                std::cmp::Ordering::Equal => {
                     sum += a_val * b_val;
                     ai += 1;
                     bi += 1;
@@ -130,8 +147,8 @@ impl SparseVec {
 /// Sparse matrix in COO format.  Entries are sorted row-major (0-based internally).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SparseMat {
-    pub rows:    usize,
-    pub cols:    usize,
+    pub rows: usize,
+    pub cols: usize,
     pub entries: Vec<(usize, usize, C64)>,
 }
 
@@ -144,19 +161,27 @@ impl SparseMat {
         for (r, c, v) in raw {
             *map.entry((r, c)).or_insert(Complex::new(0.0, 0.0)) += v;
         }
-        let mut entries: Vec<(usize, usize, C64)> = map.into_iter()
+        let mut entries: Vec<(usize, usize, C64)> = map
+            .into_iter()
             .filter(|(_, v)| v.norm() >= SPARSE_ZERO_TOL)
             .map(|((r, c), v)| (r, c, v))
             .collect();
         entries.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
-        Self { rows, cols, entries }
+        Self {
+            rows,
+            cols,
+            entries,
+        }
     }
 
-    pub fn nnz(&self) -> usize { self.entries.len() }
+    pub fn nnz(&self) -> usize {
+        self.entries.len()
+    }
 
     /// Look up by 0-based (row, col); returns 0 if absent.
     pub fn get(&self, row: usize, col: usize) -> C64 {
-        self.entries.iter()
+        self.entries
+            .iter()
             .find(|(r, c, _)| *r == row && *c == col)
             .map(|(_, _, v)| *v)
             .unwrap_or(Complex::new(0.0, 0.0))
@@ -167,7 +192,8 @@ impl SparseMat {
         self.entries.retain(|(r, c, _)| !(*r == row && *c == col));
         if val.norm() >= SPARSE_ZERO_TOL {
             self.entries.push((row, col, val));
-            self.entries.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+            self.entries
+                .sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
         }
     }
 
@@ -191,16 +217,26 @@ impl SparseMat {
                 }
             }
         }
-        Self { rows: m.nrows(), cols: m.ncols(), entries }
+        Self {
+            rows: m.nrows(),
+            cols: m.ncols(),
+            entries,
+        }
     }
 
     /// Scale all entries by a complex scalar.
     pub fn scale(&self, c: C64) -> Self {
-        let entries: Vec<(usize, usize, C64)> = self.entries.iter()
+        let entries: Vec<(usize, usize, C64)> = self
+            .entries
+            .iter()
             .map(|&(r, col, v)| (r, col, v * c))
             .filter(|(_, _, v)| v.norm() >= SPARSE_ZERO_TOL)
             .collect();
-        Self { rows: self.rows, cols: self.cols, entries }
+        Self {
+            rows: self.rows,
+            cols: self.cols,
+            entries,
+        }
     }
 
     /// Add two sparse matrices (must have equal dimensions).
@@ -223,11 +259,14 @@ impl SparseMat {
 
     /// Non-conjugate transpose: swap row/col indices.
     pub fn transpose(&self) -> Self {
-        let mut entries: Vec<(usize, usize, C64)> = self.entries.iter()
-            .map(|&(r, c, v)| (c, r, v))
-            .collect();
+        let mut entries: Vec<(usize, usize, C64)> =
+            self.entries.iter().map(|&(r, c, v)| (c, r, v)).collect();
         entries.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
-        Self { rows: self.cols, cols: self.rows, entries }
+        Self {
+            rows: self.cols,
+            cols: self.rows,
+            entries,
+        }
     }
 
     /// Sparse matrix × dense vector (SpMV), O(nnz).
@@ -235,7 +274,9 @@ impl SparseMat {
         if self.cols != x.len() {
             return Err(format!(
                 "spmv: matrix is {}×{} but vector has length {}",
-                self.rows, self.cols, x.len()
+                self.rows,
+                self.cols,
+                x.len()
             ));
         }
         let mut y = Array1::from_elem(self.rows, Complex::new(0.0, 0.0));
@@ -250,7 +291,10 @@ impl SparseMat {
         if self.cols != b.nrows() {
             return Err(format!(
                 "spmm: matrix is {}×{} but rhs is {}×{}",
-                self.rows, self.cols, b.nrows(), b.ncols()
+                self.rows,
+                self.cols,
+                b.nrows(),
+                b.ncols()
             ));
         }
         let mut c = Array2::from_elem((self.rows, b.ncols()), Complex::new(0.0, 0.0));
@@ -282,9 +326,9 @@ impl RoundMode {
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().replace('-', "_").as_str() {
             "floor" | "truncate" | "trunc" => Some(Self::Floor),
-            "ceil"                          => Some(Self::Ceil),
-            "zero"                          => Some(Self::Zero),
-            "round"                         => Some(Self::Round),
+            "ceil" => Some(Self::Ceil),
+            "zero" => Some(Self::Zero),
+            "round" => Some(Self::Round),
             "round_even" | "even" | "convergent" => Some(Self::RoundEven),
             _ => None,
         }
@@ -292,10 +336,10 @@ impl RoundMode {
 
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Floor     => "floor",
-            Self::Ceil      => "ceil",
-            Self::Zero      => "zero",
-            Self::Round     => "round",
+            Self::Floor => "floor",
+            Self::Ceil => "ceil",
+            Self::Zero => "zero",
+            Self::Round => "round",
             Self::RoundEven => "round_even",
         }
     }
@@ -314,7 +358,7 @@ impl OverflowMode {
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "saturate" | "sat" => Some(Self::Saturate),
-            "wrap"             => Some(Self::Wrap),
+            "wrap" => Some(Self::Wrap),
             _ => None,
         }
     }
@@ -322,7 +366,7 @@ impl OverflowMode {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Saturate => "saturate",
-            Self::Wrap     => "wrap",
+            Self::Wrap => "wrap",
         }
     }
 }
@@ -335,30 +379,42 @@ mod tests {
 
     #[test]
     fn round_mode_from_str_all_variants() {
-        assert_eq!(RoundMode::from_str("floor"),     Some(RoundMode::Floor));
-        assert_eq!(RoundMode::from_str("ceil"),      Some(RoundMode::Ceil));
-        assert_eq!(RoundMode::from_str("zero"),      Some(RoundMode::Zero));
-        assert_eq!(RoundMode::from_str("round"),     Some(RoundMode::Round));
-        assert_eq!(RoundMode::from_str("round_even"), Some(RoundMode::RoundEven));
+        assert_eq!(RoundMode::from_str("floor"), Some(RoundMode::Floor));
+        assert_eq!(RoundMode::from_str("ceil"), Some(RoundMode::Ceil));
+        assert_eq!(RoundMode::from_str("zero"), Some(RoundMode::Zero));
+        assert_eq!(RoundMode::from_str("round"), Some(RoundMode::Round));
+        assert_eq!(
+            RoundMode::from_str("round_even"),
+            Some(RoundMode::RoundEven)
+        );
     }
 
     #[test]
     fn round_mode_aliases() {
-        assert_eq!(RoundMode::from_str("truncate"),   Some(RoundMode::Floor));
-        assert_eq!(RoundMode::from_str("trunc"),      Some(RoundMode::Floor));
-        assert_eq!(RoundMode::from_str("even"),       Some(RoundMode::RoundEven));
-        assert_eq!(RoundMode::from_str("convergent"), Some(RoundMode::RoundEven));
+        assert_eq!(RoundMode::from_str("truncate"), Some(RoundMode::Floor));
+        assert_eq!(RoundMode::from_str("trunc"), Some(RoundMode::Floor));
+        assert_eq!(RoundMode::from_str("even"), Some(RoundMode::RoundEven));
+        assert_eq!(
+            RoundMode::from_str("convergent"),
+            Some(RoundMode::RoundEven)
+        );
     }
 
     #[test]
     fn round_mode_case_insensitive() {
         assert_eq!(RoundMode::from_str("FLOOR"), Some(RoundMode::Floor));
-        assert_eq!(RoundMode::from_str("Round_Even"), Some(RoundMode::RoundEven));
+        assert_eq!(
+            RoundMode::from_str("Round_Even"),
+            Some(RoundMode::RoundEven)
+        );
     }
 
     #[test]
     fn round_mode_hyphen_alias() {
-        assert_eq!(RoundMode::from_str("round-even"), Some(RoundMode::RoundEven));
+        assert_eq!(
+            RoundMode::from_str("round-even"),
+            Some(RoundMode::RoundEven)
+        );
     }
 
     #[test]
@@ -369,8 +425,13 @@ mod tests {
 
     #[test]
     fn round_mode_round_trip() {
-        for mode in [RoundMode::Floor, RoundMode::Ceil, RoundMode::Zero,
-                     RoundMode::Round, RoundMode::RoundEven] {
+        for mode in [
+            RoundMode::Floor,
+            RoundMode::Ceil,
+            RoundMode::Zero,
+            RoundMode::Round,
+            RoundMode::RoundEven,
+        ] {
             assert_eq!(RoundMode::from_str(mode.as_str()), Some(mode));
         }
     }
@@ -379,8 +440,11 @@ mod tests {
 
     #[test]
     fn overflow_mode_from_str_all_variants() {
-        assert_eq!(OverflowMode::from_str("saturate"), Some(OverflowMode::Saturate));
-        assert_eq!(OverflowMode::from_str("wrap"),     Some(OverflowMode::Wrap));
+        assert_eq!(
+            OverflowMode::from_str("saturate"),
+            Some(OverflowMode::Saturate)
+        );
+        assert_eq!(OverflowMode::from_str("wrap"), Some(OverflowMode::Wrap));
     }
 
     #[test]
@@ -390,7 +454,10 @@ mod tests {
 
     #[test]
     fn overflow_mode_case_insensitive() {
-        assert_eq!(OverflowMode::from_str("SATURATE"), Some(OverflowMode::Saturate));
+        assert_eq!(
+            OverflowMode::from_str("SATURATE"),
+            Some(OverflowMode::Saturate)
+        );
         assert_eq!(OverflowMode::from_str("Wrap"), Some(OverflowMode::Wrap));
     }
 

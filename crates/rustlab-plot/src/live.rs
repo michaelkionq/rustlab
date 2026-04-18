@@ -1,8 +1,16 @@
-use crossterm::{event::{self, Event, KeyCode, KeyModifiers}, execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
-use ratatui::{Terminal, backend::CrosstermBackend};
+use crate::{
+    ascii::draw_subplots,
+    error::PlotError,
+    figure::{LineStyle, PlotKind, Series, SeriesColor, SubplotState},
+};
+use crossterm::{
+    event::{self, Event, KeyCode, KeyModifiers},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io::{stdin, stdout, IsTerminal};
 use std::sync::atomic::{AtomicBool, Ordering};
-use crate::{ascii::draw_subplots, error::PlotError, figure::{LineStyle, PlotKind, Series, SeriesColor, SubplotState}};
 
 /// Whether a LiveFigure currently owns the terminal.  When true, SIGINT is
 /// ignored so the process can exit cleanly via pipe EOF / AudioEof instead
@@ -18,9 +26,9 @@ static LIVE_FIGURE_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// on Ctrl-C (Rust runs destructors when unwinding).
 pub struct LiveFigure {
     terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
-    panels:   Vec<SubplotState>,
-    rows:     usize,
-    cols:     usize,
+    panels: Vec<SubplotState>,
+    rows: usize,
+    cols: usize,
     raw_mode: bool,
 }
 
@@ -50,19 +58,28 @@ impl LiveFigure {
         // exit.  When stdin is a tty, the key-event polling in redraw()
         // handles Ctrl-C explicitly.
         #[cfg(unix)]
-        unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN); }
+        unsafe {
+            libc::signal(libc::SIGINT, libc::SIG_IGN);
+        }
         LIVE_FIGURE_ACTIVE.store(true, Ordering::SeqCst);
         let backend = CrosstermBackend::new(stdout());
-        let terminal = Terminal::new(backend)
-            .map_err(|e| PlotError::Terminal(e.to_string()))?;
+        let terminal = Terminal::new(backend).map_err(|e| PlotError::Terminal(e.to_string()))?;
         let panels = (0..rows * cols).map(|_| SubplotState::new()).collect();
-        Ok(Self { terminal, panels, rows, cols, raw_mode })
+        Ok(Self {
+            terminal,
+            panels,
+            rows,
+            cols,
+            raw_mode,
+        })
     }
 
     /// Replace the data in panel `idx` (0-based).  Does **not** redraw —
     /// call `redraw()` after updating all panels for one atomic refresh.
     pub fn update_panel(&mut self, idx: usize, x: Vec<f64>, y: Vec<f64>) {
-        if idx >= self.panels.len() { return; }
+        if idx >= self.panels.len() {
+            return;
+        }
         let panel = &mut self.panels[idx];
         panel.series.clear();
         panel.series.push(Series {
@@ -71,22 +88,31 @@ impl LiveFigure {
             y_data: y,
             color: SeriesColor::Cyan,
             style: LineStyle::Solid,
-            kind:  PlotKind::Line,
+            kind: PlotKind::Line,
         });
     }
 
     /// Set the title and axis labels for a panel (0-based idx).  Optional.
     pub fn set_panel_labels(&mut self, idx: usize, title: &str, xlabel: &str, ylabel: &str) {
-        if idx >= self.panels.len() { return; }
+        if idx >= self.panels.len() {
+            return;
+        }
         let p = &mut self.panels[idx];
-        p.title  = title.to_string();
+        p.title = title.to_string();
         p.xlabel = xlabel.to_string();
         p.ylabel = ylabel.to_string();
     }
 
     /// Set fixed axis limits for a panel (0-based idx).  Pass `None` for auto.
-    pub fn set_panel_limits(&mut self, idx: usize, xlim: (Option<f64>, Option<f64>), ylim: (Option<f64>, Option<f64>)) {
-        if idx >= self.panels.len() { return; }
+    pub fn set_panel_limits(
+        &mut self,
+        idx: usize,
+        xlim: (Option<f64>, Option<f64>),
+        ylim: (Option<f64>, Option<f64>),
+    ) {
+        if idx >= self.panels.len() {
+            return;
+        }
         let p = &mut self.panels[idx];
         p.xlim = xlim;
         p.ylim = ylim;
@@ -101,11 +127,12 @@ impl LiveFigure {
         // Clear before each draw to force a full repaint.  Without this,
         // ratatui's double-buffer diff can miss updates when only chart data
         // (not the widget layout) changes between frames.
-        self.terminal.clear()
+        self.terminal
+            .clear()
             .map_err(|e| PlotError::Terminal(e.to_string()))?;
         let panels = &self.panels;
-        let rows   = self.rows;
-        let cols   = self.cols;
+        let rows = self.rows;
+        let cols = self.cols;
         self.terminal
             .draw(|f| draw_subplots(f, panels, rows, cols))
             .map_err(|e| PlotError::Terminal(e.to_string()))?;
@@ -117,8 +144,8 @@ impl LiveFigure {
             while event::poll(std::time::Duration::ZERO)
                 .map_err(|e| PlotError::Terminal(e.to_string()))?
             {
-                if let Event::Key(key) = event::read()
-                    .map_err(|e| PlotError::Terminal(e.to_string()))?
+                if let Event::Key(key) =
+                    event::read().map_err(|e| PlotError::Terminal(e.to_string()))?
                 {
                     if key.code == KeyCode::Char('c')
                         && key.modifiers.contains(KeyModifiers::CONTROL)
@@ -142,7 +169,12 @@ impl crate::LivePlot for LiveFigure {
     fn set_panel_labels(&mut self, idx: usize, title: &str, xlabel: &str, ylabel: &str) {
         self.set_panel_labels(idx, title, xlabel, ylabel);
     }
-    fn set_panel_limits(&mut self, idx: usize, xlim: (Option<f64>, Option<f64>), ylim: (Option<f64>, Option<f64>)) {
+    fn set_panel_limits(
+        &mut self,
+        idx: usize,
+        xlim: (Option<f64>, Option<f64>),
+        ylim: (Option<f64>, Option<f64>),
+    ) {
         self.set_panel_limits(idx, xlim, ylim);
     }
     fn redraw(&mut self) -> Result<(), crate::PlotError> {
@@ -161,14 +193,12 @@ impl Drop for LiveFigure {
         if self.raw_mode {
             let _ = disable_raw_mode();
         }
-        let _ = execute!(
-            stdout(),
-            crossterm::cursor::Show,
-            LeaveAlternateScreen
-        );
+        let _ = execute!(stdout(), crossterm::cursor::Show, LeaveAlternateScreen);
         // Restore default SIGINT handling.
         #[cfg(unix)]
-        unsafe { libc::signal(libc::SIGINT, libc::SIG_DFL); }
+        unsafe {
+            libc::signal(libc::SIGINT, libc::SIG_DFL);
+        }
         LIVE_FIGURE_ACTIVE.store(false, Ordering::SeqCst);
     }
 }

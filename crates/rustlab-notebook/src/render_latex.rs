@@ -1,13 +1,18 @@
-use std::path::Path;
-use pulldown_cmark::{Parser, Options, Event, Tag, TagEnd, HeadingLevel};
-use rustlab_plot::theme::{Theme, ThemeColors};
 use crate::execute::Rendered;
 use crate::parse::CalloutKind;
+use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use rustlab_plot::theme::{Theme, ThemeColors};
+use std::path::Path;
 
 /// Render executed notebook blocks into a LaTeX document string.
 /// Plot images are written to `plot_dir` as SVG files and referenced
 /// via \includesvg.
-pub fn render_latex(title: &str, blocks: &[Rendered], plot_dir: &Path, theme: &ThemeColors) -> String {
+pub fn render_latex(
+    title: &str,
+    blocks: &[Rendered],
+    plot_dir: &Path,
+    theme: &ThemeColors,
+) -> String {
     let mut body = String::new();
     let mut plot_idx = 0;
 
@@ -19,7 +24,15 @@ pub fn render_latex(title: &str, blocks: &[Rendered], plot_dir: &Path, theme: &T
             Rendered::Markdown(md) => {
                 body.push_str(&markdown_to_latex(md));
             }
-            Rendered::Code { source, text_output, error, figures, hidden, details, grid_cols } => {
+            Rendered::Code {
+                source,
+                text_output,
+                error,
+                figures,
+                hidden,
+                details,
+                grid_cols,
+            } => {
                 // Source code (unless hidden)
                 if !hidden {
                     body.push_str("\\begin{verbatim}\n");
@@ -54,13 +67,13 @@ pub fn render_latex(title: &str, blocks: &[Rendered], plot_dir: &Path, theme: &T
                 for fig in figures {
                     plot_idx += 1;
                     let plot_file = plot_dir.join(format!("plot-{plot_idx}.svg"));
-                    if let Err(e) = rustlab_plot::render_figure_state_to_file(fig, &plot_file.to_string_lossy()) {
+                    if let Err(e) =
+                        rustlab_plot::render_figure_state_to_file(fig, &plot_file.to_string_lossy())
+                    {
                         eprintln!("warning: could not render plot-{plot_idx}: {e}");
                         continue;
                     }
-                    let rel_path = plot_dir.file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy();
+                    let rel_path = plot_dir.file_name().unwrap_or_default().to_string_lossy();
                     let width = if let Some(n) = grid_cols {
                         let w = 0.9 / *n as f64;
                         format!("{w:.2}\\textwidth")
@@ -75,8 +88,8 @@ pub fn render_latex(title: &str, blocks: &[Rendered], plot_dir: &Path, theme: &T
             }
             Rendered::Callout { kind, content } => {
                 let label = match kind {
-                    CalloutKind::Note    => "Note",
-                    CalloutKind::Tip     => "Tip",
+                    CalloutKind::Note => "Note",
+                    CalloutKind::Tip => "Tip",
                     CalloutKind::Warning => "Warning",
                 };
                 body.push_str(&format!("\\begin{{quote}}\n\\textbf{{{label}:}} "));
@@ -181,11 +194,16 @@ fn markdown_to_latex(md: &str) -> String {
                 Tag::Table(alignments) => {
                     in_table = true;
                     table_alignments = alignments;
-                    let cols: String = table_alignments.iter().map(|a| match a {
-                        pulldown_cmark::Alignment::Left | pulldown_cmark::Alignment::None => 'l',
-                        pulldown_cmark::Alignment::Center => 'c',
-                        pulldown_cmark::Alignment::Right => 'r',
-                    }).collect();
+                    let cols: String = table_alignments
+                        .iter()
+                        .map(|a| match a {
+                            pulldown_cmark::Alignment::Left | pulldown_cmark::Alignment::None => {
+                                'l'
+                            }
+                            pulldown_cmark::Alignment::Center => 'c',
+                            pulldown_cmark::Alignment::Right => 'r',
+                        })
+                        .collect();
                     out.push_str(&format!("\\begin{{tabular}}{{{cols}}}\n\\toprule\n"));
                 }
                 Tag::TableHead => {
@@ -511,7 +529,12 @@ mod tests {
 
     #[test]
     fn render_latex_preamble() {
-        let tex = render_latex("Test Title", &[], std::path::Path::new("/tmp/test_plots"), light());
+        let tex = render_latex(
+            "Test Title",
+            &[],
+            std::path::Path::new("/tmp/test_plots"),
+            light(),
+        );
         assert!(tex.contains("\\documentclass"));
         assert!(tex.contains("\\usepackage{graphicx}"));
         assert!(tex.contains("\\usepackage{svg}"));
@@ -524,41 +547,52 @@ mod tests {
 
     #[test]
     fn render_latex_title_escaped() {
-        let tex = render_latex("A & B", &[], std::path::Path::new("/tmp/test_plots"), light());
+        let tex = render_latex(
+            "A & B",
+            &[],
+            std::path::Path::new("/tmp/test_plots"),
+            light(),
+        );
         assert!(tex.contains("\\title{A \\& B}"));
     }
 
     #[test]
     fn render_latex_code_block() {
-        let blocks = vec![
-            Rendered::Code {
-                source: "x = 42".to_string(),
-                text_output: String::new(),
-                error: None,
-                figures: Vec::new(),
-                hidden: false,
-                details: None,
-                grid_cols: None,
-            },
-        ];
-        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"), light());
+        let blocks = vec![Rendered::Code {
+            source: "x = 42".to_string(),
+            text_output: String::new(),
+            error: None,
+            figures: Vec::new(),
+            hidden: false,
+            details: None,
+            grid_cols: None,
+        }];
+        let tex = render_latex(
+            "Test",
+            &blocks,
+            std::path::Path::new("/tmp/test_plots"),
+            light(),
+        );
         assert!(tex.contains("\\begin{verbatim}\nx = 42\n\\end{verbatim}"));
     }
 
     #[test]
     fn render_latex_hidden_block() {
-        let blocks = vec![
-            Rendered::Code {
-                source: "secret = 42".to_string(),
-                text_output: "ans = 42".to_string(),
-                error: None,
-                figures: Vec::new(),
-                hidden: true,
-                details: None,
-                grid_cols: None,
-            },
-        ];
-        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"), light());
+        let blocks = vec![Rendered::Code {
+            source: "secret = 42".to_string(),
+            text_output: "ans = 42".to_string(),
+            error: None,
+            figures: Vec::new(),
+            hidden: true,
+            details: None,
+            grid_cols: None,
+        }];
+        let tex = render_latex(
+            "Test",
+            &blocks,
+            std::path::Path::new("/tmp/test_plots"),
+            light(),
+        );
         // Source should not appear in verbatim
         assert!(!tex.contains("secret = 42"));
         // But text output should
@@ -567,36 +601,42 @@ mod tests {
 
     #[test]
     fn render_latex_text_output() {
-        let blocks = vec![
-            Rendered::Code {
-                source: "x = 1".to_string(),
-                text_output: "ans = 1".to_string(),
-                error: None,
-                figures: Vec::new(),
-                hidden: false,
-                details: None,
-                grid_cols: None,
-            },
-        ];
-        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"), light());
+        let blocks = vec![Rendered::Code {
+            source: "x = 1".to_string(),
+            text_output: "ans = 1".to_string(),
+            error: None,
+            figures: Vec::new(),
+            hidden: false,
+            details: None,
+            grid_cols: None,
+        }];
+        let tex = render_latex(
+            "Test",
+            &blocks,
+            std::path::Path::new("/tmp/test_plots"),
+            light(),
+        );
         assert!(tex.contains("\\begin{quote}"));
         assert!(tex.contains("ans = 1"));
     }
 
     #[test]
     fn render_latex_empty_output_not_shown() {
-        let blocks = vec![
-            Rendered::Code {
-                source: "x = 1;".to_string(),
-                text_output: "   \n  ".to_string(),
-                error: None,
-                figures: Vec::new(),
-                hidden: false,
-                details: None,
-                grid_cols: None,
-            },
-        ];
-        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"), light());
+        let blocks = vec![Rendered::Code {
+            source: "x = 1;".to_string(),
+            text_output: "   \n  ".to_string(),
+            error: None,
+            figures: Vec::new(),
+            hidden: false,
+            details: None,
+            grid_cols: None,
+        }];
+        let tex = render_latex(
+            "Test",
+            &blocks,
+            std::path::Path::new("/tmp/test_plots"),
+            light(),
+        );
         // Only one verbatim (source), no quote block for output
         let verbatim_count = tex.matches("\\begin{verbatim}").count();
         assert_eq!(verbatim_count, 1);
@@ -605,28 +645,36 @@ mod tests {
 
     #[test]
     fn render_latex_error() {
-        let blocks = vec![
-            Rendered::Code {
-                source: "bad".to_string(),
-                text_output: String::new(),
-                error: Some("undefined variable".to_string()),
-                figures: Vec::new(),
-                hidden: false,
-                details: None,
-                grid_cols: None,
-            },
-        ];
-        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"), light());
+        let blocks = vec![Rendered::Code {
+            source: "bad".to_string(),
+            text_output: String::new(),
+            error: Some("undefined variable".to_string()),
+            figures: Vec::new(),
+            hidden: false,
+            details: None,
+            grid_cols: None,
+        }];
+        let tex = render_latex(
+            "Test",
+            &blocks,
+            std::path::Path::new("/tmp/test_plots"),
+            light(),
+        );
         assert!(tex.contains("\\color[HTML]{"));
         assert!(tex.contains("undefined variable"));
     }
 
     #[test]
     fn render_latex_markdown_section() {
-        let blocks = vec![
-            Rendered::Markdown("## Analysis\n\nSome text with $x^2$ math.".to_string()),
-        ];
-        let tex = render_latex("Test", &blocks, std::path::Path::new("/tmp/test_plots"), light());
+        let blocks = vec![Rendered::Markdown(
+            "## Analysis\n\nSome text with $x^2$ math.".to_string(),
+        )];
+        let tex = render_latex(
+            "Test",
+            &blocks,
+            std::path::Path::new("/tmp/test_plots"),
+            light(),
+        );
         assert!(tex.contains("\\subsection{Analysis}"));
         assert!(tex.contains("$x^2$"));
     }

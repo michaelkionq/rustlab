@@ -15,17 +15,19 @@ use tempfile::TempDir;
 fn workspace_root() -> PathBuf {
     // CARGO_MANIFEST_DIR == .../crates/rustlab-cli
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap() // .../crates
-        .parent().unwrap() // workspace root
+        .parent()
+        .unwrap() // .../crates
+        .parent()
+        .unwrap() // workspace root
         .to_path_buf()
 }
 
 /// Run one example script in a fresh temp directory.
 /// Returns the process exit status.
 fn run_example(name: &str) -> std::process::ExitStatus {
-    let dir     = TempDir::new().expect("failed to create temp dir");
-    let script  = workspace_root().join("examples").join(format!("{name}.r"));
-    let bin     = env!("CARGO_BIN_EXE_rustlab");
+    let dir = TempDir::new().expect("failed to create temp dir");
+    let script = workspace_root().join("examples").join(format!("{name}.r"));
+    let bin = env!("CARGO_BIN_EXE_rustlab");
 
     Command::new(bin)
         .args(["run", script.to_str().unwrap()])
@@ -45,7 +47,10 @@ fn run_example_ok(name: &str) {
 #[test]
 fn example_complex_basics() {
     let status = run_example("complex_basics");
-    assert!(status.success(), "example 'complex_basics' exited with {status}");
+    assert!(
+        status.success(),
+        "example 'complex_basics' exited with {status}"
+    );
 }
 
 #[test]
@@ -81,9 +86,9 @@ fn example_trig_special() {
 
 #[test]
 fn example_fixed_point() {
-    let dir    = TempDir::new().expect("failed to create temp dir");
+    let dir = TempDir::new().expect("failed to create temp dir");
     let script = workspace_root().join("examples").join("fixed_point.r");
-    let bin    = env!("CARGO_BIN_EXE_rustlab");
+    let bin = env!("CARGO_BIN_EXE_rustlab");
 
     let output = Command::new(bin)
         .args(["run", script.to_str().unwrap()])
@@ -91,10 +96,12 @@ fn example_fixed_point() {
         .output()
         .expect("failed to launch rustlab for example 'fixed_point'");
 
-    assert!(output.status.success(),
+    assert!(
+        output.status.success(),
         "fixed_point exited with {}\nstderr: {}",
         output.status,
-        String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     // Parse the 5 SNR values printed after each "SNR (dB):" label line.
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -102,45 +109,107 @@ fn example_fixed_point() {
     let snr_values: Vec<f64> = lines
         .windows(2)
         .filter(|w| w[0].contains("SNR (dB)"))
-        .map(|w| w[1].trim().parse::<f64>()
-            .unwrap_or_else(|_| panic!("could not parse SNR value from: {:?}", w[1])))
+        .map(|w| {
+            w[1].trim()
+                .parse::<f64>()
+                .unwrap_or_else(|_| panic!("could not parse SNR value from: {:?}", w[1]))
+        })
         .collect();
 
-    assert_eq!(snr_values.len(), 5,
-        "expected 5 SNR values, got {}; stdout:\n{}", snr_values.len(), stdout);
+    assert_eq!(
+        snr_values.len(),
+        5,
+        "expected 5 SNR values, got {}; stdout:\n{}",
+        snr_values.len(),
+        stdout
+    );
 
     // SNR must strictly increase with bitwidth (8 → 10 → 12 → 14 → 16 bit).
     for (i, w) in snr_values.windows(2).enumerate() {
-        assert!(w[1] > w[0],
+        assert!(
+            w[1] > w[0],
             "SNR not monotonically increasing at step {i}: {:.1} → {:.1} dB\nAll: {snr_values:?}",
-            w[0], w[1]);
+            w[0],
+            w[1]
+        );
     }
 
     // Loose absolute bounds: 8-bit ~30 dB, 16-bit ~74 dB.
-    assert!(snr_values[0] > 20.0 && snr_values[0] < 45.0,
-        "8-bit SNR out of expected range [20, 45] dB: {:.1}", snr_values[0]);
-    assert!(snr_values[4] > 60.0,
-        "16-bit SNR below expected floor of 60 dB: {:.1}", snr_values[4]);
+    assert!(
+        snr_values[0] > 20.0 && snr_values[0] < 45.0,
+        "8-bit SNR out of expected range [20, 45] dB: {:.1}",
+        snr_values[0]
+    );
+    assert!(
+        snr_values[4] > 60.0,
+        "16-bit SNR below expected floor of 60 dB: {:.1}",
+        snr_values[4]
+    );
 }
 
 // ── Non-interactive examples (no terminal plot calls) ─────────────────────
 
-#[test] fn example_functions()       { run_example_ok("functions"); }
-#[test] fn example_lambda()          { run_example_ok("lambda"); }
-#[test] fn example_lambda_pipeline() { run_example_ok("lambda_pipeline"); }
-#[test] fn example_profiling()       { run_example_ok("profiling"); }
-#[test] fn example_upfirdn()         { run_example_ok("upfirdn"); }
-#[test] fn example_vectors()         { run_example_ok("vectors"); }
+#[test]
+fn example_functions() {
+    run_example_ok("functions");
+}
+#[test]
+fn example_lambda() {
+    run_example_ok("lambda");
+}
+#[test]
+fn example_lambda_pipeline() {
+    run_example_ok("lambda_pipeline");
+}
+#[test]
+fn example_profiling() {
+    run_example_ok("profiling");
+}
+#[test]
+fn example_upfirdn() {
+    run_example_ok("upfirdn");
+}
+#[test]
+fn example_vectors() {
+    run_example_ok("vectors");
+}
 
 // ── Plot-producing examples (render_figure_terminal is a no-op under `cargo
 //    test` because stdout is not a TTY; savefig writes into the temp dir and
 //    is cleaned up automatically when the TempDir drops) ────────────────────
-#[test] fn example_bandpass()          { run_example_ok("bandpass"); }
-#[test] fn example_fft()               { run_example_ok("fft"); }
-#[test] fn example_kaiser_fir()        { run_example_ok("kaiser_fir"); }
-#[test] fn example_lowpass()           { run_example_ok("lowpass"); }
-#[test] fn example_multi_figure()      { run_example_ok("multi_figure"); }
-#[test] fn example_random()            { run_example_ok("random"); }
-#[test] fn example_report_demo()       { run_example_ok("report_demo"); }
-#[test] fn example_toml_filter_chain() { run_example_ok("toml_filter_chain"); }
-#[test] fn example_toml_io()           { run_example_ok("toml_io"); }
+#[test]
+fn example_bandpass() {
+    run_example_ok("bandpass");
+}
+#[test]
+fn example_fft() {
+    run_example_ok("fft");
+}
+#[test]
+fn example_kaiser_fir() {
+    run_example_ok("kaiser_fir");
+}
+#[test]
+fn example_lowpass() {
+    run_example_ok("lowpass");
+}
+#[test]
+fn example_multi_figure() {
+    run_example_ok("multi_figure");
+}
+#[test]
+fn example_random() {
+    run_example_ok("random");
+}
+#[test]
+fn example_report_demo() {
+    run_example_ok("report_demo");
+}
+#[test]
+fn example_toml_filter_chain() {
+    run_example_ok("toml_filter_chain");
+}
+#[test]
+fn example_toml_io() {
+    run_example_ok("toml_io");
+}

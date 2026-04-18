@@ -8,15 +8,15 @@ use rustlab_proto::{WireColor, WireLineStyle, WirePlotKind, WireSeries};
 pub fn wire_color_to_egui(c: &WireColor) -> Color32 {
     match c {
         WireColor::Named(name) => match name.as_str() {
-            "blue"    => Color32::from_rgb(31, 119, 180),
-            "red"     => Color32::from_rgb(214,  39,  40),
-            "green"   => Color32::from_rgb( 44, 160,  44),
-            "cyan"    => Color32::from_rgb( 23, 190, 207),
+            "blue" => Color32::from_rgb(31, 119, 180),
+            "red" => Color32::from_rgb(214, 39, 40),
+            "green" => Color32::from_rgb(44, 160, 44),
+            "cyan" => Color32::from_rgb(23, 190, 207),
             "magenta" => Color32::from_rgb(148, 103, 189),
-            "yellow"  => Color32::from_rgb(188, 189,  34),
-            "black"   => Color32::from_rgb(  0,   0,   0),
-            "white"   => Color32::from_rgb(255, 255, 255),
-            _         => Color32::from_rgb(200, 200, 200),
+            "yellow" => Color32::from_rgb(188, 189, 34),
+            "black" => Color32::from_rgb(0, 0, 0),
+            "white" => Color32::from_rgb(255, 255, 255),
+            _ => Color32::from_rgb(200, 200, 200),
         },
         WireColor::Rgb(r, g, b) => Color32::from_rgb(*r, *g, *b),
     }
@@ -25,7 +25,10 @@ pub fn wire_color_to_egui(c: &WireColor) -> Color32 {
 /// Render a `WireSeries` into egui_plot items added to a `PlotUi`.
 pub fn render_series(ui: &mut egui_plot::PlotUi, series: &WireSeries) {
     let color = wire_color_to_egui(&series.color);
-    let points: Vec<[f64; 2]> = series.x.iter().copied()
+    let points: Vec<[f64; 2]> = series
+        .x
+        .iter()
+        .copied()
         .zip(series.y.iter().copied())
         .map(|(x, y)| [x, y])
         .collect();
@@ -48,7 +51,10 @@ pub fn render_series(ui: &mut egui_plot::PlotUi, series: &WireSeries) {
             ui.points(pts);
         }
         WirePlotKind::Bar => {
-            let bars: Vec<Bar> = series.x.iter().copied()
+            let bars: Vec<Bar> = series
+                .x
+                .iter()
+                .copied()
                 .zip(series.y.iter().copied())
                 .map(|(x, y)| Bar::new(x, y).fill(color))
                 .collect();
@@ -58,8 +64,7 @@ pub fn render_series(ui: &mut egui_plot::PlotUi, series: &WireSeries) {
         WirePlotKind::Stem => {
             // Vertical lines from y=0 to each point
             for (&xi, &yi) in series.x.iter().zip(series.y.iter()) {
-                let stem = Line::new(PlotPoints::new(vec![[xi, 0.0], [xi, yi]]))
-                    .color(color);
+                let stem = Line::new(PlotPoints::new(vec![[xi, 0.0], [xi, yi]])).color(color);
                 ui.line(stem);
             }
             // Marker tips

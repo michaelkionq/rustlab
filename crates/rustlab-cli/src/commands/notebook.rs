@@ -1,7 +1,7 @@
-use std::path::PathBuf;
-use clap::{Args, Subcommand, ValueEnum};
 use anyhow::Result;
+use clap::{Args, Subcommand, ValueEnum};
 use rustlab_plot::Theme;
+use std::path::PathBuf;
 
 #[derive(Clone, ValueEnum)]
 enum CliFormat {
@@ -78,7 +78,13 @@ pub fn execute(cmd: NotebookCommands) -> Result<()> {
                 CliFormat::Pdf => rustlab_notebook::Format::Pdf,
             };
             if args.input.is_dir() {
-                rustlab_notebook::cmd_render_dir(args.input, args.output, format, colors, args.title);
+                rustlab_notebook::cmd_render_dir(
+                    args.input,
+                    args.output,
+                    format,
+                    colors,
+                    args.title,
+                );
             } else {
                 if args.title.is_some() {
                     eprintln!("warning: --title is only used when rendering a directory; ignored for single-file input");

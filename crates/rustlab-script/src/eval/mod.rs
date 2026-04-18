@@ -4,62 +4,68 @@ pub mod profile;
 pub mod toml_io;
 pub mod value;
 
-use std::collections::HashMap;
-use ndarray::Array1;
-use num_complex::Complex;
-use rustlab_core::C64;
 use crate::ast::{Expr, Stmt, StmtKind};
 use crate::error::ScriptError;
-pub use value::Value;
-pub use value::NumberFormat;
 pub use builtins::BuiltinRegistry;
+use ndarray::Array1;
+use num_complex::Complex;
 pub use profile::FnStats;
+use rustlab_core::C64;
+use std::collections::HashMap;
+pub use value::NumberFormat;
+pub use value::Value;
 
 #[derive(Clone)]
 struct UserFn {
-    name:       String,
-    params:     Vec<String>,
+    name: String,
+    params: Vec<String>,
     return_var: Option<String>,
-    body:       Vec<Stmt>,
+    body: Vec<Stmt>,
 }
 
 pub struct Evaluator {
-    env:           HashMap<String, Value>,
-    builtins:      BuiltinRegistry,
-    user_fns:      HashMap<String, UserFn>,
+    env: HashMap<String, Value>,
+    builtins: BuiltinRegistry,
+    user_fns: HashMap<String, UserFn>,
     /// True while executing a user-defined function body — suppresses auto-print of assignments.
-    in_function:   bool,
-    profiler:      profile::Profiler,
+    in_function: bool,
+    profiler: profile::Profiler,
     /// When true, assignment output uses ANSI colour (green var name, dim `=`).
     pub color_output: bool,
     /// Active numeric display format (short, long, hex, commas).
     pub number_format: value::NumberFormat,
     /// Source line of the statement currently being executed (for error messages).
-    current_line:  usize,
+    current_line: usize,
 }
 
 impl Evaluator {
     pub fn new() -> Self {
         let mut env = HashMap::new();
         // Predefined constants: i and j both equal Complex(0, 1)
-        env.insert("j".to_string(), Value::Complex(num_complex::Complex::new(0.0, 1.0)));
-        env.insert("i".to_string(), Value::Complex(num_complex::Complex::new(0.0, 1.0)));
+        env.insert(
+            "j".to_string(),
+            Value::Complex(num_complex::Complex::new(0.0, 1.0)),
+        );
+        env.insert(
+            "i".to_string(),
+            Value::Complex(num_complex::Complex::new(0.0, 1.0)),
+        );
         // Also pi and e for convenience
-        env.insert("pi".to_string(),    Value::Scalar(std::f64::consts::PI));
-        env.insert("e".to_string(),     Value::Scalar(std::f64::consts::E));
+        env.insert("pi".to_string(), Value::Scalar(std::f64::consts::PI));
+        env.insert("e".to_string(), Value::Scalar(std::f64::consts::E));
         // IEEE special values
-        env.insert("Inf".to_string(),   Value::Scalar(f64::INFINITY));
-        env.insert("NaN".to_string(),   Value::Scalar(f64::NAN));
+        env.insert("Inf".to_string(), Value::Scalar(f64::INFINITY));
+        env.insert("NaN".to_string(), Value::Scalar(f64::NAN));
         // Boolean literals
-        env.insert("true".to_string(),  Value::Bool(true));
+        env.insert("true".to_string(), Value::Bool(true));
         env.insert("false".to_string(), Value::Bool(false));
 
         Self {
             env,
-            builtins:    BuiltinRegistry::with_defaults(),
-            user_fns:    HashMap::new(),
+            builtins: BuiltinRegistry::with_defaults(),
+            user_fns: HashMap::new(),
             in_function: false,
-            profiler:    profile::Profiler::default(),
+            profiler: profile::Profiler::default(),
             color_output: false,
             number_format: value::NumberFormat::Short,
             current_line: 0,
@@ -99,7 +105,9 @@ impl Evaluator {
     /// Excludes built-in constants (j, pi, e).
     pub fn vars(&self) -> Vec<(&str, &Value)> {
         const BUILTIN_CONSTS: &[&str] = &["i", "j", "pi", "e", "Inf", "NaN", "true", "false"];
-        let mut entries: Vec<(&str, &Value)> = self.env.iter()
+        let mut entries: Vec<(&str, &Value)> = self
+            .env
+            .iter()
             .filter(|(k, _)| !BUILTIN_CONSTS.contains(&k.as_str()))
             .map(|(k, v)| (k.as_str(), v))
             .collect();
@@ -113,7 +121,9 @@ impl Evaluator {
     }
 
     /// True if any profiling data has been recorded.
-    pub fn has_profile_data(&self) -> bool { self.profiler.has_data() }
+    pub fn has_profile_data(&self) -> bool {
+        self.profiler.has_data()
+    }
 
     /// Drain the profiling stats and return report rows sorted by total time.
     pub fn take_profile(&mut self) -> Vec<(String, FnStats)> {
@@ -140,7 +150,8 @@ impl Evaluator {
 
     pub fn exec_stmt(&mut self, stmt: &Stmt) -> Result<(), ScriptError> {
         self.current_line = stmt.line;
-        self.exec_stmt_kind(&stmt.kind).map_err(|e| e.with_line(stmt.line))
+        self.exec_stmt_kind(&stmt.kind)
+            .map_err(|e| e.with_line(stmt.line))
     }
 
     /// True when assignment / index-assignment echo should be printed.
@@ -155,7 +166,11 @@ impl Evaluator {
 
     fn exec_stmt_kind(&mut self, stmt: &StmtKind) -> Result<(), ScriptError> {
         match stmt {
-            StmtKind::Assign { name, expr, suppress } => {
+            StmtKind::Assign {
+                name,
+                expr,
+                suppress,
+            } => {
                 let val = self.eval_expr(expr)?;
                 if !suppress && self.echo_enabled() {
                     let display = val.format_display(self.number_format);
@@ -167,20 +182,36 @@ impl Evaluator {
                 }
                 self.env.insert(name.clone(), val);
             }
-            StmtKind::FunctionDef { name, params, return_var, body } => {
-                self.user_fns.insert(name.clone(), UserFn {
-                    name:       name.clone(),
-                    params:     params.clone(),
-                    return_var: return_var.clone(),
-                    body:       body.clone(),
-                });
+            StmtKind::FunctionDef {
+                name,
+                params,
+                return_var,
+                body,
+            } => {
+                self.user_fns.insert(
+                    name.clone(),
+                    UserFn {
+                        name: name.clone(),
+                        params: params.clone(),
+                        return_var: return_var.clone(),
+                        body: body.clone(),
+                    },
+                );
             }
-            StmtKind::FieldAssign { object, field, expr, suppress } => {
+            StmtKind::FieldAssign {
+                object,
+                field,
+                expr,
+                suppress,
+            } => {
                 let val = self.eval_expr(expr)?;
                 if !suppress && self.echo_enabled() {
                     let display = val.format_display(self.number_format);
                     if self.color_output && !output::capturing() {
-                        output::script_println(&format!("\x1b[32m{}.{}\x1b[0m = {}", object, field, display));
+                        output::script_println(&format!(
+                            "\x1b[32m{}.{}\x1b[0m = {}",
+                            object, field, display
+                        ));
                     } else {
                         output::script_println(&format!("{}.{} = {}", object, field, display));
                     }
@@ -191,7 +222,9 @@ impl Evaluator {
                     }
                     Some(other) => {
                         return Err(ScriptError::runtime(format!(
-                            "'{}' is a {}, not a struct", object, other.type_name()
+                            "'{}' is a {}, not a struct",
+                            object,
+                            other.type_name()
                         )));
                     }
                     None => {
@@ -205,39 +238,58 @@ impl Evaluator {
             StmtKind::Return => {
                 return Err(ScriptError::EarlyReturn);
             }
-            StmtKind::If { cond, then_body, elseif_arms, else_body } => {
+            StmtKind::If {
+                cond,
+                then_body,
+                elseif_arms,
+                else_body,
+            } => {
                 let cv = self.eval_expr(cond)?;
                 let branch = Self::is_truthy(&cv, "if")?;
                 if branch {
-                    for s in then_body { self.exec_stmt(s)?; }
+                    for s in then_body {
+                        self.exec_stmt(s)?;
+                    }
                 } else {
                     let mut handled = false;
                     for (ei_cond, ei_body) in elseif_arms {
                         let ei_cv = self.eval_expr(ei_cond)?;
                         if Self::is_truthy(&ei_cv, "elseif")? {
-                            for s in ei_body { self.exec_stmt(s)?; }
+                            for s in ei_body {
+                                self.exec_stmt(s)?;
+                            }
                             handled = true;
                             break;
                         }
                     }
                     if !handled {
-                        for s in else_body { self.exec_stmt(s)?; }
+                        for s in else_body {
+                            self.exec_stmt(s)?;
+                        }
                     }
                 }
             }
-            StmtKind::Switch { expr, cases, otherwise } => {
+            StmtKind::Switch {
+                expr,
+                cases,
+                otherwise,
+            } => {
                 let switch_val = self.eval_expr(expr)?;
                 let mut matched = false;
                 for (case_expr, case_body) in cases {
                     let case_val = self.eval_expr(case_expr)?;
                     if Self::values_equal(&switch_val, &case_val) {
-                        for s in case_body { self.exec_stmt(s)?; }
+                        for s in case_body {
+                            self.exec_stmt(s)?;
+                        }
                         matched = true;
                         break;
                     }
                 }
                 if !matched {
-                    for s in otherwise { self.exec_stmt(s)?; }
+                    for s in otherwise {
+                        self.exec_stmt(s)?;
+                    }
                 }
             }
             StmtKind::Format { mode } => {
@@ -264,7 +316,8 @@ impl Evaluator {
                     }
                     other => {
                         return Err(ScriptError::runtime(format!(
-                            "format: unknown mode '{}' (try short, long, hex, commas)", other
+                            "format: unknown mode '{}' (try short, long, hex, commas)",
+                            other
                         )));
                     }
                 }
@@ -287,27 +340,31 @@ impl Evaluator {
                             rustlab_plot::connect_viewer()
                         };
                         match connect_result {
-                            Ok(true)  => {
-                                let fig_id = rustlab_plot::viewer_live::get_viewer_fig_id()
-                                    .unwrap_or(1);
+                            Ok(true) => {
+                                let fig_id =
+                                    rustlab_plot::viewer_live::get_viewer_fig_id().unwrap_or(1);
                                 rustlab_plot::set_current_figure_output(
                                     rustlab_plot::FigureOutput::Viewer(fig_id),
                                 );
                                 if let Some(n) = name {
                                     eprintln!("viewer: connected to session '{}' — plots will render in rustlab-viewer", n);
                                 } else {
-                                    eprintln!("viewer: connected — plots will render in rustlab-viewer");
+                                    eprintln!(
+                                        "viewer: connected — plots will render in rustlab-viewer"
+                                    );
                                 }
                             }
                             Ok(false) => {
                                 if let Some(n) = name {
                                     eprintln!("viewer: could not connect to session '{}' — is rustlab-viewer --name {} running?", n, n);
                                 } else {
-                                    eprintln!("viewer: could not connect — is rustlab-viewer running?");
+                                    eprintln!(
+                                        "viewer: could not connect — is rustlab-viewer running?"
+                                    );
                                 }
                                 eprintln!("  plots will continue to render in the terminal");
                             }
-                            Err(e)    => {
+                            Err(e) => {
                                 eprintln!("viewer: connection failed — {}", e);
                                 eprintln!("  plots will continue to render in the terminal");
                             }
@@ -328,31 +385,40 @@ impl Evaluator {
                 }
             }
             StmtKind::Run { path } => {
-                let source = std::fs::read_to_string(path).map_err(|e| {
-                    ScriptError::runtime(format!("run: {}: {}", path, e))
-                })?;
+                let source = std::fs::read_to_string(path)
+                    .map_err(|e| ScriptError::runtime(format!("run: {}: {}", path, e)))?;
                 let tokens = crate::lexer::tokenize(&source)?;
                 let stmts = crate::parser::parse(tokens)?;
                 for s in &stmts {
                     self.exec_stmt(s)?;
                 }
             }
-            StmtKind::MultiAssign { names, expr, suppress } => {
+            StmtKind::MultiAssign {
+                names,
+                expr,
+                suppress,
+            } => {
                 let val = self.eval_expr(expr)?;
                 match val {
                     Value::Tuple(values) => {
                         if values.len() < names.len() {
                             return Err(ScriptError::runtime(format!(
                                 "multi-assign: expected {} values, function returned {}",
-                                names.len(), values.len()
+                                names.len(),
+                                values.len()
                             )));
                         }
                         for (name, v) in names.iter().zip(values.into_iter()) {
-                            if name == "~" { continue; } // discard
+                            if name == "~" {
+                                continue;
+                            } // discard
                             if !suppress && self.echo_enabled() {
                                 let display = v.format_display(self.number_format);
                                 if self.color_output && !output::capturing() {
-                                    output::script_println(&format!("\x1b[32m{}\x1b[0m = {}", name, display));
+                                    output::script_println(&format!(
+                                        "\x1b[32m{}\x1b[0m = {}",
+                                        name, display
+                                    ));
                                 } else {
                                     output::script_println(&format!("{} = {}", name, display));
                                 }
@@ -370,7 +436,10 @@ impl Evaluator {
                         if names[0] != "~" {
                             if !suppress && self.echo_enabled() {
                                 if self.color_output && !output::capturing() {
-                                    output::script_println(&format!("\x1b[32m{}\x1b[0m = {}", names[0], single));
+                                    output::script_println(&format!(
+                                        "\x1b[32m{}\x1b[0m = {}",
+                                        names[0], single
+                                    ));
                                 } else {
                                     output::script_println(&format!("{} = {}", names[0], single));
                                 }
@@ -380,23 +449,26 @@ impl Evaluator {
                     }
                 }
             }
-            StmtKind::While { cond, body } => {
-                loop {
-                    let cv = self.eval_expr(cond)?;
-                    if !Self::is_truthy(&cv, "while")? { break; }
-                    for s in body {
-                        self.exec_stmt(s)?;
-                    }
+            StmtKind::While { cond, body } => loop {
+                let cv = self.eval_expr(cond)?;
+                if !Self::is_truthy(&cv, "while")? {
+                    break;
                 }
-            }
+                for s in body {
+                    self.exec_stmt(s)?;
+                }
+            },
             StmtKind::For { var, iter, body } => {
                 let iter_val = self.eval_expr(iter)?;
                 let elements = match iter_val {
                     Value::Vector(v) => v.to_vec(),
                     Value::Scalar(n) => vec![Complex::new(n, 0.0)],
-                    other => return Err(ScriptError::runtime(format!(
-                        "for: cannot iterate over {}", other.type_name()
-                    ))),
+                    other => {
+                        return Err(ScriptError::runtime(format!(
+                            "for: cannot iterate over {}",
+                            other.type_name()
+                        )))
+                    }
                 };
                 for elem in elements {
                     let val = if elem.im == 0.0 {
@@ -410,7 +482,12 @@ impl Evaluator {
                     }
                 }
             }
-            StmtKind::IndexAssign { name, indices, expr, suppress } => {
+            StmtKind::IndexAssign {
+                name,
+                indices,
+                expr,
+                suppress,
+            } => {
                 let val = self.eval_expr(expr)?;
 
                 // Evaluate indices with `end` bound to current container length (if any)
@@ -421,21 +498,27 @@ impl Evaluator {
                     Some(Value::SparseMatrix(sm)) if indices.len() == 1 => sm.rows * sm.cols,
                     _ => 0,
                 };
-                self.env.insert("end".to_string(), Value::Scalar(container_len as f64));
-                let idx_vals: Vec<Value> = indices.iter()
+                self.env
+                    .insert("end".to_string(), Value::Scalar(container_len as f64));
+                let idx_vals: Vec<Value> = indices
+                    .iter()
                     .map(|a| self.eval_expr(a))
                     .collect::<Result<_, _>>()?;
                 self.env.remove("end");
 
                 if idx_vals.len() == 1 {
-                    let idx = idx_vals[0].to_scalar().map_err(|e| ScriptError::type_err(e))? as usize;
+                    let idx = idx_vals[0]
+                        .to_scalar()
+                        .map_err(|e| ScriptError::type_err(e))?
+                        as usize;
                     if idx < 1 {
                         return Err(ScriptError::runtime(
-                            "index assignment: index must be >= 1".to_string()
+                            "index assignment: index must be >= 1".to_string(),
                         ));
                     }
                     // Single-index sparse vector assignment: sv(k) = val
-                    let is_sparse_vec_assign = matches!(self.env.get(name.as_str()), Some(Value::SparseVector(_)));
+                    let is_sparse_vec_assign =
+                        matches!(self.env.get(name.as_str()), Some(Value::SparseVector(_)));
                     if is_sparse_vec_assign {
                         let assign_val = match &val {
                             Value::Scalar(n)  => Complex::new(*n, 0.0),
@@ -449,12 +532,18 @@ impl Evaluator {
                             Some(Value::SparseVector(sv)) => {
                                 if idx > sv.len {
                                     return Err(ScriptError::runtime(format!(
-                                        "index assignment: index {} out of bounds (length {})", idx, sv.len
+                                        "index assignment: index {} out of bounds (length {})",
+                                        idx, sv.len
                                     )));
                                 }
                                 sv.set(idx - 1, assign_val);
                                 if !suppress && self.echo_enabled() {
-                                    output::script_println(&format!("{}({}) = {}", name, idx, Value::Complex(assign_val)));
+                                    output::script_println(&format!(
+                                        "{}({}) = {}",
+                                        name,
+                                        idx,
+                                        Value::Complex(assign_val)
+                                    ));
                                 }
                             }
                             _ => unreachable!(),
@@ -462,14 +551,20 @@ impl Evaluator {
                     } else
                     // Single-index matrix row assignment: M(i) = row_vector
                     if matches!(self.env.get(name.as_str()), Some(Value::Matrix(_)))
-                        && matches!(&val, Value::Vector(_)) {
-                        let row_data = match &val { Value::Vector(v) => v.clone(), _ => unreachable!() };
+                        && matches!(&val, Value::Vector(_))
+                    {
+                        let row_data = match &val {
+                            Value::Vector(v) => v.clone(),
+                            _ => unreachable!(),
+                        };
                         match self.env.get_mut(name.as_str()) {
                             Some(Value::Matrix(m)) => {
                                 if idx > m.nrows() {
                                     return Err(ScriptError::runtime(format!(
                                         "index assignment: row {} out of bounds for {}×{} matrix",
-                                        idx, m.nrows(), m.ncols()
+                                        idx,
+                                        m.nrows(),
+                                        m.ncols()
                                     )));
                                 }
                                 if row_data.len() != m.ncols() {
@@ -482,74 +577,109 @@ impl Evaluator {
                                     m[[idx - 1, col]] = v;
                                 }
                                 if !suppress && self.echo_enabled() {
-                                    output::script_println(&format!("{}({}) = [{}]", name, idx,
-                                        row_data.iter().map(|c| format!("{}", Value::Complex(*c))).collect::<Vec<_>>().join(", ")));
+                                    output::script_println(&format!(
+                                        "{}({}) = [{}]",
+                                        name,
+                                        idx,
+                                        row_data
+                                            .iter()
+                                            .map(|c| format!("{}", Value::Complex(*c)))
+                                            .collect::<Vec<_>>()
+                                            .join(", ")
+                                    ));
                                 }
                             }
                             _ => unreachable!(),
                         }
                     } else {
-                    // Single-index: vector assignment (auto-create/grow)
-                    let assign_val = match &val {
-                        Value::Scalar(n)  => Complex::new(*n, 0.0),
-                        Value::Complex(c) => *c,
-                        other => return Err(ScriptError::runtime(format!(
+                        // Single-index: vector assignment (auto-create/grow)
+                        let assign_val = match &val {
+                            Value::Scalar(n) => Complex::new(*n, 0.0),
+                            Value::Complex(c) => *c,
+                            other => {
+                                return Err(ScriptError::runtime(format!(
                             "index assignment: right-hand side must be scalar or complex, got {}",
                             other.type_name()
-                        ))),
-                    };
-                    let vec = match self.env.get_mut(name.as_str()) {
-                        Some(Value::Vector(v)) => {
-                            if idx > v.len() {
-                                let mut new_vec = vec![Complex::new(0.0, 0.0); idx];
-                                for (i, c) in v.iter().enumerate() { new_vec[i] = *c; }
-                                *v = Array1::from_vec(new_vec);
+                        )))
                             }
-                            v
-                        }
-                        _ => {
-                            // Create new vector of length idx, filled with zeros
-                            let new_vec = vec![Complex::new(0.0, 0.0); idx];
-                            self.env.insert(name.clone(), Value::Vector(Array1::from_vec(new_vec)));
-                            match self.env.get_mut(name.as_str()) {
-                                Some(Value::Vector(v)) => v,
-                                _ => unreachable!(),
+                        };
+                        let vec = match self.env.get_mut(name.as_str()) {
+                            Some(Value::Vector(v)) => {
+                                if idx > v.len() {
+                                    let mut new_vec = vec![Complex::new(0.0, 0.0); idx];
+                                    for (i, c) in v.iter().enumerate() {
+                                        new_vec[i] = *c;
+                                    }
+                                    *v = Array1::from_vec(new_vec);
+                                }
+                                v
                             }
+                            _ => {
+                                // Create new vector of length idx, filled with zeros
+                                let new_vec = vec![Complex::new(0.0, 0.0); idx];
+                                self.env
+                                    .insert(name.clone(), Value::Vector(Array1::from_vec(new_vec)));
+                                match self.env.get_mut(name.as_str()) {
+                                    Some(Value::Vector(v)) => v,
+                                    _ => unreachable!(),
+                                }
+                            }
+                        };
+                        vec[idx - 1] = assign_val;
+                        if !suppress && self.echo_enabled() {
+                            output::script_println(&format!(
+                                "{}({}) = {}",
+                                name,
+                                idx,
+                                Value::Complex(assign_val)
+                            ));
                         }
-                    };
-                    vec[idx - 1] = assign_val;
-                    if !suppress && self.echo_enabled() {
-                        output::script_println(&format!("{}({}) = {}", name, idx, Value::Complex(assign_val)));
-                    }
                     } // end else scalar assignment
                 } else if idx_vals.len() == 2 {
                     // Two-index: matrix assignment
-                    let row = idx_vals[0].to_scalar().map_err(|e| ScriptError::type_err(e))? as usize;
-                    let col = idx_vals[1].to_scalar().map_err(|e| ScriptError::type_err(e))? as usize;
+                    let row = idx_vals[0]
+                        .to_scalar()
+                        .map_err(|e| ScriptError::type_err(e))?
+                        as usize;
+                    let col = idx_vals[1]
+                        .to_scalar()
+                        .map_err(|e| ScriptError::type_err(e))?
+                        as usize;
                     if row < 1 || col < 1 {
                         return Err(ScriptError::runtime(
-                            "index assignment: indices must be >= 1".to_string()
+                            "index assignment: indices must be >= 1".to_string(),
                         ));
                     }
                     let assign_val = match &val {
-                        Value::Scalar(n)  => Complex::new(*n, 0.0),
+                        Value::Scalar(n) => Complex::new(*n, 0.0),
                         Value::Complex(c) => *c,
-                        other => return Err(ScriptError::runtime(format!(
+                        other => {
+                            return Err(ScriptError::runtime(format!(
                             "index assignment: right-hand side must be scalar or complex, got {}",
                             other.type_name()
-                        ))),
+                        )))
+                        }
                     };
                     match self.env.get_mut(name.as_str()) {
                         Some(Value::Matrix(m)) => {
                             if row > m.nrows() || col > m.ncols() {
                                 return Err(ScriptError::runtime(format!(
                                     "index assignment: ({},{}) out of bounds for {}×{} matrix",
-                                    row, col, m.nrows(), m.ncols()
+                                    row,
+                                    col,
+                                    m.nrows(),
+                                    m.ncols()
                                 )));
                             }
                             m[[row - 1, col - 1]] = assign_val;
                             if !suppress && self.echo_enabled() {
-                                output::script_println(&format!("{}({},{}) = {}", name, row, col, Value::Complex(assign_val)));
+                                output::script_println(&format!(
+                                    "{}({},{}) = {}",
+                                    name,
+                                    row,
+                                    col,
+                                    Value::Complex(assign_val)
+                                ));
                             }
                         }
                         Some(Value::SparseMatrix(sm)) => {
@@ -561,16 +691,25 @@ impl Evaluator {
                             }
                             sm.set(row - 1, col - 1, assign_val);
                             if !suppress && self.echo_enabled() {
-                                output::script_println(&format!("{}({},{}) = {}", name, row, col, Value::Complex(assign_val)));
+                                output::script_println(&format!(
+                                    "{}({},{}) = {}",
+                                    name,
+                                    row,
+                                    col,
+                                    Value::Complex(assign_val)
+                                ));
                             }
                         }
-                        _ => return Err(ScriptError::runtime(format!(
-                            "index assignment: '{}' is not a matrix", name
-                        ))),
+                        _ => {
+                            return Err(ScriptError::runtime(format!(
+                                "index assignment: '{}' is not a matrix",
+                                name
+                            )))
+                        }
                     }
                 } else {
                     return Err(ScriptError::runtime(
-                        "index assignment: only 1 or 2 indices are supported".to_string()
+                        "index assignment: only 1 or 2 indices are supported".to_string(),
                     ));
                 }
             }
@@ -598,8 +737,12 @@ impl Evaluator {
                                 let vars = builtins::load_all_from_npz(&path)
                                     .map_err(|e| ScriptError::runtime(e))?;
                                 if !suppress {
-                                    let names: Vec<&str> = vars.iter().map(|(n, _)| n.as_str()).collect();
-                                    output::script_println(&format!("loaded: {}", names.join(", ")));
+                                    let names: Vec<&str> =
+                                        vars.iter().map(|(n, _)| n.as_str()).collect();
+                                    output::script_println(&format!(
+                                        "loaded: {}",
+                                        names.join(", ")
+                                    ));
                                 }
                                 for (var_name, val) in vars {
                                     self.env.insert(var_name, val);
@@ -621,11 +764,13 @@ impl Evaluator {
 
     fn is_truthy(val: &Value, context: &str) -> Result<bool, ScriptError> {
         match val {
-            Value::Bool(b)    => Ok(*b),
-            Value::Scalar(n)  => Ok(*n != 0.0),
+            Value::Bool(b) => Ok(*b),
+            Value::Scalar(n) => Ok(*n != 0.0),
             Value::Complex(c) => Ok(c.re != 0.0 || c.im != 0.0),
             other => Err(ScriptError::runtime(format!(
-                "{} condition must be a bool or scalar, got {}", context, other.type_name()
+                "{} condition must be a bool or scalar, got {}",
+                context,
+                other.type_name()
             ))),
         }
     }
@@ -645,12 +790,12 @@ impl Evaluator {
     fn eval_expr(&mut self, expr: &Expr) -> Result<Value, ScriptError> {
         match expr {
             Expr::Number(n) => Ok(Value::Scalar(*n)),
-            Expr::Str(s)    => Ok(Value::Str(s.clone())),
-            Expr::Var(name) => {
-                self.env.get(name)
-                    .cloned()
-                    .ok_or_else(|| ScriptError::undefined(name.clone()))
-            }
+            Expr::Str(s) => Ok(Value::Str(s.clone())),
+            Expr::Var(name) => self
+                .env
+                .get(name)
+                .cloned()
+                .ok_or_else(|| ScriptError::undefined(name.clone())),
             Expr::UnaryMinus(inner) => {
                 let v = self.eval_expr(inner)?;
                 v.negate().map_err(|e| ScriptError::type_err(e))
@@ -687,28 +832,40 @@ impl Evaluator {
                 // ── Evaluator-level higher-order functions ────────────────
                 if name == "arrayfun" && args.len() == 2 {
                     let func_val = self.eval_expr(&args[0])?;
-                    let input    = self.eval_expr(&args[1])?;
+                    let input = self.eval_expr(&args[1])?;
                     return self.eval_arrayfun(func_val, input);
                 }
                 if name == "rk4" && args.len() == 3 {
                     let func_val = self.eval_expr(&args[0])?;
-                    let x0       = self.eval_expr(&args[1])?;
-                    let t_val    = self.eval_expr(&args[2])?;
+                    let x0 = self.eval_expr(&args[1])?;
+                    let t_val = self.eval_expr(&args[2])?;
                     return self.eval_rk4(func_val, x0, t_val);
                 }
                 if name == "feval" && !args.is_empty() {
                     let name_val = self.eval_expr(&args[0])?;
-                    let fn_name  = name_val.to_str().map_err(|_| ScriptError::runtime(
-                        "feval: first argument must be a string function name".to_string()
-                    ))?;
-                    let rest: Vec<Value> = args[1..].iter()
+                    let fn_name = name_val.to_str().map_err(|_| {
+                        ScriptError::runtime(
+                            "feval: first argument must be a string function name".to_string(),
+                        )
+                    })?;
+                    let rest: Vec<Value> = args[1..]
+                        .iter()
                         .map(|a| self.eval_expr(a))
                         .collect::<Result<_, _>>()?;
                     return self.eval_feval(&fn_name, rest);
                 }
 
                 // If the name refers to a vector/matrix in the environment, this is indexing.
-                if matches!(self.env.get(name.as_str()), Some(Value::Vector(_)) | Some(Value::Matrix(_)) | Some(Value::SparseVector(_)) | Some(Value::SparseMatrix(_)) | Some(Value::Tuple(_)) | Some(Value::Str(_)) | Some(Value::StringArray(_))) {
+                if matches!(
+                    self.env.get(name.as_str()),
+                    Some(Value::Vector(_))
+                        | Some(Value::Matrix(_))
+                        | Some(Value::SparseVector(_))
+                        | Some(Value::SparseMatrix(_))
+                        | Some(Value::Tuple(_))
+                        | Some(Value::Str(_))
+                        | Some(Value::StringArray(_))
+                ) {
                     let container = self.env[name.as_str()].clone();
 
                     // For 2-argument matrix indexing, bind `end` context-sensitively per dimension.
@@ -720,16 +877,22 @@ impl Evaluator {
                             Value::SparseVector(sv) => (1, sv.len),
                             _ => unreachable!(),
                         };
-                        if nrows > 1 || matches!(&container, Value::SparseMatrix(_) | Value::Matrix(_)) {
-                            self.env.insert("end".to_string(), Value::Scalar(nrows as f64));
+                        if nrows > 1
+                            || matches!(&container, Value::SparseMatrix(_) | Value::Matrix(_))
+                        {
+                            self.env
+                                .insert("end".to_string(), Value::Scalar(nrows as f64));
                             let row_val = self.eval_expr(&args[0])?;
-                            self.env.insert("end".to_string(), Value::Scalar(ncols as f64));
+                            self.env
+                                .insert("end".to_string(), Value::Scalar(ncols as f64));
                             let col_val = self.eval_expr(&args[1])?;
                             self.env.remove("end");
                             vec![row_val, col_val]
                         } else {
-                            self.env.insert("end".to_string(), Value::Scalar(ncols as f64));
-                            let vals: Vec<Value> = args.iter()
+                            self.env
+                                .insert("end".to_string(), Value::Scalar(ncols as f64));
+                            let vals: Vec<Value> = args
+                                .iter()
                                 .map(|a| self.eval_expr(a))
                                 .collect::<Result<_, _>>()?;
                             self.env.remove("end");
@@ -746,77 +909,113 @@ impl Evaluator {
                             Value::StringArray(v) => v.len(),
                             _ => unreachable!(),
                         };
-                        self.env.insert("end".to_string(), Value::Scalar(len as f64));
-                        let vals: Vec<Value> = args.iter()
+                        self.env
+                            .insert("end".to_string(), Value::Scalar(len as f64));
+                        let vals: Vec<Value> = args
+                            .iter()
                             .map(|a| self.eval_expr(a))
                             .collect::<Result<_, _>>()?;
                         self.env.remove("end");
                         vals
                     };
 
-                    container.index(idx_vals).map_err(|e| ScriptError::runtime(e))
+                    container
+                        .index(idx_vals)
+                        .map_err(|e| ScriptError::runtime(e))
                 } else if let Some(func) = self.user_fns.get(name.as_str()).cloned() {
-                    let vals: Vec<Value> = args.iter()
+                    let vals: Vec<Value> = args
+                        .iter()
                         .map(|a| self.eval_expr(a))
                         .collect::<Result<_, _>>()?;
                     self.eval_user_fn(func, vals)
                 } else if let Some(env_val) = self.env.get(name.as_str()).cloned() {
                     // Lambda or FuncHandle stored in a variable, e.g. `f = @(x) x^2; f(3)`
                     match env_val {
-                        Value::Lambda { params, body, captured_env } => {
-                            let arg_vals: Vec<Value> = args.iter()
+                        Value::Lambda {
+                            params,
+                            body,
+                            captured_env,
+                        } => {
+                            let arg_vals: Vec<Value> = args
+                                .iter()
                                 .map(|a| self.eval_expr(a))
                                 .collect::<Result<_, _>>()?;
                             // Pass the variable name so profiler records it as "f", not "<lambda>"
                             self.eval_lambda_call(name, &params, &body, captured_env, arg_vals)
                         }
-                        Value::FuncHandle(target) => {
-                            self.eval_expr(&Expr::Call { name: target, args: args.clone() })
-                        }
+                        Value::FuncHandle(target) => self.eval_expr(&Expr::Call {
+                            name: target,
+                            args: args.clone(),
+                        }),
                         _ => {
-                            let vals: Vec<Value> = args.iter()
+                            let vals: Vec<Value> = args
+                                .iter()
                                 .map(|a| self.eval_expr(a))
                                 .collect::<Result<_, _>>()?;
                             self.call_builtin_tracked(name, vals)
                         }
                     }
                 } else {
-                    let vals: Vec<Value> = args.iter()
+                    let vals: Vec<Value> = args
+                        .iter()
                         .map(|a| self.eval_expr(a))
                         .collect::<Result<_, _>>()?;
                     self.call_builtin_tracked(name, vals)
                 }
             }
             Expr::Matrix(rows) => {
-                let evaled: Vec<Vec<Value>> = rows.iter()
-                    .map(|row| row.iter().map(|e| self.eval_expr(e)).collect::<Result<_, _>>())
+                let evaled: Vec<Vec<Value>> = rows
+                    .iter()
+                    .map(|row| {
+                        row.iter()
+                            .map(|e| self.eval_expr(e))
+                            .collect::<Result<_, _>>()
+                    })
                     .collect::<Result<_, _>>()?;
                 Value::from_matrix_rows(evaled).map_err(|e| ScriptError::type_err(e))
             }
             Expr::CellArray(elems) => {
-                let evaled: Vec<Value> = elems.iter()
+                let evaled: Vec<Value> = elems
+                    .iter()
                     .map(|e| self.eval_expr(e))
                     .collect::<Result<_, _>>()?;
                 Value::from_cell_elements(evaled).map_err(|e| ScriptError::type_err(e))
             }
             Expr::Range { start, step, stop } => {
-                let s = self.eval_expr(start)?.to_scalar().map_err(|e| ScriptError::type_err(e))?;
-                let e = self.eval_expr(stop)?.to_scalar().map_err(|e| ScriptError::type_err(e))?;
+                let s = self
+                    .eval_expr(start)?
+                    .to_scalar()
+                    .map_err(|e| ScriptError::type_err(e))?;
+                let e = self
+                    .eval_expr(stop)?
+                    .to_scalar()
+                    .map_err(|e| ScriptError::type_err(e))?;
                 let inc = match step {
-                    Some(st) => self.eval_expr(st)?.to_scalar().map_err(|e| ScriptError::type_err(e))?,
-                    None     => 1.0,
+                    Some(st) => self
+                        .eval_expr(st)?
+                        .to_scalar()
+                        .map_err(|e| ScriptError::type_err(e))?,
+                    None => 1.0,
                 };
                 if inc == 0.0 {
-                    return Err(ScriptError::runtime("range step cannot be zero".to_string()));
+                    return Err(ScriptError::runtime(
+                        "range step cannot be zero".to_string(),
+                    ));
                 }
                 let mut vals: Vec<C64> = Vec::new();
                 let mut cur = s;
                 // Use a small epsilon to avoid float boundary issues
                 let eps = inc.abs() * 1e-10;
                 if inc > 0.0 {
-                    while cur <= e + eps { vals.push(Complex::new(cur, 0.0)); cur += inc; }
+                    while cur <= e + eps {
+                        vals.push(Complex::new(cur, 0.0));
+                        cur += inc;
+                    }
                 } else {
-                    while cur >= e - eps { vals.push(Complex::new(cur, 0.0)); cur += inc; }
+                    while cur >= e - eps {
+                        vals.push(Complex::new(cur, 0.0));
+                        cur += inc;
+                    }
                 }
                 Ok(Value::Vector(Array1::from_vec(vals)))
             }
@@ -837,20 +1036,22 @@ impl Evaluator {
                     Value::Matrix(m) => m.nrows(),
                     _ => 0,
                 };
-                self.env.insert("end".to_string(), Value::Scalar(end_val as f64));
-                let idx_vals: Vec<Value> = args.iter()
+                self.env
+                    .insert("end".to_string(), Value::Scalar(end_val as f64));
+                let idx_vals: Vec<Value> = args
+                    .iter()
                     .map(|a| self.eval_expr(a))
                     .collect::<Result<_, _>>()?;
                 self.env.remove("end");
-                container.index(idx_vals).map_err(|e| ScriptError::runtime(e))
+                container
+                    .index(idx_vals)
+                    .map_err(|e| ScriptError::runtime(e))
             }
-            Expr::Lambda { params, body } => {
-                Ok(Value::Lambda {
-                    params:       params.clone(),
-                    body:         body.clone(),
-                    captured_env: self.env.clone(),
-                })
-            }
+            Expr::Lambda { params, body } => Ok(Value::Lambda {
+                params: params.clone(),
+                body: body.clone(),
+                captured_env: self.env.clone(),
+            }),
             Expr::FuncHandle(name) => {
                 // If the name is a lambda stored in env, capture it directly so it
                 // remains callable when passed into a function's clean scope.
@@ -863,22 +1064,23 @@ impl Evaluator {
             Expr::Field { object, field } => {
                 let obj = self.eval_expr(object)?;
                 match obj {
-                    Value::Struct(fields) => fields.get(field.as_str())
-                        .cloned()
-                        .ok_or_else(|| ScriptError::runtime(
-                            format!("struct has no field '{}'", field)
-                        )),
+                    Value::Struct(fields) => fields.get(field.as_str()).cloned().ok_or_else(|| {
+                        ScriptError::runtime(format!("struct has no field '{}'", field))
+                    }),
                     Value::StateSpace { a, b, c, d } => match field.as_str() {
                         "A" => Ok(Value::Matrix(a)),
                         "B" => Ok(Value::Matrix(b)),
                         "C" => Ok(Value::Matrix(c)),
                         "D" => Ok(Value::Matrix(d)),
                         other => Err(ScriptError::runtime(format!(
-                            "ss has no field '{}'; valid fields are A, B, C, D", other
+                            "ss has no field '{}'; valid fields are A, B, C, D",
+                            other
                         ))),
                     },
                     other => Err(ScriptError::runtime(format!(
-                        "cannot access field '{}' on {}", field, other.type_name()
+                        "cannot access field '{}' on {}",
+                        field,
+                        other.type_name()
                     ))),
                 }
             }
@@ -893,28 +1095,47 @@ impl Evaluator {
     /// - Mixed or inconsistent output shapes → runtime error
     fn eval_arrayfun(&mut self, func: Value, input: Value) -> Result<Value, ScriptError> {
         let tracking = self.profiler.should_track("arrayfun");
-        let in_bytes: u64 = if tracking { Self::value_bytes(&input) } else { 0 };
-        let t0 = if tracking { Some(std::time::Instant::now()) } else { None };
+        let in_bytes: u64 = if tracking {
+            Self::value_bytes(&input)
+        } else {
+            0
+        };
+        let t0 = if tracking {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
 
         let result = self.eval_arrayfun_inner(func, input);
 
         if let (Some(t0), Ok(ref v)) = (t0, &result) {
             let ns = t0.elapsed().as_nanos() as u64;
-            self.profiler.record("arrayfun", ns, in_bytes, Self::value_bytes(v));
+            self.profiler
+                .record("arrayfun", ns, in_bytes, Self::value_bytes(v));
         }
         result
     }
 
     fn eval_arrayfun_inner(&mut self, func: Value, input: Value) -> Result<Value, ScriptError> {
         let elements: Vec<Value> = match &input {
-            Value::Vector(v) => v.iter().map(|&c| {
-                if c.im == 0.0 { Value::Scalar(c.re) } else { Value::Complex(c) }
-            }).collect(),
+            Value::Vector(v) => v
+                .iter()
+                .map(|&c| {
+                    if c.im == 0.0 {
+                        Value::Scalar(c.re)
+                    } else {
+                        Value::Complex(c)
+                    }
+                })
+                .collect(),
             Value::Scalar(n) => vec![Value::Scalar(*n)],
             Value::Complex(c) => vec![Value::Complex(*c)],
-            other => return Err(ScriptError::runtime(format!(
-                "arrayfun: second argument must be a vector or scalar, got {}", other.type_name()
-            ))),
+            other => {
+                return Err(ScriptError::runtime(format!(
+                    "arrayfun: second argument must be a vector or scalar, got {}",
+                    other.type_name()
+                )))
+            }
         };
 
         let mut results: Vec<Value> = Vec::with_capacity(elements.len());
@@ -933,9 +1154,13 @@ impl Evaluator {
                     match r {
                         Value::Scalar(n) => out.push(Complex::new(n, 0.0)),
                         Value::Complex(c) => out.push(c),
-                        other => return Err(ScriptError::runtime(format!(
-                            "arrayfun: element {} returned {}, expected scalar", i + 1, other.type_name()
-                        ))),
+                        other => {
+                            return Err(ScriptError::runtime(format!(
+                                "arrayfun: element {} returned {}, expected scalar",
+                                i + 1,
+                                other.type_name()
+                            )))
+                        }
                     }
                 }
                 Ok(Value::Vector(Array1::from_vec(out)))
@@ -956,9 +1181,13 @@ impl Evaluator {
                             }
                             flat.extend(v.iter().copied());
                         }
-                        other => return Err(ScriptError::runtime(format!(
-                            "arrayfun: element {} returned {}, expected vector", i + 1, other.type_name()
-                        ))),
+                        other => {
+                            return Err(ScriptError::runtime(format!(
+                                "arrayfun: element {} returned {}, expected vector",
+                                i + 1,
+                                other.type_name()
+                            )))
+                        }
                     }
                 }
                 let m = ndarray::Array2::from_shape_vec((nrows, row_len), flat)
@@ -966,7 +1195,8 @@ impl Evaluator {
                 Ok(Value::Matrix(m))
             }
             Some(other) => Err(ScriptError::runtime(format!(
-                "arrayfun: function returned unsupported type {}", other.type_name()
+                "arrayfun: function returned unsupported type {}",
+                other.type_name()
             ))),
         }
     }
@@ -975,59 +1205,86 @@ impl Evaluator {
     /// `rk4(f, x0, t)` — f(x, t) returns x_dot; x0 is initial state; t is time vector.
     /// Returns an n×length(t) matrix where column k is the state at t[k].
     fn eval_rk4(&mut self, func: Value, x0: Value, t_val: Value) -> Result<Value, ScriptError> {
-        use num_complex::Complex;
         use ndarray::Array2;
+        use num_complex::Complex;
 
-        let t_vec = t_val.to_cvector().map_err(|e| ScriptError::runtime(format!("rk4: t must be a vector: {}", e)))?;
+        let t_vec = t_val
+            .to_cvector()
+            .map_err(|e| ScriptError::runtime(format!("rk4: t must be a vector: {}", e)))?;
         let nt = t_vec.len();
         if nt < 2 {
-            return Err(ScriptError::runtime("rk4: t must have at least 2 points".to_string()));
+            return Err(ScriptError::runtime(
+                "rk4: t must have at least 2 points".to_string(),
+            ));
         }
 
         // x0 can be a scalar, vector (column), or 1×1 matrix
         let state0: Vec<f64> = match &x0 {
-            Value::Scalar(s)  => vec![*s],
-            Value::Vector(v)  => v.iter().map(|c| c.re).collect(),
+            Value::Scalar(s) => vec![*s],
+            Value::Vector(v) => v.iter().map(|c| c.re).collect(),
             Value::Matrix(m) if m.ncols() == 1 => m.column(0).iter().map(|c| c.re).collect(),
-            other => return Err(ScriptError::runtime(format!(
-                "rk4: x0 must be a scalar or column vector, got {}", other.type_name()))),
+            other => {
+                return Err(ScriptError::runtime(format!(
+                    "rk4: x0 must be a scalar or column vector, got {}",
+                    other.type_name()
+                )))
+            }
         };
         let nx = state0.len();
 
         // Output: nx × nt matrix
         let mut result: Vec<Vec<f64>> = vec![vec![0.0; nt]; nx];
-        for i in 0..nx { result[i][0] = state0[i]; }
+        for i in 0..nx {
+            result[i][0] = state0[i];
+        }
 
         // Helper: call f(x, t) and return x_dot as Vec<f64>
-        let call_f = |ev: &mut Evaluator, x_state: &[f64], t_scalar: f64, func: &Value| -> Result<Vec<f64>, ScriptError> {
+        let call_f = |ev: &mut Evaluator,
+                      x_state: &[f64],
+                      t_scalar: f64,
+                      func: &Value|
+         -> Result<Vec<f64>, ScriptError> {
             let x_arg = if nx == 1 {
                 Value::Scalar(x_state[0])
             } else {
                 // column vector as Matrix nx×1
-                let col: ndarray::Array2<num_complex::Complex<f64>> = Array2::from_shape_fn((nx, 1), |(i, _)| Complex::new(x_state[i], 0.0));
+                let col: ndarray::Array2<num_complex::Complex<f64>> =
+                    Array2::from_shape_fn((nx, 1), |(i, _)| Complex::new(x_state[i], 0.0));
                 Value::Matrix(col)
             };
             let t_arg = Value::Scalar(t_scalar);
             let out = ev.call_callable(func.clone(), vec![x_arg, t_arg])?;
             match out {
-                Value::Scalar(s)  => Ok(vec![s]),
-                Value::Vector(v)  => Ok(v.iter().map(|c| c.re).collect()),
-                Value::Matrix(m) if m.ncols() == 1 => Ok(m.column(0).iter().map(|c| c.re).collect()),
+                Value::Scalar(s) => Ok(vec![s]),
+                Value::Vector(v) => Ok(v.iter().map(|c| c.re).collect()),
+                Value::Matrix(m) if m.ncols() == 1 => {
+                    Ok(m.column(0).iter().map(|c| c.re).collect())
+                }
                 other => Err(ScriptError::runtime(format!(
-                    "rk4: f must return a scalar or column vector, got {}", other.type_name()))),
+                    "rk4: f must return a scalar or column vector, got {}",
+                    other.type_name()
+                ))),
             }
         };
 
         let mut x = state0.clone();
         for k in 0..(nt - 1) {
-            let tk  = t_vec[k].re;
+            let tk = t_vec[k].re;
             let tk1 = t_vec[k + 1].re;
-            let h   = tk1 - tk;
+            let h = tk1 - tk;
 
             let k1 = call_f(self, &x, tk, &func)?;
-            let x2: Vec<f64> = x.iter().zip(&k1).map(|(xi, ki)| xi + 0.5 * h * ki).collect();
+            let x2: Vec<f64> = x
+                .iter()
+                .zip(&k1)
+                .map(|(xi, ki)| xi + 0.5 * h * ki)
+                .collect();
             let k2 = call_f(self, &x2, tk + 0.5 * h, &func)?;
-            let x3: Vec<f64> = x.iter().zip(&k2).map(|(xi, ki)| xi + 0.5 * h * ki).collect();
+            let x3: Vec<f64> = x
+                .iter()
+                .zip(&k2)
+                .map(|(xi, ki)| xi + 0.5 * h * ki)
+                .collect();
             let k3 = call_f(self, &x3, tk + 0.5 * h, &func)?;
             let x4: Vec<f64> = x.iter().zip(&k3).map(|(xi, ki)| xi + h * ki).collect();
             let k4 = call_f(self, &x4, tk1, &func)?;
@@ -1059,7 +1316,12 @@ impl Evaluator {
             return self.eval_user_fn(func, args);
         }
         if let Some(env_val) = self.env.get(name).cloned() {
-            if let Value::Lambda { params, body, captured_env } = env_val {
+            if let Value::Lambda {
+                params,
+                body,
+                captured_env,
+            } = env_val
+            {
                 return self.eval_lambda_call(name, &params, &body, captured_env, args);
             }
         }
@@ -1070,7 +1332,11 @@ impl Evaluator {
     /// Used by `eval_arrayfun` — inner calls are not tracked individually (outer captures total).
     fn call_callable(&mut self, func: Value, args: Vec<Value>) -> Result<Value, ScriptError> {
         match func {
-            Value::Lambda { params, body, captured_env } => {
+            Value::Lambda {
+                params,
+                body,
+                captured_env,
+            } => {
                 // Empty call_name suppresses per-call profiling; outer arrayfun captures total time.
                 self.eval_lambda_call("", &params, &body, captured_env, args)
             }
@@ -1082,7 +1348,8 @@ impl Evaluator {
                 result
             }
             other => Err(ScriptError::runtime(format!(
-                "arrayfun: first argument must be a lambda or function handle, got {}", other.type_name()
+                "arrayfun: first argument must be a lambda or function handle, got {}",
+                other.type_name()
             ))),
         }
     }
@@ -1102,14 +1369,24 @@ impl Evaluator {
     ) -> Result<Value, ScriptError> {
         if args.len() != params.len() {
             return Err(ScriptError::runtime(format!(
-                "lambda expects {} argument(s), got {}", params.len(), args.len()
+                "lambda expects {} argument(s), got {}",
+                params.len(),
+                args.len()
             )));
         }
 
         // Profiling: check before entering scope (while higher_order_depth is still outer value)
         let tracking = !call_name.is_empty() && self.profiler.should_track(call_name);
-        let in_bytes: u64 = if tracking { args.iter().map(Self::value_bytes).sum() } else { 0 };
-        let t0 = if tracking { Some(std::time::Instant::now()) } else { None };
+        let in_bytes: u64 = if tracking {
+            args.iter().map(Self::value_bytes).sum()
+        } else {
+            0
+        };
+        let t0 = if tracking {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
 
         // Save outer env; install captured env + parameter bindings
         let saved_env = std::mem::replace(&mut self.env, captured_env);
@@ -1127,7 +1404,8 @@ impl Evaluator {
 
         if let (true, Some(t0), Ok(ref v)) = (tracking, t0, &result) {
             let ns = t0.elapsed().as_nanos() as u64;
-            self.profiler.record(call_name, ns, in_bytes, Self::value_bytes(v));
+            self.profiler
+                .record(call_name, ns, in_bytes, Self::value_bytes(v));
         }
         result
     }
@@ -1136,21 +1414,31 @@ impl Evaluator {
     fn eval_user_fn(&mut self, func: UserFn, args: Vec<Value>) -> Result<Value, ScriptError> {
         if args.len() != func.params.len() {
             return Err(ScriptError::runtime(format!(
-                "function expects {} argument(s), got {}", func.params.len(), args.len()
+                "function expects {} argument(s), got {}",
+                func.params.len(),
+                args.len()
             )));
         }
 
         // Profiling: check before entering scope
         let tracking = self.profiler.should_track(&func.name);
-        let in_bytes: u64 = if tracking { args.iter().map(Self::value_bytes).sum() } else { 0 };
-        let t0 = if tracking { Some(std::time::Instant::now()) } else { None };
+        let in_bytes: u64 = if tracking {
+            args.iter().map(Self::value_bytes).sum()
+        } else {
+            0
+        };
+        let t0 = if tracking {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
 
         // Save outer env and function flag
         let saved_env = std::mem::take(&mut self.env);
         let saved_in_fn = self.in_function;
         self.in_function = true;
         self.profiler.enter_higher_order(); // suppress inner call recordings
-        // Seed with built-in constants
+                                            // Seed with built-in constants
         for name in &["i", "j", "pi", "e", "Inf", "NaN"] {
             if let Some(v) = saved_env.get(*name) {
                 self.env.insert((*name).to_string(), v.clone());
@@ -1163,8 +1451,10 @@ impl Evaluator {
         // Run body — EarlyReturn is not an error, just early exit
         let mut body_err: Option<ScriptError> = None;
         match self.run(&func.body) {
-            Err(ScriptError::EarlyReturn) => {}  // normal early return
-            Err(e) => { body_err = Some(e); }
+            Err(ScriptError::EarlyReturn) => {} // normal early return
+            Err(e) => {
+                body_err = Some(e);
+            }
             Ok(()) => {}
         }
         // Extract return value from function scope
@@ -1181,10 +1471,13 @@ impl Evaluator {
         // Record if tracking and no error
         if let (true, Some(t0), None) = (tracking, t0, &body_err) {
             let ns = t0.elapsed().as_nanos() as u64;
-            self.profiler.record(&func.name, ns, in_bytes, Self::value_bytes(&ret_val));
+            self.profiler
+                .record(&func.name, ns, in_bytes, Self::value_bytes(&ret_val));
         }
 
-        if let Some(e) = body_err { return Err(e); }
+        if let Some(e) = body_err {
+            return Err(e);
+        }
         Ok(ret_val)
     }
 
@@ -1194,11 +1487,12 @@ impl Evaluator {
             return self.builtins.call(name, vals);
         }
         let in_bytes: u64 = vals.iter().map(Self::value_bytes).sum();
-        let t0     = std::time::Instant::now();
+        let t0 = std::time::Instant::now();
         let result = self.builtins.call(name, vals);
-        let ns     = t0.elapsed().as_nanos() as u64;
+        let ns = t0.elapsed().as_nanos() as u64;
         if let Ok(ref v) = result {
-            self.profiler.record(name, ns, in_bytes, Self::value_bytes(v));
+            self.profiler
+                .record(name, ns, in_bytes, Self::value_bytes(v));
         }
         result
     }
@@ -1207,11 +1501,11 @@ impl Evaluator {
     /// Only numeric types are counted; strings, structs, etc. return 0.
     fn value_bytes(v: &Value) -> u64 {
         match v {
-            Value::Scalar(_)  => 8,
+            Value::Scalar(_) => 8,
             Value::Complex(_) => 16,
-            Value::Vector(v)  => (v.len() * 16) as u64,
-            Value::Matrix(m)  => (m.nrows() * m.ncols() * 16) as u64,
-            _                 => 0,
+            Value::Vector(v) => (v.len() * 16) as u64,
+            Value::Matrix(m) => (m.nrows() * m.ncols() * 16) as u64,
+            _ => 0,
         }
     }
 }

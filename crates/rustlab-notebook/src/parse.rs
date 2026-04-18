@@ -163,7 +163,10 @@ pub fn parse_notebook(src: &str) -> Vec<Block> {
     // Flush remaining content
     if in_rustlab && !code_buf.is_empty() {
         // Unclosed code block — treat as code anyway
-        blocks.push(Block::Code { source: code_buf, directives: code_directives });
+        blocks.push(Block::Code {
+            source: code_buf,
+            directives: code_directives,
+        });
     }
     if !markdown_buf.is_empty() {
         blocks.push(Block::Markdown(markdown_buf));
@@ -327,7 +330,9 @@ fn parse_frontmatter(src: &str) -> Frontmatter {
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        let Some((key, raw_val)) = trimmed.split_once(':') else { continue };
+        let Some((key, raw_val)) = trimmed.split_once(':') else {
+            continue;
+        };
         let key = key.trim();
         let val = unquote(raw_val.trim());
         match key {
@@ -451,7 +456,9 @@ mod tests {
         let src = "```rustlab\nx = 1\ny = 2";
         let blocks = parse_notebook(src);
         assert_eq!(blocks.len(), 1);
-        assert!(matches!(&blocks[0], Block::Code { source, .. } if source.contains("x = 1") && source.contains("y = 2")));
+        assert!(
+            matches!(&blocks[0], Block::Code { source, .. } if source.contains("x = 1") && source.contains("y = 2"))
+        );
     }
 
     #[test]
@@ -468,7 +475,10 @@ mod tests {
         let src = "Intro\n\n<!-- hide -->\n```rustlab\nx = 1\n```";
         let blocks = parse_notebook(src);
         if let Block::Markdown(md) = &blocks[0] {
-            assert!(!md.contains("<!-- hide -->"), "directive should be stripped: {md:?}");
+            assert!(
+                !md.contains("<!-- hide -->"),
+                "directive should be stripped: {md:?}"
+            );
         }
     }
 
@@ -502,7 +512,10 @@ mod tests {
         let blocks = parse_notebook(src);
         assert_eq!(blocks.len(), 1);
         if let Block::Markdown(md) = &blocks[0] {
-            assert!(md.contains("---"), "should preserve content when frontmatter unclosed");
+            assert!(
+                md.contains("---"),
+                "should preserve content when frontmatter unclosed"
+            );
         }
     }
 
@@ -576,7 +589,11 @@ mod tests {
     fn extract_frontmatter_unclosed_is_not_stripped() {
         let src = "---\ntitle: X\n(no closing)\n";
         let (fm, body) = extract_frontmatter(src);
-        assert_eq!(fm, Frontmatter::default(), "unclosed block must not be parsed");
+        assert_eq!(
+            fm,
+            Frontmatter::default(),
+            "unclosed block must not be parsed"
+        );
         assert_eq!(body, src);
     }
 
@@ -599,7 +616,9 @@ mod tests {
     fn multiline_code_block() {
         let src = "```rustlab\nline1\nline2\nline3\n```";
         let blocks = parse_notebook(src);
-        assert!(matches!(&blocks[0], Block::Code { source, .. } if source == "line1\nline2\nline3"));
+        assert!(
+            matches!(&blocks[0], Block::Code { source, .. } if source == "line1\nline2\nline3")
+        );
     }
 
     // ── New directive tests ──
@@ -624,7 +643,8 @@ mod tests {
 
     #[test]
     fn stacked_directives() {
-        let src = "<!-- hide -->\n<!-- grid: 2 -->\n<!-- details: Gallery -->\n```rustlab\nx = 1\n```";
+        let src =
+            "<!-- hide -->\n<!-- grid: 2 -->\n<!-- details: Gallery -->\n```rustlab\nx = 1\n```";
         let blocks = parse_notebook(src);
         assert_eq!(blocks.len(), 1);
         if let Block::Code { directives, .. } = &blocks[0] {
@@ -642,8 +662,10 @@ mod tests {
         let blocks = parse_notebook(src);
         assert_eq!(blocks.len(), 3);
         assert!(matches!(&blocks[0], Block::Markdown(s) if s.contains("Intro")));
-        assert!(matches!(&blocks[1], Block::Callout { kind: CalloutKind::Note, content }
-            if content == "This is a note."));
+        assert!(
+            matches!(&blocks[1], Block::Callout { kind: CalloutKind::Note, content }
+            if content == "This is a note.")
+        );
         assert!(matches!(&blocks[2], Block::Markdown(s) if s.contains("More text")));
     }
 
@@ -652,8 +674,10 @@ mod tests {
         let src = "<!-- tip -->\nFirst line.\nSecond line.\n<!-- /tip -->\n\nAfter.";
         let blocks = parse_notebook(src);
         assert_eq!(blocks.len(), 2);
-        assert!(matches!(&blocks[0], Block::Callout { kind: CalloutKind::Tip, content }
-            if content.contains("First line.") && content.contains("Second line.")));
+        assert!(
+            matches!(&blocks[0], Block::Callout { kind: CalloutKind::Tip, content }
+            if content.contains("First line.") && content.contains("Second line."))
+        );
         assert!(matches!(&blocks[1], Block::Markdown(s) if s.contains("After")));
     }
 
@@ -662,8 +686,10 @@ mod tests {
         let src = "<!-- warning -->\nDanger!\n# Next Section";
         let blocks = parse_notebook(src);
         assert_eq!(blocks.len(), 2);
-        assert!(matches!(&blocks[0], Block::Callout { kind: CalloutKind::Warning, content }
-            if content == "Danger!"));
+        assert!(
+            matches!(&blocks[0], Block::Callout { kind: CalloutKind::Warning, content }
+            if content == "Danger!")
+        );
         assert!(matches!(&blocks[1], Block::Markdown(s) if s.contains("Next Section")));
     }
 

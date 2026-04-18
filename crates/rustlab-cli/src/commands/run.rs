@@ -1,5 +1,5 @@
-use clap::{Args, ValueEnum};
 use anyhow::{Context, Result};
+use clap::{Args, ValueEnum};
 
 /// Where plot commands should render when running a script non-interactively.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -33,13 +33,14 @@ pub struct RunArgs {
 }
 
 pub fn execute(args: RunArgs) -> Result<()> {
-    let script = args.script.canonicalize()
+    let script = args
+        .script
+        .canonicalize()
         .with_context(|| format!("failed to resolve path {:?}", args.script))?;
-    let source = std::fs::read_to_string(&script)
-        .with_context(|| format!("failed to read {:?}", script))?;
+    let source =
+        std::fs::read_to_string(&script).with_context(|| format!("failed to read {:?}", script))?;
     if let Some(dir) = script.parent() {
-        std::env::set_current_dir(dir)
-            .with_context(|| format!("failed to chdir to {:?}", dir))?;
+        std::env::set_current_dir(dir).with_context(|| format!("failed to chdir to {:?}", dir))?;
     }
 
     apply_plot_mode(args.plot, args.viewer_name.as_deref());
@@ -63,14 +64,14 @@ pub fn execute(args: RunArgs) -> Result<()> {
 fn apply_plot_mode(mode: PlotMode, viewer_name: Option<&str>) {
     use rustlab_plot::{set_plot_context, PlotContext};
     match mode {
-        PlotMode::Tui  => { /* default */ }
+        PlotMode::Tui => { /* default */ }
         PlotMode::None => set_plot_context(PlotContext::Headless),
         PlotMode::Viewer => {
             #[cfg(feature = "viewer")]
             {
                 let result = match viewer_name {
                     Some(name) => rustlab_plot::connect_viewer_named(name),
-                    None       => rustlab_plot::connect_viewer(),
+                    None => rustlab_plot::connect_viewer(),
                 };
                 match result {
                     Ok(true) => {

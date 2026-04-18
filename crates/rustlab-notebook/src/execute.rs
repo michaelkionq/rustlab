@@ -1,9 +1,9 @@
-use rustlab_script::Evaluator;
-use rustlab_plot::{
-    clear_notebook_figures, set_plot_context, take_notebook_figures,
-    FigureState, PlotContext, FIGURE,
-};
 use crate::parse::{Block, CalloutKind};
+use rustlab_plot::{
+    clear_notebook_figures, set_plot_context, take_notebook_figures, FigureState, PlotContext,
+    FIGURE,
+};
+use rustlab_script::Evaluator;
 
 /// A rendered block ready for HTML output.
 #[derive(Debug)]
@@ -78,7 +78,10 @@ pub fn execute_notebook(blocks: &[Block]) -> Vec<Rendered> {
                 if figures.is_empty() {
                     FIGURE.with(|fig| {
                         let f = fig.borrow();
-                        if f.subplots.iter().any(|s| !s.series.is_empty() || s.heatmap.is_some()) {
+                        if f.subplots
+                            .iter()
+                            .any(|s| !s.series.is_empty() || s.heatmap.is_some())
+                        {
                             figures.push(f.clone());
                         }
                     });
@@ -96,11 +99,16 @@ pub fn execute_notebook(blocks: &[Block]) -> Vec<Rendered> {
             }
             Block::Callout { kind, content } => {
                 let interpolated = interpolate_markdown(content, &mut ev);
-                rendered.push(Rendered::Callout { kind: *kind, content: interpolated });
+                rendered.push(Rendered::Callout {
+                    kind: *kind,
+                    content: interpolated,
+                });
             }
             Block::ExerciseStart => {
                 exercise_counter += 1;
-                rendered.push(Rendered::ExerciseStart { number: exercise_counter });
+                rendered.push(Rendered::ExerciseStart {
+                    number: exercise_counter,
+                });
             }
             Block::SolutionStart => {
                 rendered.push(Rendered::SolutionStart);
@@ -148,8 +156,11 @@ fn interpolate_markdown(md: &str, ev: &mut Evaluator) -> String {
 
     while i < len {
         // Check for escaped \${
-        if chars[i] == '\\' && i + 1 < len && chars[i + 1] == '$'
-            && i + 2 < len && chars[i + 2] == '{'
+        if chars[i] == '\\'
+            && i + 1 < len
+            && chars[i + 1] == '$'
+            && i + 2 < len
+            && chars[i + 2] == '{'
         {
             result.push('$');
             result.push('{');
@@ -170,7 +181,9 @@ fn interpolate_markdown(md: &str, ev: &mut Evaluator) -> String {
                     '}' => depth -= 1,
                     _ => {}
                 }
-                if depth > 0 { i += 1; }
+                if depth > 0 {
+                    i += 1;
+                }
             }
 
             if depth != 0 {
@@ -353,9 +366,8 @@ mod tests {
     fn notebook_captures_every_savefig_in_block() {
         let a = tmp_path("a");
         let b = tmp_path("b");
-        let src = format!(
-            "x = 0:10; plot(x, sin(x)); savefig('{a}'); plot(x, cos(x)); savefig('{b}');"
-        );
+        let src =
+            format!("x = 0:10; plot(x, sin(x)); savefig('{a}'); plot(x, cos(x)); savefig('{b}');");
         let blocks = vec![Block::Code {
             source: src,
             directives: crate::parse::CodeDirectives::default(),
@@ -366,7 +378,12 @@ mod tests {
         match &rendered[0] {
             Rendered::Code { figures, error, .. } => {
                 assert!(error.is_none(), "unexpected error: {error:?}");
-                assert_eq!(figures.len(), 2, "expected two snapshots, got {}", figures.len());
+                assert_eq!(
+                    figures.len(),
+                    2,
+                    "expected two snapshots, got {}",
+                    figures.len()
+                );
             }
             _ => panic!("expected Code block"),
         }
@@ -401,11 +418,22 @@ mod tests {
         }];
         let rendered = execute_notebook(&blocks);
         match &rendered[0] {
-            Rendered::Code { text_output, error, .. } => {
+            Rendered::Code {
+                text_output, error, ..
+            } => {
                 assert!(error.is_none(), "unexpected error: {error:?}");
-                assert!(!text_output.contains("x ="), "assignment echo leaked: {text_output:?}");
-                assert!(!text_output.contains("y ="), "assignment echo leaked: {text_output:?}");
-                assert!(text_output.contains("hello"), "print output missing: {text_output:?}");
+                assert!(
+                    !text_output.contains("x ="),
+                    "assignment echo leaked: {text_output:?}"
+                );
+                assert!(
+                    !text_output.contains("y ="),
+                    "assignment echo leaked: {text_output:?}"
+                );
+                assert!(
+                    text_output.contains("hello"),
+                    "print output missing: {text_output:?}"
+                );
             }
             _ => panic!("expected Code block"),
         }
@@ -421,7 +449,10 @@ mod tests {
         let rendered = execute_notebook(&blocks);
         match &rendered[0] {
             Rendered::Code { text_output, .. } => {
-                assert!(text_output.contains('3'), "bare expression not shown: {text_output:?}");
+                assert!(
+                    text_output.contains('3'),
+                    "bare expression not shown: {text_output:?}"
+                );
             }
             _ => panic!("expected Code block"),
         }

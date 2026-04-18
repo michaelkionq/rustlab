@@ -1,35 +1,27 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::io::{Read as IoRead, Write as IoWrite};
-use rand::Rng;
-use rand_distr::{Normal, Uniform, Distribution};
-use rustlab_core::{C64, CVector, CMatrix, SparseVec, SparseMat};
-use rustlab_dsp::{
-    fir_lowpass, fir_highpass, fir_bandpass,
-    fir_lowpass_kaiser, fir_highpass_kaiser, fir_bandpass_kaiser,
-    fir_notch, freqz, firpm, firpmq,
-    fft, ifft, fftshift, fftfreq,
-    butterworth_lowpass, butterworth_highpass, IirFilter,
-    upfirdn,
-    WindowFunction,
-    QFmtSpec, quantize_scalar, snr_db,
-};
-use rustlab_dsp::fixed::{qadd as fixed_qadd, qmul as fixed_qmul, qconv as fixed_qconv};
-use rustlab_core::{RoundMode, OverflowMode};
-use rustlab_dsp::convolution::convolve;
-use rustlab_plot::{
-    plot_db, plot_histogram,
-    compute_histogram, histogram_matrix,
-    render_figure_terminal, render_figure_file,
-    imagesc_terminal,
-    push_xy_line, push_xy_stem, push_xy_bar, push_xy_scatter,
-    LineStyle, SeriesColor, FIGURE, LiveFigure, LivePlot,
-    sync_figure_outputs,
-};
+use crate::error::ScriptError;
+use crate::eval::value::{insert_commas, Value};
 use ndarray::{Array1, Array2};
 use num_complex::Complex;
-use crate::eval::value::{Value, insert_commas};
-use crate::error::ScriptError;
+use rand::Rng;
+use rand_distr::{Distribution, Normal, Uniform};
+use rustlab_core::{CMatrix, CVector, SparseMat, SparseVec, C64};
+use rustlab_core::{OverflowMode, RoundMode};
+use rustlab_dsp::convolution::convolve;
+use rustlab_dsp::fixed::{qadd as fixed_qadd, qconv as fixed_qconv, qmul as fixed_qmul};
+use rustlab_dsp::{
+    butterworth_highpass, butterworth_lowpass, fft, fftfreq, fftshift, fir_bandpass,
+    fir_bandpass_kaiser, fir_highpass, fir_highpass_kaiser, fir_lowpass, fir_lowpass_kaiser,
+    fir_notch, firpm, firpmq, freqz, ifft, quantize_scalar, snr_db, upfirdn, IirFilter, QFmtSpec,
+    WindowFunction,
+};
+use rustlab_plot::{
+    compute_histogram, histogram_matrix, imagesc_terminal, plot_db, plot_histogram, push_xy_bar,
+    push_xy_line, push_xy_scatter, push_xy_stem, render_figure_file, render_figure_terminal,
+    sync_figure_outputs, LineStyle, LiveFigure, LivePlot, SeriesColor, FIGURE,
+};
+use std::collections::HashMap;
+use std::io::{Read as IoRead, Write as IoWrite};
+use std::sync::{Arc, Mutex};
 
 pub type BuiltinFn = fn(Vec<Value>) -> Result<Value, ScriptError>;
 
@@ -39,231 +31,233 @@ pub struct BuiltinRegistry {
 
 impl BuiltinRegistry {
     pub fn new() -> Self {
-        Self { map: HashMap::new() }
+        Self {
+            map: HashMap::new(),
+        }
     }
 
     pub fn with_defaults() -> Self {
         let mut r = Self::new();
         // DSP
-        r.register("fir_lowpass",          builtin_fir_lowpass);
-        r.register("fir_highpass",         builtin_fir_highpass);
-        r.register("fir_bandpass",         builtin_fir_bandpass);
-        r.register("butterworth_lowpass",  builtin_butterworth_lowpass);
+        r.register("fir_lowpass", builtin_fir_lowpass);
+        r.register("fir_highpass", builtin_fir_highpass);
+        r.register("fir_bandpass", builtin_fir_bandpass);
+        r.register("butterworth_lowpass", builtin_butterworth_lowpass);
         r.register("butterworth_highpass", builtin_butterworth_highpass);
-        r.register("convolve",             builtin_convolve);
-        r.register("filtfilt",             builtin_filtfilt);
-        r.register("upfirdn",              builtin_upfirdn);
-        r.register("window",               builtin_window);
+        r.register("convolve", builtin_convolve);
+        r.register("filtfilt", builtin_filtfilt);
+        r.register("upfirdn", builtin_upfirdn);
+        r.register("window", builtin_window);
         // FFT
-        r.register("fft",      builtin_fft);
-        r.register("ifft",     builtin_ifft);
+        r.register("fft", builtin_fft);
+        r.register("ifft", builtin_ifft);
         r.register("fftshift", builtin_fftshift);
-        r.register("fftfreq",  builtin_fftfreq);
+        r.register("fftfreq", builtin_fftfreq);
         r.register("spectrum", builtin_spectrum);
         // Kaiser FIR
-        r.register("fir_lowpass_kaiser",  builtin_fir_lowpass_kaiser);
+        r.register("fir_lowpass_kaiser", builtin_fir_lowpass_kaiser);
         r.register("fir_highpass_kaiser", builtin_fir_highpass_kaiser);
         r.register("fir_bandpass_kaiser", builtin_fir_bandpass_kaiser);
-        r.register("fir_notch",           builtin_fir_notch);
-        r.register("freqz",               builtin_freqz);
+        r.register("fir_notch", builtin_fir_notch);
+        r.register("freqz", builtin_freqz);
         // Parks-McClellan optimal FIR
-        r.register("firpm",  builtin_firpm);
+        r.register("firpm", builtin_firpm);
         r.register("firpmq", builtin_firpmq);
         // Fixed-point quantization
-        r.register("qfmt",     builtin_qfmt);
+        r.register("qfmt", builtin_qfmt);
         r.register("quantize", builtin_quantize);
-        r.register("qadd",     builtin_qadd);
-        r.register("qmul",     builtin_qmul);
-        r.register("qconv",    builtin_qconv);
-        r.register("snr",      builtin_snr);
+        r.register("qadd", builtin_qadd);
+        r.register("qmul", builtin_qmul);
+        r.register("qconv", builtin_qconv);
+        r.register("snr", builtin_snr);
         // Math
-        r.register("abs",   builtin_abs);
+        r.register("abs", builtin_abs);
         r.register("angle", builtin_angle);
-        r.register("real",  builtin_real);
-        r.register("imag",  builtin_imag);
-        r.register("conj",  builtin_conj);
-        r.register("cos",   builtin_cos);
-        r.register("sin",   builtin_sin);
-        r.register("acos",  builtin_acos);
-        r.register("asin",  builtin_asin);
-        r.register("atan",  builtin_atan);
-        r.register("tanh",  builtin_tanh);
-        r.register("sqrt",  builtin_sqrt);
-        r.register("exp",   builtin_exp);
-        r.register("log",    builtin_log);
-        r.register("log10",  builtin_log10);
-        r.register("log2",   builtin_log2);
-        r.register("atan2",  builtin_atan2);
-        r.register("sinh",   builtin_sinh);
-        r.register("cosh",   builtin_cosh);
-        r.register("floor",  builtin_floor);
-        r.register("ceil",   builtin_ceil);
-        r.register("round",  builtin_round);
-        r.register("sign",   builtin_sign);
-        r.register("mod",    builtin_mod);
+        r.register("real", builtin_real);
+        r.register("imag", builtin_imag);
+        r.register("conj", builtin_conj);
+        r.register("cos", builtin_cos);
+        r.register("sin", builtin_sin);
+        r.register("acos", builtin_acos);
+        r.register("asin", builtin_asin);
+        r.register("atan", builtin_atan);
+        r.register("tanh", builtin_tanh);
+        r.register("sqrt", builtin_sqrt);
+        r.register("exp", builtin_exp);
+        r.register("log", builtin_log);
+        r.register("log10", builtin_log10);
+        r.register("log2", builtin_log2);
+        r.register("atan2", builtin_atan2);
+        r.register("sinh", builtin_sinh);
+        r.register("cosh", builtin_cosh);
+        r.register("floor", builtin_floor);
+        r.register("ceil", builtin_ceil);
+        r.register("round", builtin_round);
+        r.register("sign", builtin_sign);
+        r.register("mod", builtin_mod);
         r.register("meshgrid", builtin_meshgrid);
         // Array construction
-        r.register("zeros",    builtin_zeros);
-        r.register("ones",     builtin_ones);
+        r.register("zeros", builtin_zeros);
+        r.register("ones", builtin_ones);
         r.register("linspace", builtin_linspace);
-        r.register("rand",      builtin_rand);
-        r.register("randn",     builtin_randn);
-        r.register("randi",     builtin_randi);
+        r.register("rand", builtin_rand);
+        r.register("randn", builtin_randn);
+        r.register("randi", builtin_randi);
         r.register("histogram", builtin_histogram);
-        r.register("hist",      builtin_histogram);
-        r.register("mean",     builtin_mean);
-        r.register("median",   builtin_median);
-        r.register("std",      builtin_std);
-        r.register("min",      builtin_min);
-        r.register("max",      builtin_max);
-        r.register("sum",      builtin_sum);
-        r.register("prod",     builtin_prod);
-        r.register("cumsum",   builtin_cumsum);
-        r.register("argmin",   builtin_argmin);
-        r.register("argmax",   builtin_argmax);
-        r.register("sort",     builtin_sort);
-        r.register("trapz",    builtin_trapz);
-        r.register("len",      builtin_len);
-        r.register("length",   builtin_len);   // alias for len
-        r.register("numel",    builtin_numel);
-        r.register("size",     builtin_size);
+        r.register("hist", builtin_histogram);
+        r.register("mean", builtin_mean);
+        r.register("median", builtin_median);
+        r.register("std", builtin_std);
+        r.register("min", builtin_min);
+        r.register("max", builtin_max);
+        r.register("sum", builtin_sum);
+        r.register("prod", builtin_prod);
+        r.register("cumsum", builtin_cumsum);
+        r.register("argmin", builtin_argmin);
+        r.register("argmax", builtin_argmax);
+        r.register("sort", builtin_sort);
+        r.register("trapz", builtin_trapz);
+        r.register("len", builtin_len);
+        r.register("length", builtin_len); // alias for len
+        r.register("numel", builtin_numel);
+        r.register("size", builtin_size);
         // I/O
         r.register("print", builtin_print);
-        r.register("plot",  builtin_plot);
-        r.register("stem",  builtin_stem);
-        r.register("plotdb",   builtin_plotdb);
-        r.register("savefig",  builtin_savefig);
+        r.register("plot", builtin_plot);
+        r.register("stem", builtin_stem);
+        r.register("plotdb", builtin_plotdb);
+        r.register("savefig", builtin_savefig);
         // Figure state control
-        r.register("figure",      builtin_figure);
-        r.register("hold",        builtin_hold);
-        r.register("grid",        builtin_grid);
-        r.register("xlabel",      builtin_xlabel);
-        r.register("ylabel",      builtin_ylabel);
-        r.register("title",       builtin_title);
-        r.register("xlim",        builtin_xlim);
-        r.register("ylim",        builtin_ylim);
-        r.register("subplot",     builtin_subplot);
-        r.register("legend",      builtin_legend);
-        r.register("hline",       builtin_hline);
-        r.register("yline",       builtin_hline);  // common alias
-        r.register("imagesc",     builtin_imagesc);
+        r.register("figure", builtin_figure);
+        r.register("hold", builtin_hold);
+        r.register("grid", builtin_grid);
+        r.register("xlabel", builtin_xlabel);
+        r.register("ylabel", builtin_ylabel);
+        r.register("title", builtin_title);
+        r.register("xlim", builtin_xlim);
+        r.register("ylim", builtin_ylim);
+        r.register("subplot", builtin_subplot);
+        r.register("legend", builtin_legend);
+        r.register("hline", builtin_hline);
+        r.register("yline", builtin_hline); // common alias
+        r.register("imagesc", builtin_imagesc);
         // Import / export
         r.register("save", builtin_save);
         r.register("load", builtin_load);
         r.register("whos", builtin_whos_file);
         // Matrix construction
-        r.register("eye",       builtin_eye);
+        r.register("eye", builtin_eye);
         // Matrix operations
         r.register("transpose", builtin_transpose);
-        r.register("diag",      builtin_diag);
-        r.register("trace",     builtin_trace);
-        r.register("reshape",   builtin_reshape);
-        r.register("repmat",    builtin_repmat);
-        r.register("horzcat",   builtin_horzcat);
-        r.register("vertcat",   builtin_vertcat);
+        r.register("diag", builtin_diag);
+        r.register("trace", builtin_trace);
+        r.register("reshape", builtin_reshape);
+        r.register("repmat", builtin_repmat);
+        r.register("horzcat", builtin_horzcat);
+        r.register("vertcat", builtin_vertcat);
         // Linear algebra
-        r.register("dot",       builtin_dot);
-        r.register("cross",     builtin_cross);
-        r.register("outer",     builtin_outer);
-        r.register("kron",      builtin_kron);
-        r.register("norm",      builtin_norm);
-        r.register("det",       builtin_det);
-        r.register("inv",       builtin_inv);
-        r.register("expm",      builtin_expm);
-        r.register("linsolve",  builtin_linsolve);
-        r.register("eig",       builtin_eig);
+        r.register("dot", builtin_dot);
+        r.register("cross", builtin_cross);
+        r.register("outer", builtin_outer);
+        r.register("kron", builtin_kron);
+        r.register("norm", builtin_norm);
+        r.register("det", builtin_det);
+        r.register("inv", builtin_inv);
+        r.register("expm", builtin_expm);
+        r.register("linsolve", builtin_linsolve);
+        r.register("eig", builtin_eig);
         // Special functions
-        r.register("laguerre",  builtin_laguerre);
-        r.register("legendre",  builtin_legendre);
+        r.register("laguerre", builtin_laguerre);
+        r.register("legendre", builtin_legendre);
         // Number theory
-        r.register("factor",    builtin_factor);
+        r.register("factor", builtin_factor);
         // Output
-        r.register("disp",    builtin_disp);
+        r.register("disp", builtin_disp);
         r.register("fprintf", builtin_fprintf);
         r.register("sprintf", builtin_sprintf);
-        r.register("commas",  builtin_commas);
-        r.register("error",   builtin_error);
+        r.register("commas", builtin_commas);
+        r.register("error", builtin_error);
         // Aggregates
         r.register("all", builtin_all);
         r.register("any", builtin_any);
         // Matrix analysis
-        r.register("rank",  builtin_rank);
+        r.register("rank", builtin_rank);
         r.register("roots", builtin_roots);
         // Transfer function (Phase 2)
-        r.register("tf",   builtin_tf);
+        r.register("tf", builtin_tf);
         r.register("pole", builtin_pole);
         r.register("zero", builtin_zero);
         // State-space (Phase 3)
-        r.register("ss",   builtin_ss);
+        r.register("ss", builtin_ss);
         r.register("ctrb", builtin_ctrb);
         r.register("obsv", builtin_obsv);
         // Frequency & time-domain analysis (Phase 4)
-        r.register("bode",   builtin_bode);
-        r.register("step",   builtin_step);
+        r.register("bode", builtin_bode);
+        r.register("step", builtin_step);
         r.register("margin", builtin_margin);
         // Optimal control (Phase 5)
-        r.register("lqr",    builtin_lqr);
+        r.register("lqr", builtin_lqr);
         r.register("rlocus", builtin_rlocus);
         // Controls bootcamp
-        r.register("logspace",  builtin_logspace);
-        r.register("lyap",      builtin_lyap);
-        r.register("gram",      builtin_gram);
-        r.register("care",      builtin_care);
-        r.register("dare",      builtin_dare);
-        r.register("place",     builtin_place);
-        r.register("freqresp",  builtin_freqresp);
-        r.register("svd",       builtin_svd);
+        r.register("logspace", builtin_logspace);
+        r.register("lyap", builtin_lyap);
+        r.register("gram", builtin_gram);
+        r.register("care", builtin_care);
+        r.register("dare", builtin_dare);
+        r.register("place", builtin_place);
+        r.register("freqresp", builtin_freqresp);
+        r.register("svd", builtin_svd);
         // Struct construction
-        r.register("struct",    builtin_struct);
+        r.register("struct", builtin_struct);
         // Type inspection
-        r.register("isstruct",  builtin_isstruct);
+        r.register("isstruct", builtin_isstruct);
         r.register("fieldnames", builtin_fieldnames);
-        r.register("isfield",   builtin_isfield);
-        r.register("rmfield",   builtin_rmfield);
+        r.register("isfield", builtin_isfield);
+        r.register("rmfield", builtin_rmfield);
         // Cell / string arrays
-        r.register("iscell",    builtin_iscell);
+        r.register("iscell", builtin_iscell);
         // ML / activation functions
-        r.register("softmax",   builtin_softmax);
-        r.register("relu",      builtin_relu);
-        r.register("gelu",      builtin_gelu);
+        r.register("softmax", builtin_softmax);
+        r.register("relu", builtin_relu);
+        r.register("gelu", builtin_gelu);
         r.register("layernorm", builtin_layernorm);
         // New plot types
-        r.register("bar",        builtin_bar);
-        r.register("scatter",    builtin_scatter);
+        r.register("bar", builtin_bar);
+        r.register("scatter", builtin_scatter);
 
         // Streaming DSP
-        r.register("state_init",    builtin_state_init);
+        r.register("state_init", builtin_state_init);
         r.register("filter_stream", builtin_filter_stream);
 
         // stdin/stdout audio I/O
-        r.register("audio_in",    builtin_audio_in);
-        r.register("audio_out",   builtin_audio_out);
-        r.register("audio_read",  builtin_audio_read);
+        r.register("audio_in", builtin_audio_in);
+        r.register("audio_out", builtin_audio_out);
+        r.register("audio_read", builtin_audio_read);
         r.register("audio_write", builtin_audio_write);
 
         // Sparse
-        r.register("sparse",     builtin_sparse);
-        r.register("sparsevec",  builtin_sparsevec);
-        r.register("speye",      builtin_speye);
-        r.register("spzeros",    builtin_spzeros);
-        r.register("nnz",        builtin_nnz);
-        r.register("issparse",   builtin_issparse);
-        r.register("full",       builtin_full);
-        r.register("nonzeros",   builtin_nonzeros);
-        r.register("find",       builtin_find);
-        r.register("spsolve",   builtin_spsolve);
-        r.register("spdiags",   builtin_spdiags);
-        r.register("sprand",    builtin_sprand);
+        r.register("sparse", builtin_sparse);
+        r.register("sparsevec", builtin_sparsevec);
+        r.register("speye", builtin_speye);
+        r.register("spzeros", builtin_spzeros);
+        r.register("nnz", builtin_nnz);
+        r.register("issparse", builtin_issparse);
+        r.register("full", builtin_full);
+        r.register("nonzeros", builtin_nonzeros);
+        r.register("find", builtin_find);
+        r.register("spsolve", builtin_spsolve);
+        r.register("spdiags", builtin_spdiags);
+        r.register("sprand", builtin_sprand);
 
         // Live plotting
-        r.register("figure_live",   builtin_figure_live);
-        r.register("plot_update",   builtin_plot_update);
-        r.register("plot_limits",   builtin_plot_limits);
-        r.register("plot_labels",   builtin_plot_labels);
-        r.register("figure_draw",   builtin_figure_draw);
-        r.register("figure_close",  builtin_figure_close);
-        r.register("mag2db",        builtin_mag2db);
-        r.register("sleep",         builtin_sleep);
+        r.register("figure_live", builtin_figure_live);
+        r.register("plot_update", builtin_plot_update);
+        r.register("plot_limits", builtin_plot_limits);
+        r.register("plot_labels", builtin_plot_labels);
+        r.register("figure_draw", builtin_figure_draw);
+        r.register("figure_close", builtin_figure_close);
+        r.register("mag2db", builtin_mag2db);
+        r.register("sleep", builtin_sleep);
 
         r
     }
@@ -275,7 +269,7 @@ impl BuiltinRegistry {
     pub fn call(&self, name: &str, args: Vec<Value>) -> Result<Value, ScriptError> {
         match self.map.get(name) {
             Some(f) => f(args),
-            None    => Err(ScriptError::undefined_fn(name.to_string())),
+            None => Err(ScriptError::undefined_fn(name.to_string())),
         }
     }
 }
@@ -284,7 +278,11 @@ impl BuiltinRegistry {
 
 fn check_args(name: &str, args: &[Value], expected: usize) -> Result<(), ScriptError> {
     if args.len() != expected {
-        Err(ScriptError::arg_count(name.to_string(), expected, args.len()))
+        Err(ScriptError::arg_count(
+            name.to_string(),
+            expected,
+            args.len(),
+        ))
     } else {
         Ok(())
     }
@@ -292,7 +290,12 @@ fn check_args(name: &str, args: &[Value], expected: usize) -> Result<(), ScriptE
 
 fn check_args_range(name: &str, args: &[Value], min: usize, max: usize) -> Result<(), ScriptError> {
     if args.len() < min || args.len() > max {
-        Err(ScriptError::arg_count_range(name.to_string(), min, max, args.len()))
+        Err(ScriptError::arg_count_range(
+            name.to_string(),
+            min,
+            max,
+            args.len(),
+        ))
     } else {
         Ok(())
     }
@@ -311,57 +314,53 @@ fn cvector_to_value(v: CVector) -> Value {
 
 fn builtin_fir_lowpass(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("fir_lowpass", &args, 4)?;
-    let num_taps  = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    let num_taps = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
     let cutoff_hz = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let sr        = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let win       = parse_window(&args[3])?;
-    let filter    = fir_lowpass(num_taps, cutoff_hz, sr, win)?;
+    let sr = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let win = parse_window(&args[3])?;
+    let filter = fir_lowpass(num_taps, cutoff_hz, sr, win)?;
     Ok(cvector_to_value(filter.coefficients))
 }
 
 fn builtin_fir_highpass(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("fir_highpass", &args, 4)?;
-    let num_taps  = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    let num_taps = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
     let cutoff_hz = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let sr        = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let win       = parse_window(&args[3])?;
-    let filter    = fir_highpass(num_taps, cutoff_hz, sr, win)?;
+    let sr = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let win = parse_window(&args[3])?;
+    let filter = fir_highpass(num_taps, cutoff_hz, sr, win)?;
     Ok(cvector_to_value(filter.coefficients))
 }
 
 fn builtin_fir_bandpass(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("fir_bandpass", &args, 5)?;
     let num_taps = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
-    let low_hz   = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let high_hz  = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let sr       = args[3].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let win      = parse_window(&args[4])?;
-    let filter   = fir_bandpass(num_taps, low_hz, high_hz, sr, win)?;
+    let low_hz = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let high_hz = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let sr = args[3].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let win = parse_window(&args[4])?;
+    let filter = fir_bandpass(num_taps, low_hz, high_hz, sr, win)?;
     Ok(cvector_to_value(filter.coefficients))
 }
 
 fn builtin_butterworth_lowpass(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("butterworth_lowpass", &args, 3)?;
-    let order     = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    let order = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
     let cutoff_hz = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let sr        = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let filter    = butterworth_lowpass(order, cutoff_hz, sr)?;
+    let sr = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let filter = butterworth_lowpass(order, cutoff_hz, sr)?;
     // Return b coefficients as a complex vector for script use
-    let coeffs: CVector = Array1::from_iter(
-        filter.b.iter().map(|&x| Complex::new(x, 0.0))
-    );
+    let coeffs: CVector = Array1::from_iter(filter.b.iter().map(|&x| Complex::new(x, 0.0)));
     Ok(Value::Vector(coeffs))
 }
 
 fn builtin_butterworth_highpass(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("butterworth_highpass", &args, 3)?;
-    let order     = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    let order = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
     let cutoff_hz = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let sr        = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let filter    = butterworth_highpass(order, cutoff_hz, sr)?;
-    let coeffs: CVector = Array1::from_iter(
-        filter.b.iter().map(|&x| Complex::new(x, 0.0))
-    );
+    let sr = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let filter = butterworth_highpass(order, cutoff_hz, sr)?;
+    let coeffs: CVector = Array1::from_iter(filter.b.iter().map(|&x| Complex::new(x, 0.0)));
     Ok(Value::Vector(coeffs))
 }
 
@@ -385,7 +384,9 @@ fn builtin_filtfilt(args: Vec<Value>) -> Result<Value, ScriptError> {
     let a: Vec<f64> = a_cv.iter().map(|c| c.re).collect();
     let x: Vec<f64> = x_cv.iter().map(|c| c.re).collect();
     if b.is_empty() || a.is_empty() {
-        return Err(ScriptError::type_err("filtfilt: b and a must be non-empty".to_string()));
+        return Err(ScriptError::type_err(
+            "filtfilt: b and a must be non-empty".to_string(),
+        ));
     }
     let filt = IirFilter::new(b, a);
     let y = filt.filtfilt(&x);
@@ -396,7 +397,8 @@ fn builtin_filtfilt(args: Vec<Value>) -> Result<Value, ScriptError> {
 fn builtin_upfirdn(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.len() != 4 {
         return Err(ScriptError::runtime(format!(
-            "upfirdn: expected 4 arguments (x, h, p, q), got {}", args.len()
+            "upfirdn: expected 4 arguments (x, h, p, q), got {}",
+            args.len()
         )));
     }
     let x = args[0].to_cvector().map_err(|e| ScriptError::type_err(e))?;
@@ -411,8 +413,8 @@ fn builtin_upfirdn(args: Vec<Value>) -> Result<Value, ScriptError> {
 fn builtin_window(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("window", &args, 2)?;
     let win = parse_window(&args[0])?;
-    let n   = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
-    let w   = win.generate(n);
+    let n = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    let w = win.generate(n);
     // Convert RVector to CVector
     let cv: CVector = Array1::from_iter(w.iter().map(|&x| Complex::new(x, 0.0)));
     Ok(Value::Vector(cv))
@@ -437,22 +439,30 @@ fn builtin_abs(args: Vec<Value>) -> Result<Value, ScriptError> {
             let result = m.mapv(|c| Complex::new(c.norm(), 0.0));
             Ok(Value::Matrix(result))
         }
-        other => Err(ScriptError::type_err(format!("abs: unsupported type {}", other))),
+        other => Err(ScriptError::type_err(format!(
+            "abs: unsupported type {}",
+            other
+        ))),
     }
 }
 
 fn builtin_angle(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("angle", &args, 1)?;
     match &args[0] {
-        Value::Scalar(n) => Ok(Value::Scalar(if *n >= 0.0 { 0.0 } else { std::f64::consts::PI })),
+        Value::Scalar(n) => Ok(Value::Scalar(if *n >= 0.0 {
+            0.0
+        } else {
+            std::f64::consts::PI
+        })),
         Value::Complex(c) => Ok(Value::Scalar(c.arg())),
         Value::Vector(v) => {
-            let result: CVector = Array1::from_iter(
-                v.iter().map(|&c| Complex::new(c.arg(), 0.0))
-            );
+            let result: CVector = Array1::from_iter(v.iter().map(|&c| Complex::new(c.arg(), 0.0)));
             Ok(Value::Vector(result))
         }
-        other => Err(ScriptError::type_err(format!("angle: unsupported type {}", other))),
+        other => Err(ScriptError::type_err(format!(
+            "angle: unsupported type {}",
+            other
+        ))),
     }
 }
 
@@ -462,14 +472,15 @@ fn builtin_real(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Scalar(n) => Ok(Value::Scalar(*n)),
         Value::Complex(c) => Ok(Value::Scalar(c.re)),
         Value::Vector(v) => {
-            let result: CVector = Array1::from_iter(
-                v.iter().map(|&c| Complex::new(c.re, 0.0))
-            );
+            let result: CVector = Array1::from_iter(v.iter().map(|&c| Complex::new(c.re, 0.0)));
             Ok(Value::Vector(result))
         }
         Value::Matrix(m) if m.nrows() == 1 && m.ncols() == 1 => Ok(Value::Scalar(m[[0, 0]].re)),
         Value::Matrix(m) => Ok(Value::Matrix(m.mapv(|c| Complex::new(c.re, 0.0)))),
-        other => Err(ScriptError::type_err(format!("real: unsupported type {}", other))),
+        other => Err(ScriptError::type_err(format!(
+            "real: unsupported type {}",
+            other
+        ))),
     }
 }
 
@@ -479,25 +490,29 @@ fn builtin_imag(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Scalar(n) => Ok(Value::Scalar(if *n == 0.0 { 0.0 } else { 0.0 })),
         Value::Complex(c) => Ok(Value::Scalar(c.im)),
         Value::Vector(v) => {
-            let result: CVector = Array1::from_iter(
-                v.iter().map(|&c| Complex::new(c.im, 0.0))
-            );
+            let result: CVector = Array1::from_iter(v.iter().map(|&c| Complex::new(c.im, 0.0)));
             Ok(Value::Vector(result))
         }
         Value::Matrix(m) if m.nrows() == 1 && m.ncols() == 1 => Ok(Value::Scalar(m[[0, 0]].im)),
         Value::Matrix(m) => Ok(Value::Matrix(m.mapv(|c| Complex::new(c.im, 0.0)))),
-        other => Err(ScriptError::type_err(format!("imag: unsupported type {}", other))),
+        other => Err(ScriptError::type_err(format!(
+            "imag: unsupported type {}",
+            other
+        ))),
     }
 }
 
 fn builtin_conj(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("conj", &args, 1)?;
     match &args[0] {
-        Value::Scalar(n)  => Ok(Value::Scalar(*n)),
+        Value::Scalar(n) => Ok(Value::Scalar(*n)),
         Value::Complex(c) => Ok(Value::Complex(c.conj())),
-        Value::Vector(v)  => Ok(Value::Vector(v.mapv(|c| c.conj()))),
-        Value::Matrix(m)  => Ok(Value::Matrix(m.mapv(|c| c.conj()))),
-        other => Err(ScriptError::type_err(format!("conj: unsupported type {}", other.type_name()))),
+        Value::Vector(v) => Ok(Value::Vector(v.mapv(|c| c.conj()))),
+        Value::Matrix(m) => Ok(Value::Matrix(m.mapv(|c| c.conj()))),
+        other => Err(ScriptError::type_err(format!(
+            "conj: unsupported type {}",
+            other.type_name()
+        ))),
     }
 }
 
@@ -526,7 +541,10 @@ fn apply_scalar_fn_to_value(
                 Ok(Value::Matrix(m.mapv(|c| fc(c))))
             }
         }
-        other => Err(ScriptError::type_err(format!("{}: unsupported type {}", name, other))),
+        other => Err(ScriptError::type_err(format!(
+            "{}: unsupported type {}",
+            name, other
+        ))),
     }
 }
 
@@ -564,31 +582,39 @@ fn builtin_cosh(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 // floor/ceil/round: apply to real and imaginary parts independently.
 fn builtin_floor(args: Vec<Value>) -> Result<Value, ScriptError> {
-    apply_scalar_fn_to_value("floor", args,
-        f64::floor,
-        |c: Complex<f64>| Complex::new(c.re.floor(), c.im.floor()))
+    apply_scalar_fn_to_value("floor", args, f64::floor, |c: Complex<f64>| {
+        Complex::new(c.re.floor(), c.im.floor())
+    })
 }
 
 fn builtin_ceil(args: Vec<Value>) -> Result<Value, ScriptError> {
-    apply_scalar_fn_to_value("ceil", args,
-        f64::ceil,
-        |c: Complex<f64>| Complex::new(c.re.ceil(), c.im.ceil()))
+    apply_scalar_fn_to_value("ceil", args, f64::ceil, |c: Complex<f64>| {
+        Complex::new(c.re.ceil(), c.im.ceil())
+    })
 }
 
 fn builtin_round(args: Vec<Value>) -> Result<Value, ScriptError> {
-    apply_scalar_fn_to_value("round", args,
-        f64::round,
-        |c: Complex<f64>| Complex::new(c.re.round(), c.im.round()))
+    apply_scalar_fn_to_value("round", args, f64::round, |c: Complex<f64>| {
+        Complex::new(c.re.round(), c.im.round())
+    })
 }
 
 // sign: real → -1/0/+1; complex → z/|z| (or 0 if z==0).
 fn builtin_sign(args: Vec<Value>) -> Result<Value, ScriptError> {
     fn sign_real(x: f64) -> f64 {
-        if x == 0.0 { 0.0 } else { x.signum() }
+        if x == 0.0 {
+            0.0
+        } else {
+            x.signum()
+        }
     }
     fn sign_complex(c: Complex<f64>) -> Complex<f64> {
         let m = c.norm();
-        if m == 0.0 { Complex::new(0.0, 0.0) } else { c / m }
+        if m == 0.0 {
+            Complex::new(0.0, 0.0)
+        } else {
+            c / m
+        }
     }
     apply_scalar_fn_to_value("sign", args, sign_real, sign_complex)
 }
@@ -596,22 +622,31 @@ fn builtin_sign(args: Vec<Value>) -> Result<Value, ScriptError> {
 // mod(a, m): a - m*floor(a/m), element-wise on real and imaginary parts.
 fn builtin_mod(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("mod", &args, 2)?;
-    fn mod_f64(a: f64, m: f64) -> f64 { a - m * (a / m).floor() }
+    fn mod_f64(a: f64, m: f64) -> f64 {
+        a - m * (a / m).floor()
+    }
     fn mod_c64(a: Complex<f64>, m: f64) -> Complex<f64> {
         Complex::new(mod_f64(a.re, m), mod_f64(a.im, m))
     }
     let m = match &args[1] {
         Value::Scalar(n) => *n,
         Value::Complex(c) if c.im == 0.0 => c.re,
-        other => return Err(ScriptError::type_err(format!(
-            "mod: second argument must be a real scalar, got {}", other.type_name()))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "mod: second argument must be a real scalar, got {}",
+                other.type_name()
+            )))
+        }
     };
     match &args[0] {
-        Value::Scalar(a)  => Ok(Value::Scalar(mod_f64(*a, m))),
+        Value::Scalar(a) => Ok(Value::Scalar(mod_f64(*a, m))),
         Value::Complex(a) => Ok(Value::Complex(mod_c64(*a, m))),
-        Value::Vector(v)  => Ok(Value::Vector(v.mapv(|c| mod_c64(c, m)))),
+        Value::Vector(v) => Ok(Value::Vector(v.mapv(|c| mod_c64(c, m)))),
         Value::Matrix(mx) => Ok(Value::Matrix(mx.mapv(|c| mod_c64(c, m)))),
-        other => Err(ScriptError::type_err(format!("mod: unsupported type {}", other.type_name()))),
+        other => Err(ScriptError::type_err(format!(
+            "mod: unsupported type {}",
+            other.type_name()
+        ))),
     }
 }
 
@@ -628,11 +663,15 @@ fn builtin_log(args: Vec<Value>) -> Result<Value, ScriptError> {
 }
 
 fn builtin_log10(args: Vec<Value>) -> Result<Value, ScriptError> {
-    apply_scalar_fn_to_value("log10", args, f64::log10, |c: Complex<f64>| c.ln() / f64::ln(10.0))
+    apply_scalar_fn_to_value("log10", args, f64::log10, |c: Complex<f64>| {
+        c.ln() / f64::ln(10.0)
+    })
 }
 
 fn builtin_log2(args: Vec<Value>) -> Result<Value, ScriptError> {
-    apply_scalar_fn_to_value("log2", args, f64::log2, |c: Complex<f64>| c.ln() / f64::ln(2.0))
+    apply_scalar_fn_to_value("log2", args, f64::log2, |c: Complex<f64>| {
+        c.ln() / f64::ln(2.0)
+    })
 }
 
 // ─── atan2(y, x) ──────────────────────────────────────────────────────────────
@@ -643,12 +682,13 @@ fn builtin_atan2(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("atan2", &args, 2)?;
 
     /// Extract real part of a C64, ignoring imaginary (atan2 is real-valued).
-    fn re(c: C64) -> f64 { c.re }
+    fn re(c: C64) -> f64 {
+        c.re
+    }
 
     match (&args[0], &args[1]) {
         // scalar × scalar
-        (Value::Scalar(y), Value::Scalar(x)) =>
-            Ok(Value::Scalar(y.atan2(*x))),
+        (Value::Scalar(y), Value::Scalar(x)) => Ok(Value::Scalar(y.atan2(*x))),
 
         // scalar × vector
         (Value::Scalar(y), Value::Vector(xv)) => {
@@ -664,11 +704,15 @@ fn builtin_atan2(args: Vec<Value>) -> Result<Value, ScriptError> {
         (Value::Vector(yv), Value::Vector(xv)) => {
             if yv.len() != xv.len() {
                 return Err(ScriptError::type_err(format!(
-                    "atan2: vector lengths must match ({} vs {})", yv.len(), xv.len()
+                    "atan2: vector lengths must match ({} vs {})",
+                    yv.len(),
+                    xv.len()
                 )));
             }
             let v = Array1::from_iter(
-                yv.iter().zip(xv.iter()).map(|(&yc, &xc)| Complex::new(re(yc).atan2(re(xc)), 0.0))
+                yv.iter()
+                    .zip(xv.iter())
+                    .map(|(&yc, &xc)| Complex::new(re(yc).atan2(re(xc)), 0.0)),
             );
             Ok(Value::Vector(v))
         }
@@ -688,7 +732,10 @@ fn builtin_atan2(args: Vec<Value>) -> Result<Value, ScriptError> {
             if ym.shape() != xm.shape() {
                 return Err(ScriptError::type_err(format!(
                     "atan2: matrix shapes must match ({}×{} vs {}×{})",
-                    ym.nrows(), ym.ncols(), xm.nrows(), xm.ncols()
+                    ym.nrows(),
+                    ym.ncols(),
+                    xm.nrows(),
+                    xm.ncols()
                 )));
             }
             let m = Array2::from_shape_fn(ym.raw_dim(), |(i, j)| {
@@ -698,7 +745,9 @@ fn builtin_atan2(args: Vec<Value>) -> Result<Value, ScriptError> {
         }
 
         (y, x) => Err(ScriptError::type_err(format!(
-            "atan2: unsupported types {} and {}", y.type_name(), x.type_name()
+            "atan2: unsupported types {} and {}",
+            y.type_name(),
+            x.type_name()
         ))),
     }
 }
@@ -715,8 +764,12 @@ fn builtin_atan2(args: Vec<Value>) -> Result<Value, ScriptError> {
 fn builtin_meshgrid(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("meshgrid", &args, 2)?;
 
-    let xv = args[0].to_cvector().map_err(|e| ScriptError::type_err(format!("meshgrid: x: {}", e)))?;
-    let yv = args[1].to_cvector().map_err(|e| ScriptError::type_err(format!("meshgrid: y: {}", e)))?;
+    let xv = args[0]
+        .to_cvector()
+        .map_err(|e| ScriptError::type_err(format!("meshgrid: x: {}", e)))?;
+    let yv = args[1]
+        .to_cvector()
+        .map_err(|e| ScriptError::type_err(format!("meshgrid: y: {}", e)))?;
 
     let (m, n) = (xv.len(), yv.len()); // m cols, n rows
 
@@ -746,7 +799,8 @@ fn unpack_size_args(args: &[Value], name: &str) -> Result<(Option<usize>, usize)
             Ok((Some(m), n))
         } else {
             Err(ScriptError::type_err(format!(
-                "{name}: expected scalar or 2-element vector, got {}-element vector", v.len()
+                "{name}: expected scalar or 2-element vector, got {}-element vector",
+                v.len()
             )))
         }
     } else {
@@ -769,7 +823,10 @@ fn builtin_ones(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("ones", &args, 1, 2)?;
     let (m, n) = unpack_size_args(&args, "ones")?;
     if let Some(m) = m {
-        Ok(Value::Matrix(Array2::from_elem((m, n), Complex::new(1.0, 0.0))))
+        Ok(Value::Matrix(Array2::from_elem(
+            (m, n),
+            Complex::new(1.0, 0.0),
+        )))
     } else {
         Ok(Value::Vector(Array1::from_elem(n, Complex::new(1.0, 0.0))))
     }
@@ -778,18 +835,18 @@ fn builtin_ones(args: Vec<Value>) -> Result<Value, ScriptError> {
 fn builtin_linspace(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("linspace", &args, 3)?;
     let start = args[0].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let stop  = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let n     = args[2].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    let stop = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let n = args[2].to_usize().map_err(|e| ScriptError::type_err(e))?;
     if n == 0 {
         return Ok(Value::Vector(Array1::zeros(0)));
     }
     if n == 1 {
-        return Ok(Value::Vector(Array1::from_vec(vec![Complex::new(start, 0.0)])));
+        return Ok(Value::Vector(Array1::from_vec(vec![Complex::new(
+            start, 0.0,
+        )])));
     }
     let step = (stop - start) / (n - 1) as f64;
-    let v: CVector = Array1::from_iter(
-        (0..n).map(|i| Complex::new(start + step * i as f64, 0.0))
-    );
+    let v: CVector = Array1::from_iter((0..n).map(|i| Complex::new(start + step * i as f64, 0.0)));
     Ok(Value::Vector(v))
 }
 
@@ -799,30 +856,40 @@ fn builtin_rand(args: Vec<Value>) -> Result<Value, ScriptError> {
     let dist = Uniform::new(0.0_f64, 1.0);
     let (m, n) = unpack_size_args(&args, "rand")?;
     if let Some(m) = m {
-        let data: Vec<C64> = (0..m*n).map(|_| Complex::new(dist.sample(&mut rng), 0.0)).collect();
+        let data: Vec<C64> = (0..m * n)
+            .map(|_| Complex::new(dist.sample(&mut rng), 0.0))
+            .collect();
         Ok(Value::Matrix(Array2::from_shape_vec((m, n), data).unwrap()))
     } else {
-        Ok(Value::Vector(Array1::from_iter((0..n).map(|_| Complex::new(dist.sample(&mut rng), 0.0)))))
+        Ok(Value::Vector(Array1::from_iter(
+            (0..n).map(|_| Complex::new(dist.sample(&mut rng), 0.0)),
+        )))
     }
 }
 
 fn builtin_randn(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("randn", &args, 1, 2)?;
     let mut rng = rand::thread_rng();
-    let dist = Normal::new(0.0_f64, 1.0)
-        .map_err(|e| ScriptError::type_err(format!("randn: {e}")))?;
+    let dist =
+        Normal::new(0.0_f64, 1.0).map_err(|e| ScriptError::type_err(format!("randn: {e}")))?;
     let (m, n) = unpack_size_args(&args, "randn")?;
     if let Some(m) = m {
-        let data: Vec<C64> = (0..m*n).map(|_| Complex::new(dist.sample(&mut rng), 0.0)).collect();
+        let data: Vec<C64> = (0..m * n)
+            .map(|_| Complex::new(dist.sample(&mut rng), 0.0))
+            .collect();
         Ok(Value::Matrix(Array2::from_shape_vec((m, n), data).unwrap()))
     } else {
-        Ok(Value::Vector(Array1::from_iter((0..n).map(|_| Complex::new(dist.sample(&mut rng), 0.0)))))
+        Ok(Value::Vector(Array1::from_iter(
+            (0..n).map(|_| Complex::new(dist.sample(&mut rng), 0.0)),
+        )))
     }
 }
 
 fn builtin_randi(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.is_empty() || args.len() > 2 {
-        return Err(ScriptError::type_err("randi: expected randi(imax) or randi(imax, n) or randi([lo,hi], n)".to_string()));
+        return Err(ScriptError::type_err(
+            "randi: expected randi(imax) or randi(imax, n) or randi([lo,hi], n)".to_string(),
+        ));
     }
     // First arg: scalar imax → range [1, imax], or 2-element vector [lo, hi]
     let (lo, hi) = match &args[0] {
@@ -834,7 +901,9 @@ fn builtin_randi(args: Vec<Value>) -> Result<Value, ScriptError> {
         }
     };
     if lo > hi {
-        return Err(ScriptError::type_err(format!("randi: lo ({lo}) must be <= hi ({hi})")));
+        return Err(ScriptError::type_err(format!(
+            "randi: lo ({lo}) must be <= hi ({hi})"
+        )));
     }
     let mut rng = rand::thread_rng();
     if args.len() == 1 {
@@ -842,16 +911,17 @@ fn builtin_randi(args: Vec<Value>) -> Result<Value, ScriptError> {
         Ok(Value::Scalar(rng.gen_range(lo..=hi) as f64))
     } else {
         let n = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
-        let v: CVector = Array1::from_iter(
-            (0..n).map(|_| Complex::new(rng.gen_range(lo..=hi) as f64, 0.0))
-        );
+        let v: CVector =
+            Array1::from_iter((0..n).map(|_| Complex::new(rng.gen_range(lo..=hi) as f64, 0.0)));
         Ok(Value::Vector(v))
     }
 }
 
 fn builtin_histogram(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.is_empty() || args.len() > 2 {
-        return Err(ScriptError::type_err("histogram: expected histogram(v) or histogram(v, n_bins)".to_string()));
+        return Err(ScriptError::type_err(
+            "histogram: expected histogram(v) or histogram(v, n_bins)".to_string(),
+        ));
     }
     let data = to_real_vector(&args[0])?;
     let n_bins = if args.len() == 2 {
@@ -859,8 +929,7 @@ fn builtin_histogram(args: Vec<Value>) -> Result<Value, ScriptError> {
     } else {
         10
     };
-    plot_histogram(&data, n_bins, "Histogram")
-        .map_err(|e| ScriptError::type_err(e.to_string()))?;
+    plot_histogram(&data, n_bins, "Histogram").map_err(|e| ScriptError::type_err(e.to_string()))?;
     let (centers, counts, _) = compute_histogram(&data, n_bins);
     Ok(Value::Matrix(histogram_matrix(&centers, &counts)))
 }
@@ -868,8 +937,12 @@ fn builtin_histogram(args: Vec<Value>) -> Result<Value, ScriptError> {
 fn builtin_min(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("min", &args, 1, 2)?;
     if args.len() == 2 {
-        let a = args[0].to_scalar().map_err(|e| ScriptError::type_err(format!("min: {}", e)))?;
-        let b = args[1].to_scalar().map_err(|e| ScriptError::type_err(format!("min: {}", e)))?;
+        let a = args[0]
+            .to_scalar()
+            .map_err(|e| ScriptError::type_err(format!("min: {}", e)))?;
+        let b = args[1]
+            .to_scalar()
+            .map_err(|e| ScriptError::type_err(format!("min: {}", e)))?;
         return Ok(Value::Scalar(a.min(b)));
     }
     match &args[0] {
@@ -882,15 +955,21 @@ fn builtin_min(args: Vec<Value>) -> Result<Value, ScriptError> {
             Ok(Value::Scalar(v))
         }
         Value::Scalar(s) => Ok(Value::Scalar(*s)),
-        _ => Err(ScriptError::type_err("min: argument must be a non-empty vector, matrix, or scalar".to_string())),
+        _ => Err(ScriptError::type_err(
+            "min: argument must be a non-empty vector, matrix, or scalar".to_string(),
+        )),
     }
 }
 
 fn builtin_max(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("max", &args, 1, 2)?;
     if args.len() == 2 {
-        let a = args[0].to_scalar().map_err(|e| ScriptError::type_err(format!("max: {}", e)))?;
-        let b = args[1].to_scalar().map_err(|e| ScriptError::type_err(format!("max: {}", e)))?;
+        let a = args[0]
+            .to_scalar()
+            .map_err(|e| ScriptError::type_err(format!("max: {}", e)))?;
+        let b = args[1]
+            .to_scalar()
+            .map_err(|e| ScriptError::type_err(format!("max: {}", e)))?;
         return Ok(Value::Scalar(a.max(b)));
     }
     match &args[0] {
@@ -903,7 +982,9 @@ fn builtin_max(args: Vec<Value>) -> Result<Value, ScriptError> {
             Ok(Value::Scalar(v))
         }
         Value::Scalar(s) => Ok(Value::Scalar(*s)),
-        _ => Err(ScriptError::type_err("max: argument must be a non-empty vector, matrix, or scalar".to_string())),
+        _ => Err(ScriptError::type_err(
+            "max: argument must be a non-empty vector, matrix, or scalar".to_string(),
+        )),
     }
 }
 
@@ -912,10 +993,16 @@ fn builtin_sleep(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("sleep", &args, 1)?;
     let secs = match &args[0] {
         Value::Scalar(s) => *s,
-        _ => return Err(ScriptError::type_err("sleep: argument must be a scalar (seconds)".to_string())),
+        _ => {
+            return Err(ScriptError::type_err(
+                "sleep: argument must be a scalar (seconds)".to_string(),
+            ))
+        }
     };
     if secs < 0.0 {
-        return Err(ScriptError::type_err("sleep: duration must be non-negative".to_string()));
+        return Err(ScriptError::type_err(
+            "sleep: duration must be non-negative".to_string(),
+        ));
     }
     std::thread::sleep(std::time::Duration::from_secs_f64(secs));
     Ok(Value::Scalar(0.0))
@@ -936,16 +1023,26 @@ fn builtin_mean(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Vector(v) if !v.is_empty() => {
             let sum: Complex<f64> = v.iter().copied().sum();
             let result = sum / v.len() as f64;
-            if result.im.abs() < 1e-12 { Ok(Value::Scalar(result.re)) } else { Ok(Value::Complex(result)) }
+            if result.im.abs() < 1e-12 {
+                Ok(Value::Scalar(result.re))
+            } else {
+                Ok(Value::Complex(result))
+            }
         }
         Value::Matrix(m) if !m.is_empty() => {
             let sum: Complex<f64> = m.iter().copied().sum();
             let result = sum / m.len() as f64;
-            if result.im.abs() < 1e-12 { Ok(Value::Scalar(result.re)) } else { Ok(Value::Complex(result)) }
+            if result.im.abs() < 1e-12 {
+                Ok(Value::Scalar(result.re))
+            } else {
+                Ok(Value::Complex(result))
+            }
         }
         Value::Scalar(s) => Ok(Value::Scalar(*s)),
         Value::Complex(c) => Ok(Value::Complex(*c)),
-        _ => Err(ScriptError::type_err("mean: argument must be a non-empty vector, matrix, or scalar".to_string())),
+        _ => Err(ScriptError::type_err(
+            "mean: argument must be a non-empty vector, matrix, or scalar".to_string(),
+        )),
     }
 }
 
@@ -964,7 +1061,9 @@ fn builtin_median(args: Vec<Value>) -> Result<Value, ScriptError> {
             Ok(Value::Scalar(m))
         }
         Value::Scalar(s) => Ok(Value::Scalar(*s)),
-        _ => Err(ScriptError::type_err("median: argument must be a non-empty vector or scalar".to_string())),
+        _ => Err(ScriptError::type_err(
+            "median: argument must be a non-empty vector or scalar".to_string(),
+        )),
     }
 }
 
@@ -979,7 +1078,9 @@ fn builtin_std(args: Vec<Value>) -> Result<Value, ScriptError> {
         }
         Value::Vector(v) if v.len() == 1 => Ok(Value::Scalar(0.0)),
         Value::Scalar(_) | Value::Complex(_) => Ok(Value::Scalar(0.0)),
-        _ => Err(ScriptError::type_err("std: argument must be a non-empty vector or scalar".to_string())),
+        _ => Err(ScriptError::type_err(
+            "std: argument must be a non-empty vector or scalar".to_string(),
+        )),
     }
 }
 
@@ -989,15 +1090,26 @@ fn builtin_sum(args: Vec<Value>) -> Result<Value, ScriptError> {
     match &args[0] {
         Value::Vector(v) => {
             let s: C64 = v.iter().copied().sum();
-            if s.im.abs() < 1e-12 { Ok(Value::Scalar(s.re)) } else { Ok(Value::Complex(s)) }
+            if s.im.abs() < 1e-12 {
+                Ok(Value::Scalar(s.re))
+            } else {
+                Ok(Value::Complex(s))
+            }
         }
         Value::Matrix(m) => {
             let s: C64 = m.iter().copied().sum();
-            if s.im.abs() < 1e-12 { Ok(Value::Scalar(s.re)) } else { Ok(Value::Complex(s)) }
+            if s.im.abs() < 1e-12 {
+                Ok(Value::Scalar(s.re))
+            } else {
+                Ok(Value::Complex(s))
+            }
         }
-        Value::Scalar(n)  => Ok(Value::Scalar(*n)),
+        Value::Scalar(n) => Ok(Value::Scalar(*n)),
         Value::Complex(c) => Ok(Value::Complex(*c)),
-        other => Err(ScriptError::type_err(format!("sum: unsupported type {}", other.type_name()))),
+        other => Err(ScriptError::type_err(format!(
+            "sum: unsupported type {}",
+            other.type_name()
+        ))),
     }
 }
 
@@ -1006,16 +1118,33 @@ fn builtin_prod(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("prod", &args, 1)?;
     match &args[0] {
         Value::Vector(v) if !v.is_empty() => {
-            let p: C64 = v.iter().copied().fold(Complex::new(1.0, 0.0), |acc, x| acc * x);
-            if p.im.abs() < 1e-12 { Ok(Value::Scalar(p.re)) } else { Ok(Value::Complex(p)) }
+            let p: C64 = v
+                .iter()
+                .copied()
+                .fold(Complex::new(1.0, 0.0), |acc, x| acc * x);
+            if p.im.abs() < 1e-12 {
+                Ok(Value::Scalar(p.re))
+            } else {
+                Ok(Value::Complex(p))
+            }
         }
         Value::Matrix(m) if !m.is_empty() => {
-            let p: C64 = m.iter().copied().fold(Complex::new(1.0, 0.0), |acc, x| acc * x);
-            if p.im.abs() < 1e-12 { Ok(Value::Scalar(p.re)) } else { Ok(Value::Complex(p)) }
+            let p: C64 = m
+                .iter()
+                .copied()
+                .fold(Complex::new(1.0, 0.0), |acc, x| acc * x);
+            if p.im.abs() < 1e-12 {
+                Ok(Value::Scalar(p.re))
+            } else {
+                Ok(Value::Complex(p))
+            }
         }
-        Value::Scalar(n)  => Ok(Value::Scalar(*n)),
+        Value::Scalar(n) => Ok(Value::Scalar(*n)),
         Value::Complex(c) => Ok(Value::Complex(*c)),
-        other => Err(ScriptError::type_err(format!("prod: unsupported type {}", other.type_name()))),
+        other => Err(ScriptError::type_err(format!(
+            "prod: unsupported type {}",
+            other.type_name()
+        ))),
     }
 }
 
@@ -1025,12 +1154,18 @@ fn builtin_cumsum(args: Vec<Value>) -> Result<Value, ScriptError> {
     match &args[0] {
         Value::Vector(v) => {
             let mut acc = Complex::new(0.0, 0.0);
-            let result: CVector = Array1::from_iter(v.iter().map(|&x| { acc += x; acc }));
+            let result: CVector = Array1::from_iter(v.iter().map(|&x| {
+                acc += x;
+                acc
+            }));
             Ok(Value::Vector(result))
         }
-        Value::Scalar(n)  => Ok(Value::Scalar(*n)),
+        Value::Scalar(n) => Ok(Value::Scalar(*n)),
         Value::Complex(c) => Ok(Value::Complex(*c)),
-        other => Err(ScriptError::type_err(format!("cumsum: unsupported type {}", other.type_name()))),
+        other => Err(ScriptError::type_err(format!(
+            "cumsum: unsupported type {}",
+            other.type_name()
+        ))),
     }
 }
 
@@ -1039,14 +1174,18 @@ fn builtin_argmin(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("argmin", &args, 1)?;
     match &args[0] {
         Value::Vector(v) if !v.is_empty() => {
-            let idx = v.iter().enumerate()
+            let idx = v
+                .iter()
+                .enumerate()
                 .min_by(|(_, a), (_, b)| a.re.partial_cmp(&b.re).unwrap())
                 .map(|(i, _)| i)
                 .unwrap();
             Ok(Value::Scalar((idx + 1) as f64))
         }
         Value::Scalar(_) => Ok(Value::Scalar(1.0)),
-        _ => Err(ScriptError::type_err("argmin: argument must be a non-empty vector".to_string())),
+        _ => Err(ScriptError::type_err(
+            "argmin: argument must be a non-empty vector".to_string(),
+        )),
     }
 }
 
@@ -1055,14 +1194,18 @@ fn builtin_argmax(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("argmax", &args, 1)?;
     match &args[0] {
         Value::Vector(v) if !v.is_empty() => {
-            let idx = v.iter().enumerate()
+            let idx = v
+                .iter()
+                .enumerate()
                 .max_by(|(_, a), (_, b)| a.re.partial_cmp(&b.re).unwrap())
                 .map(|(i, _)| i)
                 .unwrap();
             Ok(Value::Scalar((idx + 1) as f64))
         }
         Value::Scalar(_) => Ok(Value::Scalar(1.0)),
-        _ => Err(ScriptError::type_err("argmax: argument must be a non-empty vector".to_string())),
+        _ => Err(ScriptError::type_err(
+            "argmax: argument must be a non-empty vector".to_string(),
+        )),
     }
 }
 
@@ -1074,8 +1217,11 @@ fn builtin_sort(args: Vec<Value>) -> Result<Value, ScriptError> {
             if is_real_vector(v) {
                 // Fast path: sort f64 values (half the memory, no partial_cmp unwrap).
                 let mut reals: Vec<f64> = v.iter().map(|c| c.re).collect();
-                reals.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                Ok(Value::Vector(Array1::from_iter(reals.into_iter().map(|r| Complex::new(r, 0.0)))))
+                reals
+                    .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                Ok(Value::Vector(Array1::from_iter(
+                    reals.into_iter().map(|r| Complex::new(r, 0.0)),
+                )))
             } else {
                 let mut sorted: Vec<C64> = v.iter().copied().collect();
                 sorted.sort_by(|a, b| a.re.partial_cmp(&b.re).unwrap_or(std::cmp::Ordering::Equal));
@@ -1083,7 +1229,9 @@ fn builtin_sort(args: Vec<Value>) -> Result<Value, ScriptError> {
             }
         }
         Value::Scalar(_) => Ok(args[0].clone()),
-        _ => Err(ScriptError::type_err("sort: argument must be a vector or scalar".to_string())),
+        _ => Err(ScriptError::type_err(
+            "sort: argument must be a vector or scalar".to_string(),
+        )),
     }
 }
 
@@ -1094,31 +1242,52 @@ fn builtin_trapz(args: Vec<Value>) -> Result<Value, ScriptError> {
     let (x_opt, v) = if args.len() == 2 {
         let x = match &args[0] {
             Value::Vector(v) => v.iter().map(|c| c.re).collect::<Vec<f64>>(),
-            other => return Err(ScriptError::type_err(format!("trapz: x must be a vector, got {}", other.type_name()))),
+            other => {
+                return Err(ScriptError::type_err(format!(
+                    "trapz: x must be a vector, got {}",
+                    other.type_name()
+                )))
+            }
         };
         let v = match &args[1] {
             Value::Vector(v) => v.clone(),
-            other => return Err(ScriptError::type_err(format!("trapz: v must be a vector, got {}", other.type_name()))),
+            other => {
+                return Err(ScriptError::type_err(format!(
+                    "trapz: v must be a vector, got {}",
+                    other.type_name()
+                )))
+            }
         };
         (Some(x), v)
     } else {
         let v = match &args[0] {
             Value::Vector(v) => v.clone(),
-            other => return Err(ScriptError::type_err(format!("trapz: argument must be a vector, got {}", other.type_name()))),
+            other => {
+                return Err(ScriptError::type_err(format!(
+                    "trapz: argument must be a vector, got {}",
+                    other.type_name()
+                )))
+            }
         };
         (None, v)
     };
     if v.len() < 2 {
         return Ok(Value::Scalar(0.0));
     }
-    let s: C64 = (0..v.len() - 1).map(|i| {
-        let dx = match &x_opt {
-            Some(x) => x[i + 1] - x[i],
-            None    => 1.0,
-        };
-        (v[i] + v[i + 1]) * 0.5 * dx
-    }).sum();
-    if s.im.abs() < 1e-12 { Ok(Value::Scalar(s.re)) } else { Ok(Value::Complex(s)) }
+    let s: C64 = (0..v.len() - 1)
+        .map(|i| {
+            let dx = match &x_opt {
+                Some(x) => x[i + 1] - x[i],
+                None => 1.0,
+            };
+            (v[i] + v[i + 1]) * 0.5 * dx
+        })
+        .sum();
+    if s.im.abs() < 1e-12 {
+        Ok(Value::Scalar(s.re))
+    } else {
+        Ok(Value::Complex(s))
+    }
 }
 
 fn builtin_len(args: Vec<Value>) -> Result<Value, ScriptError> {
@@ -1129,7 +1298,10 @@ fn builtin_len(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Str(s) => Ok(Value::Scalar(s.len() as f64)),
         Value::Tuple(t) => Ok(Value::Scalar(t.len() as f64)),
         Value::StringArray(v) => Ok(Value::Scalar(v.len() as f64)),
-        other => Err(ScriptError::type_err(format!("len: unsupported type {}", other))),
+        other => Err(ScriptError::type_err(format!(
+            "len: unsupported type {}",
+            other
+        ))),
     }
 }
 
@@ -1140,7 +1312,12 @@ fn builtin_numel(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Matrix(m) => m.nrows() * m.ncols(),
         Value::Scalar(_) | Value::Complex(_) => 1,
         Value::StringArray(v) => v.len(),
-        other => return Err(ScriptError::type_err(format!("numel: unsupported type {}", other))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "numel: unsupported type {}",
+                other
+            )))
+        }
     };
     Ok(Value::Scalar(n as f64))
 }
@@ -1154,14 +1331,22 @@ fn builtin_size(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::SparseVector(sv) => (1, sv.len),
         Value::SparseMatrix(sm) => (sm.rows, sm.cols),
         Value::StringArray(v) => (1, v.len()),
-        other => return Err(ScriptError::type_err(format!("size: unsupported type {}", other.type_name()))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "size: unsupported type {}",
+                other.type_name()
+            )))
+        }
     };
     if args.len() == 2 {
         let dim = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
         match dim {
             1 => Ok(Value::Scalar(nrows as f64)),
             2 => Ok(Value::Scalar(ncols as f64)),
-            _ => Err(ScriptError::type_err(format!("size: dim must be 1 or 2, got {}", dim))),
+            _ => Err(ScriptError::type_err(format!(
+                "size: dim must be 1 or 2, got {}",
+                dim
+            ))),
         }
     } else {
         Ok(Value::Vector(Array1::from_vec(vec![
@@ -1195,7 +1380,7 @@ fn builtin_fftshift(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 fn builtin_fftfreq(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("fftfreq", &args, 2)?;
-    let n  = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    let n = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
     let sr = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
     let freqs = fftfreq(n, sr);
     let cv: CVector = Array1::from_iter(freqs.iter().map(|&f| Complex::new(f, 0.0)));
@@ -1204,18 +1389,21 @@ fn builtin_fftfreq(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 fn builtin_spectrum(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("spectrum", &args, 2)?;
-    let x  = args[0].to_cvector().map_err(|e| ScriptError::type_err(e))?;
+    let x = args[0].to_cvector().map_err(|e| ScriptError::type_err(e))?;
     let sr = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let n  = x.len();
+    let n = x.len();
     if n == 0 {
-        return Err(ScriptError::type_err("spectrum: input vector is empty".to_string()));
+        return Err(ScriptError::type_err(
+            "spectrum: input vector is empty".to_string(),
+        ));
     }
     // DC-centered spectrum via fftshift
     let xs = fftshift(&x);
     // DC-centered frequency axis: same rotation as fftshift
     let raw_freqs: Vec<f64> = fftfreq(n, sr).to_vec();
     let split = (n + 1) / 2;
-    let shifted_freqs: Vec<f64> = raw_freqs[split..].iter()
+    let shifted_freqs: Vec<f64> = raw_freqs[split..]
+        .iter()
         .chain(raw_freqs[..split].iter())
         .copied()
         .collect();
@@ -1234,9 +1422,9 @@ fn builtin_spectrum(args: Vec<Value>) -> Result<Value, ScriptError> {
 fn builtin_fir_lowpass_kaiser(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("fir_lowpass_kaiser", &args, 4)?;
     let cutoff = args[0].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let tbw    = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let attn   = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let sr     = args[3].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let tbw = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let attn = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let sr = args[3].to_scalar().map_err(|e| ScriptError::type_err(e))?;
     let filter = fir_lowpass_kaiser(cutoff, tbw, attn, sr)?;
     Ok(cvector_to_value(filter.coefficients))
 }
@@ -1244,20 +1432,20 @@ fn builtin_fir_lowpass_kaiser(args: Vec<Value>) -> Result<Value, ScriptError> {
 fn builtin_fir_highpass_kaiser(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("fir_highpass_kaiser", &args, 4)?;
     let cutoff = args[0].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let tbw    = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let attn   = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let sr     = args[3].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let tbw = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let attn = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let sr = args[3].to_scalar().map_err(|e| ScriptError::type_err(e))?;
     let filter = fir_highpass_kaiser(cutoff, tbw, attn, sr)?;
     Ok(cvector_to_value(filter.coefficients))
 }
 
 fn builtin_fir_bandpass_kaiser(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("fir_bandpass_kaiser", &args, 5)?;
-    let low    = args[0].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let high   = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let tbw    = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let attn   = args[3].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let sr     = args[4].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let low = args[0].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let high = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let tbw = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let attn = args[3].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let sr = args[4].to_scalar().map_err(|e| ScriptError::type_err(e))?;
     let filter = fir_bandpass_kaiser(low, high, tbw, attn, sr)?;
     Ok(cvector_to_value(filter.coefficients))
 }
@@ -1265,18 +1453,18 @@ fn builtin_fir_bandpass_kaiser(args: Vec<Value>) -> Result<Value, ScriptError> {
 fn builtin_fir_notch(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("fir_notch", &args, 5)?;
     let center = args[0].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let bw     = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let sr     = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let taps   = args[3].to_usize().map_err(|e| ScriptError::type_err(e))?;
-    let win    = parse_window(&args[4])?;
+    let bw = args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let sr = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
+    let taps = args[3].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    let win = parse_window(&args[4])?;
     let filter = fir_notch(center, bw, sr, taps, win)?;
     Ok(cvector_to_value(filter.coefficients))
 }
 
 fn builtin_freqz(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("freqz", &args, 3)?;
-    let h  = args[0].to_cvector().map_err(|e| ScriptError::type_err(e))?;
-    let n  = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    let h = args[0].to_cvector().map_err(|e| ScriptError::type_err(e))?;
+    let n = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
     let sr = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
     let (freqs, h_out) = freqz(&h, n, sr).map_err(ScriptError::Dsp)?;
     // Return as 2×n matrix: row 0 = freq axis (real), row 1 = complex response
@@ -1299,11 +1487,11 @@ fn builtin_firpm(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.len() < 3 || args.len() > 4 {
         return Err(ScriptError::arg_count("firpm".into(), 3, args.len()));
     }
-    let n_taps  = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
-    let bands   = args[1].to_cvector().map_err(|e| ScriptError::type_err(e))?;
+    let n_taps = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    let bands = args[1].to_cvector().map_err(|e| ScriptError::type_err(e))?;
     let desired = args[2].to_cvector().map_err(|e| ScriptError::type_err(e))?;
 
-    let bands_f: Vec<f64>   = bands.iter().map(|c| c.re).collect();
+    let bands_f: Vec<f64> = bands.iter().map(|c| c.re).collect();
     let desired_f: Vec<f64> = desired.iter().map(|c| c.re).collect();
 
     let weights_f: Vec<f64> = if args.len() == 4 {
@@ -1313,8 +1501,7 @@ fn builtin_firpm(args: Vec<Value>) -> Result<Value, ScriptError> {
         vec![]
     };
 
-    let filter = firpm(n_taps, &bands_f, &desired_f, &weights_f)
-        .map_err(ScriptError::Dsp)?;
+    let filter = firpm(n_taps, &bands_f, &desired_f, &weights_f).map_err(ScriptError::Dsp)?;
     Ok(cvector_to_value(filter.coefficients))
 }
 
@@ -1331,11 +1518,11 @@ fn builtin_firpmq(args: Vec<Value>) -> Result<Value, ScriptError> {
             "firpmq: expected 3–6 arguments: (n_taps, bands, desired [, weights [, bits [, n_iter]]])".into()
         ));
     }
-    let n_taps  = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
-    let bands   = args[1].to_cvector().map_err(|e| ScriptError::type_err(e))?;
+    let n_taps = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    let bands = args[1].to_cvector().map_err(|e| ScriptError::type_err(e))?;
     let desired = args[2].to_cvector().map_err(|e| ScriptError::type_err(e))?;
 
-    let bands_f:   Vec<f64> = bands.iter().map(|c| c.re).collect();
+    let bands_f: Vec<f64> = bands.iter().map(|c| c.re).collect();
     let desired_f: Vec<f64> = desired.iter().map(|c| c.re).collect();
 
     let weights_f: Vec<f64> = if args.len() >= 4 {
@@ -1357,8 +1544,8 @@ fn builtin_firpmq(args: Vec<Value>) -> Result<Value, ScriptError> {
         8
     };
 
-    let filter = firpmq(n_taps, &bands_f, &desired_f, &weights_f, bits, n_iter)
-        .map_err(ScriptError::Dsp)?;
+    let filter =
+        firpmq(n_taps, &bands_f, &desired_f, &weights_f, bits, n_iter).map_err(ScriptError::Dsp)?;
     Ok(cvector_to_value(filter.coefficients))
 }
 
@@ -1366,16 +1553,20 @@ fn builtin_firpmq(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 /// Parse a round-mode string, returning a ScriptError on failure.
 fn parse_round_mode(s: &str) -> Result<RoundMode, ScriptError> {
-    RoundMode::from_str(s).ok_or_else(|| ScriptError::runtime(
-        format!("unknown rounding mode '{s}'; valid: floor, ceil, zero, round, round_even")
-    ))
+    RoundMode::from_str(s).ok_or_else(|| {
+        ScriptError::runtime(format!(
+            "unknown rounding mode '{s}'; valid: floor, ceil, zero, round, round_even"
+        ))
+    })
 }
 
 /// Parse an overflow-mode string.
 fn parse_overflow_mode(s: &str) -> Result<OverflowMode, ScriptError> {
-    OverflowMode::from_str(s).ok_or_else(|| ScriptError::runtime(
-        format!("unknown overflow mode '{s}'; valid: saturate, wrap")
-    ))
+    OverflowMode::from_str(s).ok_or_else(|| {
+        ScriptError::runtime(format!(
+            "unknown overflow mode '{s}'; valid: saturate, wrap"
+        ))
+    })
 }
 
 /// qfmt(word_bits, frac_bits)
@@ -1387,10 +1578,16 @@ fn builtin_qfmt(args: Vec<Value>) -> Result<Value, ScriptError> {
     }
     let word = args[0].to_usize().map_err(|e| ScriptError::type_err(e))? as u8;
     let frac = args[1].to_usize().map_err(|e| ScriptError::type_err(e))? as u8;
-    let round    = if args.len() >= 3 { parse_round_mode(&args[2].to_str().map_err(|e| ScriptError::type_err(e))?)? }
-                   else { RoundMode::Floor };
-    let overflow = if args.len() == 4 { parse_overflow_mode(&args[3].to_str().map_err(|e| ScriptError::type_err(e))?)? }
-                   else { OverflowMode::Saturate };
+    let round = if args.len() >= 3 {
+        parse_round_mode(&args[2].to_str().map_err(|e| ScriptError::type_err(e))?)?
+    } else {
+        RoundMode::Floor
+    };
+    let overflow = if args.len() == 4 {
+        parse_overflow_mode(&args[3].to_str().map_err(|e| ScriptError::type_err(e))?)?
+    } else {
+        OverflowMode::Saturate
+    };
     let spec = QFmtSpec::new(word, frac, round, overflow).map_err(ScriptError::Dsp)?;
     Ok(Value::QFmt(spec))
 }
@@ -1411,20 +1608,24 @@ fn builtin_quantize(args: Vec<Value>) -> Result<Value, ScriptError> {
             let re: Vec<f64> = v.iter().map(|c| quantize_scalar(c.re, &spec)).collect();
             let im: Vec<f64> = v.iter().map(|c| quantize_scalar(c.im, &spec)).collect();
             Ok(Value::Vector(Array1::from_iter(
-                re.iter().zip(im.iter()).map(|(&r, &i)| Complex::new(r, i))
+                re.iter().zip(im.iter()).map(|(&r, &i)| Complex::new(r, i)),
             )))
         }
         Value::Matrix(m) => {
-            let rows = m.nrows(); let cols = m.ncols();
-            let data: Vec<_> = m.iter().map(|&c| Complex::new(
-                quantize_scalar(c.re, &spec),
-                quantize_scalar(c.im, &spec),
-            )).collect();
-            Ok(Value::Matrix(Array2::from_shape_vec((rows, cols), data)
-                .map_err(|e| ScriptError::runtime(e.to_string()))?))
+            let rows = m.nrows();
+            let cols = m.ncols();
+            let data: Vec<_> = m
+                .iter()
+                .map(|&c| Complex::new(quantize_scalar(c.re, &spec), quantize_scalar(c.im, &spec)))
+                .collect();
+            Ok(Value::Matrix(
+                Array2::from_shape_vec((rows, cols), data)
+                    .map_err(|e| ScriptError::runtime(e.to_string()))?,
+            ))
         }
         other => Err(ScriptError::type_err(format!(
-            "quantize: cannot quantize {}", other.type_name()
+            "quantize: cannot quantize {}",
+            other.type_name()
         ))),
     }
 }
@@ -1435,7 +1636,8 @@ fn to_real_vec(v: &Value, name: &str) -> Result<Vec<f64>, ScriptError> {
         Value::Scalar(n) => Ok(vec![*n]),
         Value::Vector(v) => Ok(v.iter().map(|c| c.re).collect()),
         other => Err(ScriptError::type_err(format!(
-            "{name}: expected real scalar or vector, got {}", other.type_name()
+            "{name}: expected real scalar or vector, got {}",
+            other.type_name()
         ))),
     }
 }
@@ -1443,38 +1645,44 @@ fn to_real_vec(v: &Value, name: &str) -> Result<Vec<f64>, ScriptError> {
 /// qadd(a, b, fmt)  — element-wise add then quantize to fmt.
 fn builtin_qadd(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("qadd", &args, 3)?;
-    let a    = to_real_vec(&args[0], "qadd")?;
-    let b    = to_real_vec(&args[1], "qadd")?;
+    let a = to_real_vec(&args[0], "qadd")?;
+    let b = to_real_vec(&args[1], "qadd")?;
     let spec = args[2].to_qfmt().map_err(|e| ScriptError::type_err(e))?;
-    let y    = fixed_qadd(&a, &b, &spec).map_err(ScriptError::Dsp)?;
-    Ok(cvector_to_value(Array1::from_iter(y.iter().map(|&v| Complex::new(v, 0.0)))))
+    let y = fixed_qadd(&a, &b, &spec).map_err(ScriptError::Dsp)?;
+    Ok(cvector_to_value(Array1::from_iter(
+        y.iter().map(|&v| Complex::new(v, 0.0)),
+    )))
 }
 
 /// qmul(a, b, fmt)  — element-wise multiply then quantize to fmt.
 fn builtin_qmul(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("qmul", &args, 3)?;
-    let a    = to_real_vec(&args[0], "qmul")?;
-    let b    = to_real_vec(&args[1], "qmul")?;
+    let a = to_real_vec(&args[0], "qmul")?;
+    let b = to_real_vec(&args[1], "qmul")?;
     let spec = args[2].to_qfmt().map_err(|e| ScriptError::type_err(e))?;
-    let y    = fixed_qmul(&a, &b, &spec).map_err(ScriptError::Dsp)?;
-    Ok(cvector_to_value(Array1::from_iter(y.iter().map(|&v| Complex::new(v, 0.0)))))
+    let y = fixed_qmul(&a, &b, &spec).map_err(ScriptError::Dsp)?;
+    Ok(cvector_to_value(Array1::from_iter(
+        y.iter().map(|&v| Complex::new(v, 0.0)),
+    )))
 }
 
 /// qconv(x, h, fmt)  — fixed-point FIR convolution, output quantized to fmt.
 fn builtin_qconv(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("qconv", &args, 3)?;
-    let x    = to_real_vec(&args[0], "qconv")?;
-    let h    = to_real_vec(&args[1], "qconv")?;
+    let x = to_real_vec(&args[0], "qconv")?;
+    let h = to_real_vec(&args[1], "qconv")?;
     let spec = args[2].to_qfmt().map_err(|e| ScriptError::type_err(e))?;
-    let y    = fixed_qconv(&x, &h, &spec);
-    Ok(cvector_to_value(Array1::from_iter(y.iter().map(|&v| Complex::new(v, 0.0)))))
+    let y = fixed_qconv(&x, &h, &spec);
+    Ok(cvector_to_value(Array1::from_iter(
+        y.iter().map(|&v| Complex::new(v, 0.0)),
+    )))
 }
 
 /// snr(x_ref, x_quantized)  — signal-to-noise ratio in dB.
 fn builtin_snr(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("snr", &args, 2)?;
     let x_ref = to_real_vec(&args[0], "snr")?;
-    let x_q   = to_real_vec(&args[1], "snr")?;
+    let x_q = to_real_vec(&args[1], "snr")?;
     let db = snr_db(&x_ref, &x_q).map_err(ScriptError::Dsp)?;
     Ok(Value::Scalar(db))
 }
@@ -1485,7 +1693,9 @@ fn builtin_print(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("print", &args, 0, 16)?;
     let mut out = String::new();
     for (i, v) in args.iter().enumerate() {
-        if i > 0 { out.push(' '); }
+        if i > 0 {
+            out.push(' ');
+        }
         out.push_str(&format!("{}", v));
     }
     super::output::script_println(&out);
@@ -1507,7 +1717,11 @@ struct PlotOpts {
 
 impl Default for PlotOpts {
     fn default() -> Self {
-        Self { color: None, label: None, style: LineStyle::Solid }
+        Self {
+            color: None,
+            label: None,
+            style: LineStyle::Solid,
+        }
     }
 }
 
@@ -1519,10 +1733,20 @@ fn parse_plot_opts(args: &[Value]) -> PlotOpts {
     while i + 1 < args.len() {
         if let (Ok(k), Ok(v)) = (args[i].to_str(), args[i + 1].to_str()) {
             match k.to_lowercase().as_str() {
-                "color" | "colour" => { opts.color = SeriesColor::parse(&v); i += 2; }
-                "label" => { opts.label = Some(v); i += 2; }
+                "color" | "colour" => {
+                    opts.color = SeriesColor::parse(&v);
+                    i += 2;
+                }
+                "label" => {
+                    opts.label = Some(v);
+                    i += 2;
+                }
                 "style" => {
-                    opts.style = if v.to_lowercase() == "dashed" { LineStyle::Dashed } else { LineStyle::Solid };
+                    opts.style = if v.to_lowercase() == "dashed" {
+                        LineStyle::Dashed
+                    } else {
+                        LineStyle::Solid
+                    };
                     i += 2;
                 }
                 _ => break,
@@ -1562,7 +1786,11 @@ fn builtin_plot(args: Vec<Value>) -> Result<Value, ScriptError> {
     let title = {
         let rem = &args[opts_start..];
         if rem.len() == 1 {
-            if let Ok(s) = rem[0].to_str() { s } else { String::new() }
+            if let Ok(s) = rem[0].to_str() {
+                s
+            } else {
+                String::new()
+            }
         } else {
             String::new()
         }
@@ -1579,9 +1807,20 @@ fn builtin_plot(args: Vec<Value>) -> Result<Value, ScriptError> {
             let ncols = m.ncols();
             for col in 0..ncols {
                 let y_data: Vec<f64> = m.column(col).iter().map(|c| c.re).collect();
-                let col_label = if label.is_empty() { format!("col{}", col + 1) } else { label.clone() };
+                let col_label = if label.is_empty() {
+                    format!("col{}", col + 1)
+                } else {
+                    label.clone()
+                };
                 let col_color = opts.color; // all columns same color if specified, else cycle
-                push_xy_line(x_data.clone(), y_data, &col_label, &title, col_color, opts.style.clone());
+                push_xy_line(
+                    x_data.clone(),
+                    y_data,
+                    &col_label,
+                    &title,
+                    col_color,
+                    opts.style.clone(),
+                );
             }
             render_figure_terminal().map_err(|e| ScriptError::runtime(e.to_string()))
         }
@@ -1593,16 +1832,24 @@ fn builtin_plot(args: Vec<Value>) -> Result<Value, ScriptError> {
             };
             if is_real_vector(v) {
                 let y_data: Vec<f64> = v.iter().map(|c| c.re).collect();
-                let lbl = if label.is_empty() { "value" } else { label.as_str() };
+                let lbl = if label.is_empty() {
+                    "value"
+                } else {
+                    label.as_str()
+                };
                 push_xy_line(x_data, y_data, lbl, &title, opts.color, opts.style);
                 render_figure_terminal().map_err(|e| ScriptError::runtime(e.to_string()))
             } else {
                 // Complex: push magnitude + real
                 FIGURE.with(|fig| {
                     let mut fig = fig.borrow_mut();
-                    if !fig.hold { fig.current_mut().series.clear(); }
+                    if !fig.hold {
+                        fig.current_mut().series.clear();
+                    }
                     let sp = fig.current_mut();
-                    if !title.is_empty() && sp.title.is_empty() { sp.title = title.clone(); }
+                    if !title.is_empty() && sp.title.is_empty() {
+                        sp.title = title.clone();
+                    }
                     let mag_color = opts.color.unwrap_or(SeriesColor::Blue);
                     sp.series.push(rustlab_plot::Series {
                         label: "magnitude".to_string(),
@@ -1630,7 +1877,10 @@ fn builtin_plot(args: Vec<Value>) -> Result<Value, ScriptError> {
             push_xy_line(x_data, y_data, "value", &title, opts.color, opts.style);
             render_figure_terminal().map_err(|e| ScriptError::runtime(e.to_string()))
         }
-        other => Err(ScriptError::type_err(format!("plot: cannot plot {}", other))),
+        other => Err(ScriptError::type_err(format!(
+            "plot: cannot plot {}",
+            other
+        ))),
     }?;
     sync_figure_outputs();
     Ok(Value::None)
@@ -1653,7 +1903,11 @@ fn builtin_stem(args: Vec<Value>) -> Result<Value, ScriptError> {
     let title = {
         let rem = &args[opts_start..];
         if rem.len() == 1 {
-            if let Ok(s) = rem[0].to_str() { s } else { String::new() }
+            if let Ok(s) = rem[0].to_str() {
+                s
+            } else {
+                String::new()
+            }
         } else {
             String::new()
         }
@@ -1672,7 +1926,12 @@ fn builtin_stem(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Scalar(n) => {
             push_xy_stem(vec![0.0], vec![*n], &label, &title, opts.color);
         }
-        other => return Err(ScriptError::type_err(format!("stem: cannot plot {}", other))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "stem: cannot plot {}",
+                other
+            )))
+        }
     }
     render_figure_terminal().map_err(|e| ScriptError::runtime(e.to_string()))?;
     sync_figure_outputs();
@@ -1710,8 +1969,7 @@ fn builtin_figure(args: Vec<Value>) -> Result<Value, ScriptError> {
         // Numeric arg → switch to existing figure (or create it)
         if let Value::Scalar(n) = &args[0] {
             let id = *n as u32;
-            rustlab_plot::figure_switch(id)
-                .map_err(|e| ScriptError::runtime(e.to_string()))?;
+            rustlab_plot::figure_switch(id).map_err(|e| ScriptError::runtime(e.to_string()))?;
             return Ok(Value::Scalar(id as f64));
         }
         // String arg → new HTML figure
@@ -1748,13 +2006,18 @@ fn builtin_hold(args: Vec<Value>) -> Result<Value, ScriptError> {
 fn builtin_hline(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.is_empty() || args.len() > 3 {
         return Err(ScriptError::type_err(
-            "hline: expected hline(y), hline(y, color), or hline(y, color, label)".to_string()
+            "hline: expected hline(y), hline(y, color), or hline(y, color, label)".to_string(),
         ));
     }
     let y_vals: Vec<f64> = match &args[0] {
         Value::Scalar(n) => vec![*n],
         Value::Vector(v) => v.iter().map(|c| c.re).collect(),
-        other => return Err(ScriptError::type_err(format!("hline: expected scalar or vector, got {}", other))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "hline: expected scalar or vector, got {}",
+                other
+            )))
+        }
     };
     let color = if args.len() >= 2 {
         let s = args[1].to_str().map_err(|e| ScriptError::type_err(e))?;
@@ -1778,8 +2041,12 @@ fn builtin_hline(args: Vec<Value>) -> Result<Value, ScriptError> {
             let mut hi = f64::NEG_INFINITY;
             for s in &sp.series {
                 for &x in &s.x_data {
-                    if x < lo { lo = x; }
-                    if x > hi { hi = x; }
+                    if x < lo {
+                        lo = x;
+                    }
+                    if x > hi {
+                        hi = x;
+                    }
                 }
             }
             let margin = (hi - lo).abs() * 0.1;
@@ -1788,7 +2055,10 @@ fn builtin_hline(args: Vec<Value>) -> Result<Value, ScriptError> {
     });
     FIGURE.with(|fig| {
         let mut fig = fig.borrow_mut();
-        if !fig.hold { fig.current_mut().series.clear(); fig.current_mut().title.clear(); }
+        if !fig.hold {
+            fig.current_mut().series.clear();
+            fig.current_mut().title.clear();
+        }
         for &y in &y_vals {
             let c = color.unwrap_or_else(|| fig.next_color());
             let lbl = if label.is_empty() {
@@ -1859,7 +2129,11 @@ fn builtin_xlim(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("xlim", &args, 1)?;
     let v = match &args[0] {
         Value::Vector(v) if v.len() >= 2 => v.clone(),
-        _ => return Err(ScriptError::type_err("xlim: expected [lo, hi] vector".to_string())),
+        _ => {
+            return Err(ScriptError::type_err(
+                "xlim: expected [lo, hi] vector".to_string(),
+            ))
+        }
     };
     FIGURE.with(|fig| fig.borrow_mut().current_mut().xlim = (Some(v[0].re), Some(v[1].re)));
     sync_figure_outputs();
@@ -1871,7 +2145,11 @@ fn builtin_ylim(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("ylim", &args, 1)?;
     let v = match &args[0] {
         Value::Vector(v) if v.len() >= 2 => v.clone(),
-        _ => return Err(ScriptError::type_err("ylim: expected [lo, hi] vector".to_string())),
+        _ => {
+            return Err(ScriptError::type_err(
+                "ylim: expected [lo, hi] vector".to_string(),
+            ))
+        }
     };
     FIGURE.with(|fig| fig.borrow_mut().current_mut().ylim = (Some(v[0].re), Some(v[1].re)));
     sync_figure_outputs();
@@ -1883,7 +2161,7 @@ fn builtin_subplot(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("subplot", &args, 3)?;
     let rows = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
     let cols = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
-    let idx  = args[2].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    let idx = args[2].to_usize().map_err(|e| ScriptError::type_err(e))?;
     FIGURE.with(|fig| fig.borrow_mut().set_subplot(rows, cols, idx));
     sync_figure_outputs();
     Ok(Value::None)
@@ -1894,7 +2172,8 @@ fn builtin_legend(args: Vec<Value>) -> Result<Value, ScriptError> {
     // legend() — enable legend using series labels already set via plot(..., "label", "name")
     // legend("l1", "l2", ...) — override series labels in order
     if !args.is_empty() {
-        let labels: Vec<String> = args.iter()
+        let labels: Vec<String> = args
+            .iter()
             .map(|a| a.to_str().unwrap_or_default())
             .collect();
         FIGURE.with(|fig| {
@@ -1926,10 +2205,14 @@ fn builtin_imagesc(args: Vec<Value>) -> Result<Value, ScriptError> {
             let n = v.len();
             ndarray::Array2::from_shape_fn((n, 1), |(i, _)| v[i])
         }
-        other => return Err(ScriptError::type_err(format!("imagesc: expected matrix, got {}", other))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "imagesc: expected matrix, got {}",
+                other
+            )))
+        }
     };
-    imagesc_terminal(&matrix, "", &colormap)
-        .map_err(|e| ScriptError::runtime(e.to_string()))?;
+    imagesc_terminal(&matrix, "", &colormap).map_err(|e| ScriptError::runtime(e.to_string()))?;
     sync_figure_outputs();
     Ok(Value::None)
 }
@@ -1940,11 +2223,11 @@ fn extract_freq_response(val: &Value) -> Result<(rustlab_core::RVector, CVector)
         Value::Matrix(m) => {
             if m.nrows() < 2 {
                 return Err(ScriptError::type_err(
-                    "plotdb: expected a 2×n matrix from freqz".to_string()
+                    "plotdb: expected a 2×n matrix from freqz".to_string(),
                 ));
             }
             let freqs = ndarray::Array1::from_iter(m.row(0).iter().map(|c| c.re));
-            let h     = ndarray::Array1::from_iter(m.row(1).iter().copied());
+            let h = ndarray::Array1::from_iter(m.row(1).iter().copied());
             Ok((freqs, h))
         }
         other => Err(ScriptError::type_err(format!(
@@ -1957,15 +2240,18 @@ fn extract_freq_response(val: &Value) -> Result<(rustlab_core::RVector, CVector)
 /// Coerce a Value to CMatrix: Matrix passes through, Scalar becomes 1×1, Vector becomes n×1.
 fn to_cmatrix_arg(val: &Value, fn_name: &str, arg_name: &str) -> Result<CMatrix, ScriptError> {
     match val {
-        Value::Matrix(m)  => Ok(m.clone()),
-        Value::Scalar(n)  => Ok(Array2::from_elem((1, 1), Complex::new(*n, 0.0))),
+        Value::Matrix(m) => Ok(m.clone()),
+        Value::Scalar(n) => Ok(Array2::from_elem((1, 1), Complex::new(*n, 0.0))),
         Value::Complex(c) => Ok(Array2::from_elem((1, 1), *c)),
-        Value::Vector(v)  => {
+        Value::Vector(v) => {
             let m = Array2::from_shape_fn((v.len(), 1), |(i, _)| v[i]);
             Ok(m)
         }
         other => Err(ScriptError::type_err(format!(
-            "{}: {} must be a matrix or vector, got {}", fn_name, arg_name, other.type_name()
+            "{}: {} must be a matrix or vector, got {}",
+            fn_name,
+            arg_name,
+            other.type_name()
         ))),
     }
 }
@@ -1977,7 +2263,9 @@ fn to_real_vector(val: &Value) -> Result<rustlab_core::RVector, ScriptError> {
         Value::Matrix(m) if m.ncols() == 1 => {
             Ok(ndarray::Array1::from_iter(m.column(0).iter().map(|c| c.re)))
         }
-        other => Err(ScriptError::type_err(format!("cannot plot value of type {other}"))),
+        other => Err(ScriptError::type_err(format!(
+            "cannot plot value of type {other}"
+        ))),
     }
 }
 
@@ -2002,10 +2290,10 @@ fn flatten_column_matrix_args(args: &mut [Value]) {
 /// Flatten a Value into (data, shape) for NPY serialisation.
 fn value_to_c64_array(val: &Value) -> Result<(Vec<Complex<f64>>, Vec<usize>), String> {
     match val {
-        Value::Scalar(n)  => Ok((vec![Complex::new(*n, 0.0)], vec![1])),
+        Value::Scalar(n) => Ok((vec![Complex::new(*n, 0.0)], vec![1])),
         Value::Complex(c) => Ok((vec![*c], vec![1])),
-        Value::Vector(v)  => Ok((v.iter().copied().collect(), vec![v.len()])),
-        Value::Matrix(m)  => {
+        Value::Vector(v) => Ok((v.iter().copied().collect(), vec![v.len()])),
+        Value::Matrix(m) => {
             // ndarray Array2 is row-major (C order) — iter() gives row-major order
             let data: Vec<Complex<f64>> = m.iter().copied().collect();
             Ok((data, vec![m.nrows(), m.ncols()]))
@@ -2020,22 +2308,20 @@ fn build_npy_bytes(data: &[Complex<f64>], shape: &[usize]) -> Vec<u8> {
     let descr = if real_only { "<f8" } else { "<c16" };
 
     let shape_str = match shape {
-        [n]       => format!("({n},)"),
-        [r, c]    => format!("({r}, {c})"),
-        other     => {
+        [n] => format!("({n},)"),
+        [r, c] => format!("({r}, {c})"),
+        other => {
             let parts: Vec<String> = other.iter().map(|d| d.to_string()).collect();
             format!("({})", parts.join(", "))
         }
     };
-    let raw = format!(
-        "{{'descr': '{descr}', 'fortran_order': False, 'shape': {shape_str}, }}"
-    );
+    let raw = format!("{{'descr': '{descr}', 'fortran_order': False, 'shape': {shape_str}, }}");
 
     // Total = 10 (prefix) + header_len; must be divisible by 64.
     let needed = 10 + raw.len() + 1; // +1 for the trailing '\n'
     let padded = ((needed + 63) / 64) * 64;
     let header = format!("{}{}\n", raw, " ".repeat(padded - needed));
-    let hlen   = header.len() as u16;
+    let hlen = header.len() as u16;
 
     let mut out = Vec::with_capacity(padded + data.len() * if real_only { 8 } else { 16 });
     out.extend_from_slice(b"\x93NUMPY");
@@ -2044,7 +2330,9 @@ fn build_npy_bytes(data: &[Complex<f64>], shape: &[usize]) -> Vec<u8> {
     out.extend_from_slice(&hlen.to_le_bytes());
     out.extend_from_slice(header.as_bytes());
     if real_only {
-        for c in data { out.extend_from_slice(&c.re.to_le_bytes()); }
+        for c in data {
+            out.extend_from_slice(&c.re.to_le_bytes());
+        }
     } else {
         for c in data {
             out.extend_from_slice(&c.re.to_le_bytes());
@@ -2056,19 +2344,31 @@ fn build_npy_bytes(data: &[Complex<f64>], shape: &[usize]) -> Vec<u8> {
 
 /// Parse the shape tuple from an NPY header string.
 fn parse_npy_shape(header: &str) -> Result<Vec<usize>, String> {
-    let key = header.find("'shape':")
+    let key = header
+        .find("'shape':")
         .or_else(|| header.find("\"shape\":"))
         .ok_or_else(|| "NPY header missing 'shape' field".to_string())?;
     let after = &header[key..];
-    let open  = after.find('(').ok_or_else(|| "NPY header: bad shape (no '(')".to_string())?;
-    let close = after.find(')').ok_or_else(|| "NPY header: bad shape (no ')')".to_string())?;
+    let open = after
+        .find('(')
+        .ok_or_else(|| "NPY header: bad shape (no '(')".to_string())?;
+    let close = after
+        .find(')')
+        .ok_or_else(|| "NPY header: bad shape (no ')')".to_string())?;
     let inner = after[open + 1..close].trim();
     if inner.is_empty() {
         return Ok(vec![]); // 0-d array
     }
     inner
         .split(',')
-        .filter_map(|s| { let t = s.trim(); if t.is_empty() { None } else { Some(t.parse::<usize>()) } })
+        .filter_map(|s| {
+            let t = s.trim();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.parse::<usize>())
+            }
+        })
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("NPY shape parse error: {e}"))
 }
@@ -2078,12 +2378,16 @@ fn array_to_value(values: Vec<Complex<f64>>, shape: &[usize]) -> Result<Value, S
     match shape {
         [] | [1] => {
             let c = *values.first().ok_or("NPY: empty array")?;
-            if c.im.abs() < 1e-12 { Ok(Value::Scalar(c.re)) } else { Ok(Value::Complex(c)) }
+            if c.im.abs() < 1e-12 {
+                Ok(Value::Scalar(c.re))
+            } else {
+                Ok(Value::Complex(c))
+            }
         }
         [_n] => Ok(Value::Vector(Array1::from_vec(values))),
         [nrows, ncols] => {
-            let mat = Array2::from_shape_vec((*nrows, *ncols), values)
-                .map_err(|e| e.to_string())?;
+            let mat =
+                Array2::from_shape_vec((*nrows, *ncols), values).map_err(|e| e.to_string())?;
             Ok(Value::Matrix(mat))
         }
         other => Err(format!("NPY: unsupported shape rank {}", other.len())),
@@ -2095,35 +2399,39 @@ fn parse_npy_bytes(bytes: &[u8]) -> Result<Value, String> {
     if bytes.len() < 10 || &bytes[0..6] != b"\x93NUMPY" {
         return Err("not a valid NPY file".to_string());
     }
-    let hlen  = u16::from_le_bytes([bytes[8], bytes[9]]) as usize;
-    let hend  = 10 + hlen;
+    let hlen = u16::from_le_bytes([bytes[8], bytes[9]]) as usize;
+    let hend = 10 + hlen;
     if bytes.len() < hend {
         return Err("NPY file truncated in header".to_string());
     }
     let header = std::str::from_utf8(&bytes[10..hend]).map_err(|e| e.to_string())?;
     let is_c16 = header.contains("<c16") || header.contains(">c16");
-    let is_f8  = header.contains("<f8")  || header.contains(">f8");
-    let shape  = parse_npy_shape(header)?;
-    let data   = &bytes[hend..];
+    let is_f8 = header.contains("<f8") || header.contains(">f8");
+    let shape = parse_npy_shape(header)?;
+    let data = &bytes[hend..];
 
     if is_c16 {
         if data.len() % 16 != 0 {
             return Err("NPY complex128: data length is not a multiple of 16".to_string());
         }
-        let values: Vec<Complex<f64>> = (0..data.len() / 16).map(|i| {
-            let re = f64::from_le_bytes(data[i*16     ..i*16 +  8].try_into().unwrap());
-            let im = f64::from_le_bytes(data[i*16 + 8 ..i*16 + 16].try_into().unwrap());
-            Complex::new(re, im)
-        }).collect();
+        let values: Vec<Complex<f64>> = (0..data.len() / 16)
+            .map(|i| {
+                let re = f64::from_le_bytes(data[i * 16..i * 16 + 8].try_into().unwrap());
+                let im = f64::from_le_bytes(data[i * 16 + 8..i * 16 + 16].try_into().unwrap());
+                Complex::new(re, im)
+            })
+            .collect();
         array_to_value(values, &shape)
     } else if is_f8 {
         if data.len() % 8 != 0 {
             return Err("NPY float64: data length is not a multiple of 8".to_string());
         }
-        let values: Vec<Complex<f64>> = (0..data.len() / 8).map(|i| {
-            let f = f64::from_le_bytes(data[i*8..i*8+8].try_into().unwrap());
-            Complex::new(f, 0.0)
-        }).collect();
+        let values: Vec<Complex<f64>> = (0..data.len() / 8)
+            .map(|i| {
+                let f = f64::from_le_bytes(data[i * 8..i * 8 + 8].try_into().unwrap());
+                Complex::new(f, 0.0)
+            })
+            .collect();
         array_to_value(values, &shape)
     } else {
         Err(format!(
@@ -2150,30 +2458,38 @@ fn parse_csv_cell(s: &str) -> Result<Complex<f64>, String> {
     let s = s.trim();
     // No imaginary suffix → plain real
     if !s.ends_with('i') && !s.ends_with('j') {
-        return s.parse::<f64>()
+        return s
+            .parse::<f64>()
             .map(|f| Complex::new(f, 0.0))
             .map_err(|_| format!("cannot parse '{}' as a number", s));
     }
     // Strip 'i'/'j' suffix and find the split between re and im parts.
-    let body  = &s[..s.len() - 1];
+    let body = &s[..s.len() - 1];
     let bytes = body.as_bytes();
     // Scan right-to-left for + or - that is not the very first character
-    let split = (1..bytes.len()).rev().find(|&i| bytes[i] == b'+' || bytes[i] == b'-');
+    let split = (1..bytes.len())
+        .rev()
+        .find(|&i| bytes[i] == b'+' || bytes[i] == b'-');
     if let Some(i) = split {
-        let re: f64 = body[..i].parse()
+        let re: f64 = body[..i]
+            .parse()
             .map_err(|_| format!("invalid real part in '{}'", s))?;
         let im: f64 = match &body[i..] {
             "+" => 1.0,
             "-" => -1.0,
-            t   => t.parse().map_err(|_| format!("invalid imaginary part in '{}'", s))?,
+            t => t
+                .parse()
+                .map_err(|_| format!("invalid imaginary part in '{}'", s))?,
         };
         Ok(Complex::new(re, im))
     } else {
         // Pure imaginary: body is e.g. "2.5" or "-2.5"
         let im: f64 = match body {
             "" | "+" => 1.0,
-            "-"      => -1.0,
-            t        => t.parse().map_err(|_| format!("cannot parse imaginary '{}' in '{}'", t, s))?,
+            "-" => -1.0,
+            t => t
+                .parse()
+                .map_err(|_| format!("cannot parse imaginary '{}' in '{}'", t, s))?,
         };
         Ok(Complex::new(0.0, im))
     }
@@ -2184,17 +2500,19 @@ fn write_csv(path: &str, val: &Value) -> Result<(), String> {
     let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
     let mut w = std::io::BufWriter::new(file);
     match val {
-        Value::Scalar(n)  => writeln!(w, "{n}").map_err(|e| e.to_string())?,
+        Value::Scalar(n) => writeln!(w, "{n}").map_err(|e| e.to_string())?,
         Value::Complex(c) => writeln!(w, "{}", fmt_csv_cell(*c)).map_err(|e| e.to_string())?,
-        Value::Vector(v)  => {
+        Value::Vector(v) => {
             for c in v.iter() {
                 writeln!(w, "{}", fmt_csv_cell(*c)).map_err(|e| e.to_string())?;
             }
         }
-        Value::Matrix(m)  => {
+        Value::Matrix(m) => {
             for r in 0..m.nrows() {
                 for ci in 0..m.ncols() {
-                    if ci > 0 { write!(w, ",").map_err(|e| e.to_string())?; }
+                    if ci > 0 {
+                        write!(w, ",").map_err(|e| e.to_string())?;
+                    }
                     write!(w, "{}", fmt_csv_cell(m[[r, ci]])).map_err(|e| e.to_string())?;
                 }
                 writeln!(w).map_err(|e| e.to_string())?;
@@ -2223,15 +2541,23 @@ fn load_csv(path: &str) -> Result<Value, String> {
     match (rows.len(), ncols) {
         (1, 1) => {
             let c = rows[0][0];
-            if c.im.abs() < 1e-12 { Ok(Value::Scalar(c.re)) } else { Ok(Value::Complex(c)) }
+            if c.im.abs() < 1e-12 {
+                Ok(Value::Scalar(c.re))
+            } else {
+                Ok(Value::Complex(c))
+            }
         }
         (_, 1) => {
             // Column vector
-            Ok(Value::Vector(Array1::from_vec(rows.into_iter().map(|r| r[0]).collect())))
+            Ok(Value::Vector(Array1::from_vec(
+                rows.into_iter().map(|r| r[0]).collect(),
+            )))
         }
         (1, _) => {
             // Row vector
-            Ok(Value::Vector(Array1::from_vec(rows.into_iter().next().unwrap())))
+            Ok(Value::Vector(Array1::from_vec(
+                rows.into_iter().next().unwrap(),
+            )))
         }
         (nrows, ncols) => {
             let flat: Vec<Complex<f64>> = rows.into_iter().flatten().collect();
@@ -2244,19 +2570,19 @@ fn load_csv(path: &str) -> Result<Value, String> {
 // ── NPZ helpers ────────────────────────────────────────────────────────────
 
 fn save_npz(path: &str, pairs: &[Value]) -> Result<(), String> {
-    use zip::write::{ZipWriter, SimpleFileOptions};
     use std::io::Write;
+    use zip::write::{SimpleFileOptions, ZipWriter};
 
     let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
     let mut zip = ZipWriter::new(file);
-    let opts = SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Stored);
+    let opts = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
 
     for chunk in pairs.chunks(2) {
         let name = chunk[0].to_str().map_err(|e| format!("save NPZ: {e}"))?;
         let (data, shape) = value_to_c64_array(&chunk[1])?;
         let npy = build_npy_bytes(&data, &shape);
-        zip.start_file(format!("{name}.npy"), opts).map_err(|e| e.to_string())?;
+        zip.start_file(format!("{name}.npy"), opts)
+            .map_err(|e| e.to_string())?;
         zip.write_all(&npy).map_err(|e| e.to_string())?;
     }
     zip.finish().map_err(|e| e.to_string())?;
@@ -2265,8 +2591,8 @@ fn save_npz(path: &str, pairs: &[Value]) -> Result<(), String> {
 
 /// Load all variables from an NPZ file. Returns (var_name, value) pairs in zip order.
 pub fn load_all_from_npz(path: &str) -> Result<Vec<(String, Value)>, String> {
-    use zip::ZipArchive;
     use std::io::Read;
+    use zip::ZipArchive;
 
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut zip = ZipArchive::new(file).map_err(|e| e.to_string())?;
@@ -2274,7 +2600,10 @@ pub fn load_all_from_npz(path: &str) -> Result<Vec<(String, Value)>, String> {
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
         let entry_name = entry.name().to_string();
-        let var_name = entry_name.strip_suffix(".npy").unwrap_or(&entry_name).to_string();
+        let var_name = entry_name
+            .strip_suffix(".npy")
+            .unwrap_or(&entry_name)
+            .to_string();
         let mut buf = Vec::new();
         entry.read_to_end(&mut buf).map_err(|e| e.to_string())?;
         result.push((var_name, parse_npy_bytes(&buf)?));
@@ -2283,13 +2612,14 @@ pub fn load_all_from_npz(path: &str) -> Result<Vec<(String, Value)>, String> {
 }
 
 fn load_from_npz(path: &str, name: &str) -> Result<Value, String> {
-    use zip::ZipArchive;
     use std::io::Read;
+    use zip::ZipArchive;
 
-    let file  = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut zip = ZipArchive::new(file).map_err(|e| e.to_string())?;
     let entry_name = format!("{name}.npy");
-    let mut entry = zip.by_name(&entry_name)
+    let mut entry = zip
+        .by_name(&entry_name)
         .map_err(|_| format!("'{}' not found in {}", name, path))?;
     let mut buf = Vec::new();
     entry.read_to_end(&mut buf).map_err(|e| e.to_string())?;
@@ -2310,24 +2640,30 @@ fn builtin_save(args: Vec<Value>) -> Result<Value, ScriptError> {
         let pairs = &args[1..];
         if pairs.is_empty() || pairs.len() % 2 != 0 {
             return Err(ScriptError::type_err(
-                "save: NPZ requires alternating name/value pairs after the filename".to_string()
+                "save: NPZ requires alternating name/value pairs after the filename".to_string(),
             ));
         }
         save_npz(&path, pairs).map_err(|e| ScriptError::runtime(e))?;
     } else if path.ends_with(".toml") {
         if args.len() != 2 {
-            return Err(ScriptError::type_err("save: TOML format takes exactly one value (struct)".to_string()));
+            return Err(ScriptError::type_err(
+                "save: TOML format takes exactly one value (struct)".to_string(),
+            ));
         }
         super::toml_io::save_toml(&path, &args[1]).map_err(|e| ScriptError::runtime(e))?;
     } else if path.ends_with(".csv") {
         if args.len() != 2 {
-            return Err(ScriptError::type_err("save: CSV format takes exactly one value".to_string()));
+            return Err(ScriptError::type_err(
+                "save: CSV format takes exactly one value".to_string(),
+            ));
         }
         write_csv(&path, &args[1]).map_err(|e| ScriptError::runtime(e))?;
     } else {
         // .npy (or any other extension — default to NPY)
         if args.len() != 2 {
-            return Err(ScriptError::type_err("save: NPY format takes exactly one value".to_string()));
+            return Err(ScriptError::type_err(
+                "save: NPY format takes exactly one value".to_string(),
+            ));
         }
         let (data, shape) = value_to_c64_array(&args[1]).map_err(|e| ScriptError::runtime(e))?;
         let bytes = build_npy_bytes(&data, &shape);
@@ -2378,7 +2714,9 @@ fn builtin_eye(args: Vec<Value>) -> Result<Value, ScriptError> {
 fn builtin_transpose(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("transpose", &args, 1)?;
     // For sparse matrices, use non-conjugate transpose directly
-    args.into_iter().next().unwrap()
+    args.into_iter()
+        .next()
+        .unwrap()
         .non_conj_transpose()
         .map_err(|e| ScriptError::type_err(e))
 }
@@ -2390,7 +2728,9 @@ fn builtin_diag(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("diag", &args, 1, 2)?;
     let k: i64 = if args.len() == 2 {
         args[1].to_scalar().map_err(|e| ScriptError::type_err(e))? as i64
-    } else { 0 };
+    } else {
+        0
+    };
 
     match &args[0] {
         Value::Vector(v) => {
@@ -2399,7 +2739,11 @@ fn builtin_diag(args: Vec<Value>) -> Result<Value, ScriptError> {
             let size = n + k.unsigned_abs() as usize;
             let mut m: CMatrix = Array2::zeros((size, size));
             for (i, &val) in v.iter().enumerate() {
-                let (r, c) = if k >= 0 { (i, i + k as usize) } else { (i + (-k) as usize, i) };
+                let (r, c) = if k >= 0 {
+                    (i, i + k as usize)
+                } else {
+                    (i + (-k) as usize, i)
+                };
                 m[[r, c]] = val;
             }
             Ok(Value::Matrix(m))
@@ -2414,12 +2758,19 @@ fn builtin_diag(args: Vec<Value>) -> Result<Value, ScriptError> {
                 (nrows + k).max(0).min(ncols) as usize
             };
             let diag: CVector = Array1::from_iter((0..len).map(|i| {
-                let (r, c) = if k >= 0 { (i, i + k as usize) } else { (i + (-k) as usize, i) };
+                let (r, c) = if k >= 0 {
+                    (i, i + k as usize)
+                } else {
+                    (i + (-k) as usize, i)
+                };
                 m[[r, c]]
             }));
             Ok(Value::Vector(diag))
         }
-        other => Err(ScriptError::type_err(format!("diag: expected vector or matrix, got {}", other.type_name()))),
+        other => Err(ScriptError::type_err(format!(
+            "diag: expected vector or matrix, got {}",
+            other.type_name()
+        ))),
     }
 }
 
@@ -2430,10 +2781,17 @@ fn builtin_trace(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Matrix(m) => {
             let n = m.nrows().min(m.ncols());
             let t: C64 = (0..n).map(|i| m[[i, i]]).sum();
-            if t.im.abs() < 1e-12 { Ok(Value::Scalar(t.re)) } else { Ok(Value::Complex(t)) }
+            if t.im.abs() < 1e-12 {
+                Ok(Value::Scalar(t.re))
+            } else {
+                Ok(Value::Complex(t))
+            }
         }
         Value::Scalar(n) => Ok(Value::Scalar(*n)),
-        other => Err(ScriptError::type_err(format!("trace: expected matrix, got {}", other.type_name()))),
+        other => Err(ScriptError::type_err(format!(
+            "trace: expected matrix, got {}",
+            other.type_name()
+        ))),
     }
 }
 
@@ -2446,16 +2804,26 @@ fn builtin_reshape(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Vector(v) => v.iter().copied().collect(),
         Value::Matrix(mat) => {
             // column-major order (standard for matrix languages): collect column by column
-            (0..mat.ncols()).flat_map(|c| (0..mat.nrows()).map(move |r| mat[[r, c]])).collect()
+            (0..mat.ncols())
+                .flat_map(|c| (0..mat.nrows()).map(move |r| mat[[r, c]]))
+                .collect()
         }
         Value::Scalar(s) => vec![Complex::new(*s, 0.0)],
         Value::Complex(c) => vec![*c],
-        other => return Err(ScriptError::type_err(format!("reshape: cannot reshape {}", other.type_name()))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "reshape: cannot reshape {}",
+                other.type_name()
+            )))
+        }
     };
     if flat.len() != m * n {
         return Err(ScriptError::type_err(format!(
             "reshape: cannot reshape {} elements into {}×{} (= {} elements)",
-            flat.len(), m, n, m * n
+            flat.len(),
+            m,
+            n,
+            m * n
         )));
     }
     if m == 1 || n == 1 {
@@ -2483,11 +2851,17 @@ fn builtin_repmat(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Vector(v) => {
             let n = v.len();
             let data: Vec<C64> = v.iter().copied().collect();
-            Array2::from_shape_vec((1, n), data).map_err(|e| ScriptError::type_err(e.to_string()))?
+            Array2::from_shape_vec((1, n), data)
+                .map_err(|e| ScriptError::type_err(e.to_string()))?
         }
         Value::Scalar(s) => Array2::from_elem((1, 1), Complex::new(*s, 0.0)),
         Value::Complex(c) => Array2::from_elem((1, 1), *c),
-        other => return Err(ScriptError::type_err(format!("repmat: cannot tile {}", other.type_name()))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "repmat: cannot tile {}",
+                other.type_name()
+            )))
+        }
     };
     let br = block.nrows();
     let bc = block.ncols();
@@ -2535,7 +2909,8 @@ fn builtin_dot(args: Vec<Value>) -> Result<Value, ScriptError> {
         (Value::SparseVector(a), Value::SparseVector(b)) => {
             if a.len != b.len {
                 return Err(ScriptError::type_err(format!(
-                    "dot: vectors must have the same length ({} vs {})", a.len, b.len
+                    "dot: vectors must have the same length ({} vs {})",
+                    a.len, b.len
                 )));
             }
             a.dot(b)
@@ -2544,7 +2919,9 @@ fn builtin_dot(args: Vec<Value>) -> Result<Value, ScriptError> {
             let dv = args[1].to_cvector().map_err(|e| ScriptError::type_err(e))?;
             if sv.len != dv.len() {
                 return Err(ScriptError::type_err(format!(
-                    "dot: vectors must have the same length ({} vs {})", sv.len, dv.len()
+                    "dot: vectors must have the same length ({} vs {})",
+                    sv.len,
+                    dv.len()
                 )));
             }
             sv.dot_dense(&dv)
@@ -2553,7 +2930,9 @@ fn builtin_dot(args: Vec<Value>) -> Result<Value, ScriptError> {
             let dv = args[0].to_cvector().map_err(|e| ScriptError::type_err(e))?;
             if dv.len() != sv.len {
                 return Err(ScriptError::type_err(format!(
-                    "dot: vectors must have the same length ({} vs {})", dv.len(), sv.len
+                    "dot: vectors must have the same length ({} vs {})",
+                    dv.len(),
+                    sv.len
                 )));
             }
             sv.dot_dense(&dv)
@@ -2563,13 +2942,19 @@ fn builtin_dot(args: Vec<Value>) -> Result<Value, ScriptError> {
             let v = args[1].to_cvector().map_err(|e| ScriptError::type_err(e))?;
             if u.len() != v.len() {
                 return Err(ScriptError::type_err(format!(
-                    "dot: vectors must have the same length ({} vs {})", u.len(), v.len()
+                    "dot: vectors must have the same length ({} vs {})",
+                    u.len(),
+                    v.len()
                 )));
             }
             u.iter().zip(v.iter()).map(|(&a, &b)| a * b).sum()
         }
     };
-    if result.im.abs() < 1e-12 { Ok(Value::Scalar(result.re)) } else { Ok(Value::Complex(result)) }
+    if result.im.abs() < 1e-12 {
+        Ok(Value::Scalar(result.re))
+    } else {
+        Ok(Value::Complex(result))
+    }
 }
 
 /// cross(u, v) — 3D cross product
@@ -2579,7 +2964,9 @@ fn builtin_cross(args: Vec<Value>) -> Result<Value, ScriptError> {
     let v = args[1].to_cvector().map_err(|e| ScriptError::type_err(e))?;
     if u.len() != 3 || v.len() != 3 {
         return Err(ScriptError::type_err(format!(
-            "cross: both vectors must have length 3 (got {} and {})", u.len(), v.len()
+            "cross: both vectors must have length 3 (got {} and {})",
+            u.len(),
+            v.len()
         )));
     }
     let result = Array1::from_vec(vec![
@@ -2594,8 +2981,12 @@ fn builtin_cross(args: Vec<Value>) -> Result<Value, ScriptError> {
 /// outer(a, b)[i, j] = a[i] * b[j]
 fn builtin_outer(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("outer", &args, 2)?;
-    let a = args[0].to_cvector().map_err(|e| ScriptError::type_err(format!("outer: a: {}", e)))?;
-    let b = args[1].to_cvector().map_err(|e| ScriptError::type_err(format!("outer: b: {}", e)))?;
+    let a = args[0]
+        .to_cvector()
+        .map_err(|e| ScriptError::type_err(format!("outer: a: {}", e)))?;
+    let b = args[1]
+        .to_cvector()
+        .map_err(|e| ScriptError::type_err(format!("outer: b: {}", e)))?;
     let m = Array2::from_shape_fn((a.len(), b.len()), |(i, j)| a[i] * b[j]);
     Ok(Value::Matrix(m))
 }
@@ -2621,7 +3012,11 @@ fn builtin_norm(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("norm", &args, 1, 2)?;
     match &args[0] {
         Value::Vector(v) => {
-            let p: f64 = if args.len() == 2 { args[1].to_scalar().map_err(|e| ScriptError::type_err(e))? } else { 2.0 };
+            let p: f64 = if args.len() == 2 {
+                args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?
+            } else {
+                2.0
+            };
             let n = if p == 1.0 {
                 v.iter().map(|c| c.norm()).sum::<f64>()
             } else if p == 2.0 {
@@ -2629,7 +3024,10 @@ fn builtin_norm(args: Vec<Value>) -> Result<Value, ScriptError> {
             } else if p == f64::INFINITY {
                 v.iter().map(|c| c.norm()).fold(0.0_f64, f64::max)
             } else {
-                v.iter().map(|c| c.norm().powf(p)).sum::<f64>().powf(1.0 / p)
+                v.iter()
+                    .map(|c| c.norm().powf(p))
+                    .sum::<f64>()
+                    .powf(1.0 / p)
             };
             Ok(Value::Scalar(n))
         }
@@ -2641,37 +3039,68 @@ fn builtin_norm(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Scalar(n) => Ok(Value::Scalar(n.abs())),
         Value::Complex(c) => Ok(Value::Scalar(c.norm())),
         Value::SparseVector(sv) => {
-            let p: f64 = if args.len() == 2 { args[1].to_scalar().map_err(|e| ScriptError::type_err(e))? } else { 2.0 };
+            let p: f64 = if args.len() == 2 {
+                args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?
+            } else {
+                2.0
+            };
             let n = if p == 1.0 {
                 sv.entries.iter().map(|(_, c)| c.norm()).sum::<f64>()
             } else if p == 2.0 {
-                sv.entries.iter().map(|(_, c)| c.norm_sqr()).sum::<f64>().sqrt()
+                sv.entries
+                    .iter()
+                    .map(|(_, c)| c.norm_sqr())
+                    .sum::<f64>()
+                    .sqrt()
             } else if p == f64::INFINITY {
-                sv.entries.iter().map(|(_, c)| c.norm()).fold(0.0_f64, f64::max)
+                sv.entries
+                    .iter()
+                    .map(|(_, c)| c.norm())
+                    .fold(0.0_f64, f64::max)
             } else {
-                sv.entries.iter().map(|(_, c)| c.norm().powf(p)).sum::<f64>().powf(1.0 / p)
+                sv.entries
+                    .iter()
+                    .map(|(_, c)| c.norm().powf(p))
+                    .sum::<f64>()
+                    .powf(1.0 / p)
             };
             Ok(Value::Scalar(n))
         }
         Value::SparseMatrix(sm) => {
-            let p: f64 = if args.len() == 2 { args[1].to_scalar().map_err(|e| ScriptError::type_err(e))? } else { 2.0 };
+            let p: f64 = if args.len() == 2 {
+                args[1].to_scalar().map_err(|e| ScriptError::type_err(e))?
+            } else {
+                2.0
+            };
             if p == 1.0 {
                 // Max absolute column sum
                 let mut col_sums = vec![0.0_f64; sm.cols];
-                for &(_, c, v) in &sm.entries { col_sums[c] += v.norm(); }
+                for &(_, c, v) in &sm.entries {
+                    col_sums[c] += v.norm();
+                }
                 Ok(Value::Scalar(col_sums.into_iter().fold(0.0_f64, f64::max)))
             } else if p == f64::INFINITY {
                 // Max absolute row sum
                 let mut row_sums = vec![0.0_f64; sm.rows];
-                for &(r, _, v) in &sm.entries { row_sums[r] += v.norm(); }
+                for &(r, _, v) in &sm.entries {
+                    row_sums[r] += v.norm();
+                }
                 Ok(Value::Scalar(row_sums.into_iter().fold(0.0_f64, f64::max)))
             } else {
                 // Frobenius for p=2, or convert to dense for other p
-                let n = sm.entries.iter().map(|(_, _, c)| c.norm_sqr()).sum::<f64>().sqrt();
+                let n = sm
+                    .entries
+                    .iter()
+                    .map(|(_, _, c)| c.norm_sqr())
+                    .sum::<f64>()
+                    .sqrt();
                 Ok(Value::Scalar(n))
             }
         }
-        other => Err(ScriptError::type_err(format!("norm: unsupported type {}", other.type_name()))),
+        other => Err(ScriptError::type_err(format!(
+            "norm: unsupported type {}",
+            other.type_name()
+        ))),
     }
 }
 
@@ -2687,7 +3116,10 @@ fn lu_decompose(m: &CMatrix) -> (CMatrix, C64) {
         let mut max_val = lu[[k, k]].norm();
         for i in k + 1..n {
             let v = lu[[i, k]].norm();
-            if v > max_val { max_val = v; max_idx = i; }
+            if v > max_val {
+                max_val = v;
+                max_idx = i;
+            }
         }
         if max_idx != k {
             for j in 0..n {
@@ -2698,7 +3130,9 @@ fn lu_decompose(m: &CMatrix) -> (CMatrix, C64) {
             sign = -sign;
         }
         let pivot = lu[[k, k]];
-        if pivot.norm() < 1e-14 { continue; }
+        if pivot.norm() < 1e-14 {
+            continue;
+        }
         for i in k + 1..n {
             lu[[i, k]] /= pivot;
             for j in k + 1..n {
@@ -2718,17 +3152,35 @@ fn builtin_det(args: Vec<Value>) -> Result<Value, ScriptError> {
             let n = m.nrows();
             if n != m.ncols() {
                 return Err(ScriptError::type_err(format!(
-                    "det: matrix must be square (got {}×{})", n, m.ncols()
+                    "det: matrix must be square (got {}×{})",
+                    n,
+                    m.ncols()
                 )));
             }
-            if n == 0 { return Ok(Value::Scalar(1.0)); }
-            if n == 1 { let c = m[[0,0]]; return if c.im.abs() < 1e-12 { Ok(Value::Scalar(c.re)) } else { Ok(Value::Complex(c)) }; }
+            if n == 0 {
+                return Ok(Value::Scalar(1.0));
+            }
+            if n == 1 {
+                let c = m[[0, 0]];
+                return if c.im.abs() < 1e-12 {
+                    Ok(Value::Scalar(c.re))
+                } else {
+                    Ok(Value::Complex(c))
+                };
+            }
             let (lu, sign) = lu_decompose(m);
             let d: C64 = sign * (0..n).map(|i| lu[[i, i]]).product::<C64>();
-            if d.im.abs() < 1e-12 { Ok(Value::Scalar(d.re)) } else { Ok(Value::Complex(d)) }
+            if d.im.abs() < 1e-12 {
+                Ok(Value::Scalar(d.re))
+            } else {
+                Ok(Value::Complex(d))
+            }
         }
         Value::Scalar(n) => Ok(Value::Scalar(*n)),
-        other => Err(ScriptError::type_err(format!("det: expected matrix, got {}", other.type_name()))),
+        other => Err(ScriptError::type_err(format!(
+            "det: expected matrix, got {}",
+            other.type_name()
+        ))),
     }
 }
 
@@ -2736,12 +3188,18 @@ fn builtin_det(args: Vec<Value>) -> Result<Value, ScriptError> {
 fn matrix_inv(m: &CMatrix) -> Result<CMatrix, String> {
     let n = m.nrows();
     if n != m.ncols() {
-        return Err(format!("inv: matrix must be square (got {}×{})", n, m.ncols()));
+        return Err(format!(
+            "inv: matrix must be square (got {}×{})",
+            n,
+            m.ncols()
+        ));
     }
     // Augmented [A | I]
     let mut aug: Array2<C64> = Array2::zeros((n, 2 * n));
     for i in 0..n {
-        for j in 0..n { aug[[i, j]] = m[[i, j]]; }
+        for j in 0..n {
+            aug[[i, j]] = m[[i, j]];
+        }
         aug[[i, n + i]] = Complex::new(1.0, 0.0);
     }
     for k in 0..n {
@@ -2750,7 +3208,10 @@ fn matrix_inv(m: &CMatrix) -> Result<CMatrix, String> {
         let mut max_val = aug[[k, k]].norm();
         for i in k + 1..n {
             let v = aug[[i, k]].norm();
-            if v > max_val { max_val = v; max_idx = i; }
+            if v > max_val {
+                max_val = v;
+                max_idx = i;
+            }
         }
         if max_idx != k {
             for j in 0..2 * n {
@@ -2763,7 +3224,9 @@ fn matrix_inv(m: &CMatrix) -> Result<CMatrix, String> {
             return Err("inv: matrix is singular or nearly singular".to_string());
         }
         let pivot = aug[[k, k]];
-        for j in 0..2 * n { aug[[k, j]] /= pivot; }
+        for j in 0..2 * n {
+            aug[[k, j]] /= pivot;
+        }
         for i in 0..n {
             if i != k {
                 let factor = aug[[i, k]];
@@ -2776,7 +3239,9 @@ fn matrix_inv(m: &CMatrix) -> Result<CMatrix, String> {
     }
     let mut result: CMatrix = Array2::zeros((n, n));
     for i in 0..n {
-        for j in 0..n { result[[i, j]] = aug[[i, n + j]]; }
+        for j in 0..n {
+            result[[i, j]] = aug[[i, n + j]];
+        }
     }
     Ok(result)
 }
@@ -2789,10 +3254,17 @@ fn builtin_inv(args: Vec<Value>) -> Result<Value, ScriptError> {
             Ok(Value::Matrix(result))
         }
         Value::Scalar(n) => {
-            if *n == 0.0 { return Err(ScriptError::type_err("inv: singular (scalar is zero)".to_string())); }
+            if *n == 0.0 {
+                return Err(ScriptError::type_err(
+                    "inv: singular (scalar is zero)".to_string(),
+                ));
+            }
             Ok(Value::Scalar(1.0 / n))
         }
-        other => Err(ScriptError::type_err(format!("inv: expected matrix, got {}", other.type_name()))),
+        other => Err(ScriptError::type_err(format!(
+            "inv: expected matrix, got {}",
+            other.type_name()
+        ))),
     }
 }
 
@@ -2804,11 +3276,20 @@ fn builtin_expm(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Scalar(n) => {
             return Ok(Value::Scalar(n.exp()));
         }
-        other => return Err(ScriptError::type_err(format!("expm: expected matrix, got {}", other.type_name()))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "expm: expected matrix, got {}",
+                other.type_name()
+            )))
+        }
     };
     let n = m.nrows();
     if n != m.ncols() {
-        return Err(ScriptError::type_err(format!("expm: matrix must be square (got {}×{})", n, m.ncols())));
+        return Err(ScriptError::type_err(format!(
+            "expm: matrix must be square (got {}×{})",
+            n,
+            m.ncols()
+        )));
     }
     Ok(Value::Matrix(matrix_expm(&m)))
 }
@@ -2835,13 +3316,13 @@ fn matrix_expm(a: &CMatrix) -> CMatrix {
     let a_s: CMatrix = a.mapv(|c| c / (2.0_f64).powi(s));
 
     // [6/6] Padé coefficients c_k = 6!(12-k)! / (12! k! (6-k)!)
-    let c0: f64 = 1.0;            // 1
-    let c1: f64 = 0.5;            // 1/2
-    let c2: f64 = 5.0 / 44.0;    // 5/44
-    let c3: f64 = 1.0 / 66.0;    // 1/66
-    let c4: f64 = 1.0 / 792.0;   // 1/792
+    let c0: f64 = 1.0; // 1
+    let c1: f64 = 0.5; // 1/2
+    let c2: f64 = 5.0 / 44.0; // 5/44
+    let c3: f64 = 1.0 / 66.0; // 1/66
+    let c4: f64 = 1.0 / 792.0; // 1/792
     let c5: f64 = 1.0 / 15840.0; // 1/15840
-    let c6: f64 = 1.0 / 665280.0;// 1/665280
+    let c6: f64 = 1.0 / 665280.0; // 1/665280
 
     let eye: CMatrix = Array2::eye(n);
     let a2 = a_s.dot(&a_s);
@@ -2849,22 +3330,18 @@ fn matrix_expm(a: &CMatrix) -> CMatrix {
     let a6 = a4.dot(&a2);
 
     // V = c0*I + c2*A² + c4*A⁴ + c6*A⁶  (even)
-    let v = eye.mapv(|x: C64| x * c0)
-        + a2.mapv(|x| x * c2)
-        + a4.mapv(|x| x * c4)
-        + a6.mapv(|x| x * c6);
+    let v =
+        eye.mapv(|x: C64| x * c0) + a2.mapv(|x| x * c2) + a4.mapv(|x| x * c4) + a6.mapv(|x| x * c6);
 
     // U = A·(c1*I + c3*A² + c5*A⁴)  (odd, A factored out)
-    let inner = eye.mapv(|x: C64| x * c1)
-        + a2.mapv(|x| x * c3)
-        + a4.mapv(|x| x * c5);
+    let inner = eye.mapv(|x: C64| x * c1) + a2.mapv(|x| x * c3) + a4.mapv(|x| x * c5);
     let u = a_s.dot(&inner);
 
     // expm_s = (V - U)⁻¹ · (U + V)
     let num: CMatrix = &u + &v;
     let den: CMatrix = &v - &u;
     let den_inv = match matrix_inv(&den) {
-        Ok(m)  => m,
+        Ok(m) => m,
         Err(_) => return Array2::eye(n),
     };
     let mut result = den_inv.dot(&num);
@@ -2882,24 +3359,36 @@ fn builtin_linsolve(args: Vec<Value>) -> Result<Value, ScriptError> {
     let a = match &args[0] {
         Value::Matrix(m) => m.clone(),
         Value::SparseMatrix(sm) => sm.to_dense(),
-        other => return Err(ScriptError::type_err(format!("linsolve: A must be a matrix, got {}", other.type_name()))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "linsolve: A must be a matrix, got {}",
+                other.type_name()
+            )))
+        }
     };
     let b = args[1].to_cvector().map_err(|e| ScriptError::type_err(e))?;
     let n = a.nrows();
     if n != a.ncols() {
         return Err(ScriptError::type_err(format!(
-            "linsolve: A must be square (got {}×{})", n, a.ncols()
+            "linsolve: A must be square (got {}×{})",
+            n,
+            a.ncols()
         )));
     }
     if n != b.len() {
         return Err(ScriptError::type_err(format!(
-            "linsolve: A is {}×{} but b has length {}", n, n, b.len()
+            "linsolve: A is {}×{} but b has length {}",
+            n,
+            n,
+            b.len()
         )));
     }
     // Augmented [A | b]
     let mut aug: Array2<C64> = Array2::zeros((n, n + 1));
     for i in 0..n {
-        for j in 0..n { aug[[i, j]] = a[[i, j]]; }
+        for j in 0..n {
+            aug[[i, j]] = a[[i, j]];
+        }
         aug[[i, n]] = b[i];
     }
     // Forward elimination with partial pivoting
@@ -2908,7 +3397,10 @@ fn builtin_linsolve(args: Vec<Value>) -> Result<Value, ScriptError> {
         let mut max_val = aug[[k, k]].norm();
         for i in k + 1..n {
             let v = aug[[i, k]].norm();
-            if v > max_val { max_val = v; max_idx = i; }
+            if v > max_val {
+                max_val = v;
+                max_idx = i;
+            }
         }
         if max_idx != k {
             for j in 0..n + 1 {
@@ -2918,7 +3410,9 @@ fn builtin_linsolve(args: Vec<Value>) -> Result<Value, ScriptError> {
             }
         }
         if aug[[k, k]].norm() < 1e-14 {
-            return Err(ScriptError::type_err("linsolve: matrix is singular or nearly singular".to_string()));
+            return Err(ScriptError::type_err(
+                "linsolve: matrix is singular or nearly singular".to_string(),
+            ));
         }
         for i in k + 1..n {
             let factor = aug[[i, k]] / aug[[k, k]];
@@ -2932,13 +3426,19 @@ fn builtin_linsolve(args: Vec<Value>) -> Result<Value, ScriptError> {
     let mut x: CVector = Array1::zeros(n);
     for i in (0..n).rev() {
         let mut s = aug[[i, n]];
-        for j in i + 1..n { s -= aug[[i, j]] * x[j]; }
+        for j in i + 1..n {
+            s -= aug[[i, j]] * x[j];
+        }
         x[i] = s / aug[[i, i]];
     }
     // Return as scalar if 1-element, else vector
     if x.len() == 1 {
         let c = x[0];
-        if c.im.abs() < 1e-12 { Ok(Value::Scalar(c.re)) } else { Ok(Value::Complex(c)) }
+        if c.im.abs() < 1e-12 {
+            Ok(Value::Scalar(c.re))
+        } else {
+            Ok(Value::Complex(c))
+        }
     } else {
         Ok(Value::Vector(x))
     }
@@ -2956,21 +3456,29 @@ fn builtin_linsolve(args: Vec<Value>) -> Result<Value, ScriptError> {
 ///   L_{k+1} = ((2k+1+alpha-x)*L_k - (k+alpha)*L_{k-1}) / (k+1)
 fn builtin_laguerre(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("laguerre", &args, 3)?;
-    let n = args[0].to_scalar()
-        .map_err(|_| ScriptError::type_err("laguerre: n must be a non-negative integer scalar".to_string()))?;
+    let n = args[0].to_scalar().map_err(|_| {
+        ScriptError::type_err("laguerre: n must be a non-negative integer scalar".to_string())
+    })?;
     let n = n.round() as i64;
     if n < 0 {
-        return Err(ScriptError::type_err("laguerre: n must be non-negative".to_string()));
+        return Err(ScriptError::type_err(
+            "laguerre: n must be non-negative".to_string(),
+        ));
     }
-    let alpha = args[1].to_scalar()
+    let alpha = args[1]
+        .to_scalar()
         .map_err(|_| ScriptError::type_err("laguerre: alpha must be a real scalar".to_string()))?;
 
     fn laguerre_scalar(n: i64, alpha: f64, x: f64) -> f64 {
-        if n == 0 { return 1.0; }
-        if n == 1 { return 1.0 + alpha - x; }
+        if n == 0 {
+            return 1.0;
+        }
+        if n == 1 {
+            return 1.0 + alpha - x;
+        }
         let (mut lk_1, mut lk) = (1.0_f64, 1.0 + alpha - x);
         for k in 1..n {
-            let next = ((2*k + 1) as f64 + alpha - x) * lk - (k as f64 + alpha) * lk_1;
+            let next = ((2 * k + 1) as f64 + alpha - x) * lk - (k as f64 + alpha) * lk_1;
             let next = next / (k + 1) as f64;
             lk_1 = lk;
             lk = next;
@@ -2989,7 +3497,10 @@ fn builtin_laguerre(args: Vec<Value>) -> Result<Value, ScriptError> {
             let result: CMatrix = m.mapv(|c| Complex::new(laguerre_scalar(n, alpha, c.re), 0.0));
             Ok(Value::Matrix(result))
         }
-        other => Err(ScriptError::type_err(format!("laguerre: x must be scalar/vector/matrix, got {}", other.type_name()))),
+        other => Err(ScriptError::type_err(format!(
+            "laguerre: x must be scalar/vector/matrix, got {}",
+            other.type_name()
+        ))),
     }
 }
 
@@ -3002,15 +3513,20 @@ fn builtin_laguerre(args: Vec<Value>) -> Result<Value, ScriptError> {
 ///   P_l^m(x) = ((2l-1) x P_{l-1}^m - (l+m-1) P_{l-2}^m) / (l-m)
 fn builtin_legendre(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("legendre", &args, 3)?;
-    let l = args[0].to_scalar()
-        .map_err(|_| ScriptError::type_err("legendre: l must be a non-negative integer scalar".to_string()))?
+    let l = args[0]
+        .to_scalar()
+        .map_err(|_| {
+            ScriptError::type_err("legendre: l must be a non-negative integer scalar".to_string())
+        })?
         .round() as i64;
-    let m = args[1].to_scalar()
+    let m = args[1]
+        .to_scalar()
         .map_err(|_| ScriptError::type_err("legendre: m must be an integer scalar".to_string()))?
         .round() as i64;
     if l < 0 || m.abs() > l {
         return Err(ScriptError::type_err(format!(
-            "legendre: require 0 <= l and |m| <= l (got l={}, m={})", l, m
+            "legendre: require 0 <= l and |m| <= l (got l={}, m={})",
+            l, m
         )));
     }
 
@@ -3021,7 +3537,9 @@ fn builtin_legendre(args: Vec<Value>) -> Result<Value, ScriptError> {
             let m_pos = m.unsigned_abs() as i64;
             // factorial ratio (l-m_pos)!/(l+m_pos)!
             let mut ratio = 1.0_f64;
-            for k in (l - m_pos + 1)..=(l + m_pos) { ratio /= k as f64; }
+            for k in (l - m_pos + 1)..=(l + m_pos) {
+                ratio /= k as f64;
+            }
             (l, m_pos, sign * ratio)
         } else {
             (l, m, 1.0_f64)
@@ -3050,7 +3568,7 @@ fn builtin_legendre(args: Vec<Value>) -> Result<Value, ScriptError> {
         for ll in (m_use + 2)..=l_use {
             pll = ((2 * ll - 1) as f64 * x * pmm1 - (ll + m_use - 1) as f64 * pmm)
                 / (ll - m_use) as f64;
-            pmm  = pmm1;
+            pmm = pmm1;
             pmm1 = pll;
         }
         negate * pll
@@ -3067,7 +3585,10 @@ fn builtin_legendre(args: Vec<Value>) -> Result<Value, ScriptError> {
             let result: CMatrix = mx.mapv(|c| Complex::new(legendre_scalar(l, m, c.re), 0.0));
             Ok(Value::Matrix(result))
         }
-        other => Err(ScriptError::type_err(format!("legendre: x must be scalar/vector/matrix, got {}", other.type_name()))),
+        other => Err(ScriptError::type_err(format!(
+            "legendre: x must be scalar/vector/matrix, got {}",
+            other.type_name()
+        ))),
     }
 }
 
@@ -3078,13 +3599,17 @@ fn builtin_factor(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("factor", &args, 1)?;
     let n_f = match &args[0] {
         Value::Scalar(n) => *n,
-        other => return Err(ScriptError::type_err(format!(
-            "factor: expected a positive integer scalar, got {}", other.type_name()
-        ))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "factor: expected a positive integer scalar, got {}",
+                other.type_name()
+            )))
+        }
     };
     if n_f <= 0.0 || n_f.fract() != 0.0 {
         return Err(ScriptError::type_err(format!(
-            "factor: argument must be a positive integer, got {}", n_f
+            "factor: argument must be a positive integer, got {}",
+            n_f
         )));
     }
     let mut n = n_f as u64;
@@ -3115,7 +3640,9 @@ fn hessenberg_reduce(a: &CMatrix) -> CMatrix {
         let col_len = n - k - 1;
         let mut x: Vec<C64> = (0..col_len).map(|i| h[[k + 1 + i, k]]).collect();
         let norm_x: f64 = x.iter().map(|c| c.norm_sqr()).sum::<f64>().sqrt();
-        if norm_x < 1e-15 { continue; }
+        if norm_x < 1e-15 {
+            continue;
+        }
         // Phase of first element
         let phase = if x[0].norm() < 1e-15 {
             Complex::new(1.0, 0.0)
@@ -3124,18 +3651,34 @@ fn hessenberg_reduce(a: &CMatrix) -> CMatrix {
         };
         x[0] += phase * norm_x;
         let norm_v: f64 = x.iter().map(|c| c.norm_sqr()).sum::<f64>().sqrt();
-        if norm_v < 1e-15 { continue; }
-        for c in &mut x { *c /= norm_v; }
+        if norm_v < 1e-15 {
+            continue;
+        }
+        for c in &mut x {
+            *c /= norm_v;
+        }
         // H = (I - 2 v v*) H (I - 2 v v*)  — apply from left then right
         // Left: H[k+1:, k:] -= 2 * v * (v* H[k+1:, k:])
         for j in k..n {
-            let dot: C64 = x.iter().enumerate().map(|(i, vi)| vi.conj() * h[[k+1+i, j]]).sum();
-            for i in 0..col_len { h[[k+1+i, j]] -= 2.0 * x[i] * dot; }
+            let dot: C64 = x
+                .iter()
+                .enumerate()
+                .map(|(i, vi)| vi.conj() * h[[k + 1 + i, j]])
+                .sum();
+            for i in 0..col_len {
+                h[[k + 1 + i, j]] -= 2.0 * x[i] * dot;
+            }
         }
         // Right: H[:, k+1:] -= 2 * (H[:, k+1:] v) v*
         for i in 0..n {
-            let dot: C64 = x.iter().enumerate().map(|(j, vj)| h[[i, k+1+j]] * *vj).sum();
-            for j in 0..col_len { h[[i, k+1+j]] -= 2.0 * dot * x[j].conj(); }
+            let dot: C64 = x
+                .iter()
+                .enumerate()
+                .map(|(j, vj)| h[[i, k + 1 + j]] * *vj)
+                .sum();
+            for j in 0..col_len {
+                h[[i, k + 1 + j]] -= 2.0 * dot * x[j].conj();
+            }
         }
     }
     h
@@ -3146,12 +3689,18 @@ fn hessenberg_reduce(a: &CMatrix) -> CMatrix {
 /// Returns eigenvalues as a Vec<C64>.
 fn eig_hessenberg(h_in: &CMatrix) -> Result<Vec<C64>, String> {
     let n = h_in.nrows();
-    if n == 0 { return Ok(vec![]); }
-    if n == 1 { return Ok(vec![h_in[[0,0]]]); }
+    if n == 0 {
+        return Ok(vec![]);
+    }
+    if n == 1 {
+        return Ok(vec![h_in[[0, 0]]]);
+    }
     if n == 2 {
         // Direct 2×2 formula
-        let a = h_in[[0,0]]; let b = h_in[[0,1]];
-        let c = h_in[[1,0]]; let d = h_in[[1,1]];
+        let a = h_in[[0, 0]];
+        let b = h_in[[0, 1]];
+        let c = h_in[[1, 0]];
+        let d = h_in[[1, 1]];
         let tr = a + d;
         let det = a * d - b * c;
         let disc = (tr * tr - 4.0 * det).sqrt();
@@ -3169,8 +3718,10 @@ fn eig_hessenberg(h_in: &CMatrix) -> Result<Vec<C64>, String> {
             break;
         }
         if p == 2 {
-            let a = h[[0,0]]; let b = h[[0,1]];
-            let c = h[[1,0]]; let d = h[[1,1]];
+            let a = h[[0, 0]];
+            let b = h[[0, 1]];
+            let c = h[[1, 0]];
+            let d = h[[1, 1]];
             let tr = a + d;
             let det = a * d - b * c;
             let disc = (tr * tr - 4.0 * det).sqrt();
@@ -3187,9 +3738,9 @@ fn eig_hessenberg(h_in: &CMatrix) -> Result<Vec<C64>, String> {
             // Check all subdiagonals for small values (from bottom up)
             let mut split_at = None;
             for i in (1..p).rev() {
-                let tol = 1e-12 * (h[[i-1,i-1]].norm() + h[[i,i]].norm());
-                if h[[i, i-1]].norm() <= tol {
-                    h[[i, i-1]] = Complex::new(0.0, 0.0);
+                let tol = 1e-12 * (h[[i - 1, i - 1]].norm() + h[[i, i]].norm());
+                if h[[i, i - 1]].norm() <= tol {
+                    h[[i, i - 1]] = Complex::new(0.0, 0.0);
                     split_at = Some(i);
                     break;
                 }
@@ -3203,10 +3754,13 @@ fn eig_hessenberg(h_in: &CMatrix) -> Result<Vec<C64>, String> {
                     break;
                 } else if i == q - 1 {
                     // 2×2 block at bottom
-                    let a = h[[q-1,q-1]]; let b = h[[q-1,q]];
-                    let c = h[[q,q-1]];   let d = h[[q,q]];
-                    let tr = a + d; let det = a*d - b*c;
-                    let disc = (tr*tr - 4.0*det).sqrt();
+                    let a = h[[q - 1, q - 1]];
+                    let b = h[[q - 1, q]];
+                    let c = h[[q, q - 1]];
+                    let d = h[[q, q]];
+                    let tr = a + d;
+                    let det = a * d - b * c;
+                    let disc = (tr * tr - 4.0 * det).sqrt();
                     eigenvalues.push((tr + disc) / 2.0);
                     eigenvalues.push((tr - disc) / 2.0);
                     p -= 2;
@@ -3218,29 +3772,39 @@ fn eig_hessenberg(h_in: &CMatrix) -> Result<Vec<C64>, String> {
                     // (next iteration will check deflation again)
                 }
             }
-            if converged { break; }
+            if converged {
+                break;
+            }
 
             // ── Wilkinson shift: eigenvalue of bottom 2×2 closest to h[q,q] ──
-            let a = h[[q-1,q-1]]; let b = h[[q-1,q]];
-            let c = h[[q,q-1]];   let d = h[[q,q]];
+            let a = h[[q - 1, q - 1]];
+            let b = h[[q - 1, q]];
+            let c = h[[q, q - 1]];
+            let d = h[[q, q]];
             let tr2 = a + d;
             let det2 = a * d - b * c;
-            let disc = (tr2*tr2 - 4.0*det2).sqrt();
+            let disc = (tr2 * tr2 - 4.0 * det2).sqrt();
             let e1 = (tr2 + disc) / 2.0;
             let e2 = (tr2 - disc) / 2.0;
             // Pick the eigenvalue of the 2×2 closest to h[q,q]
-            let shift = if (e1 - d).norm() <= (e2 - d).norm() { e1 } else { e2 };
+            let shift = if (e1 - d).norm() <= (e2 - d).norm() {
+                e1
+            } else {
+                e2
+            };
 
             // ── Single-shift QR step using Givens rotations ────────────────
             // Apply H ← G_k^* H G_k for k = 0..p-2
             // First rotation eliminates h[1,0] after shift
-            let mut x = h[[0,0]] - shift;
-            let mut y = h[[1,0]];
+            let mut x = h[[0, 0]] - shift;
+            let mut y = h[[1, 0]];
 
-            for k in 0..p-1 {
+            for k in 0..p - 1 {
                 // Compute Givens rotation [c, s; -s*, c] to zero y using x
                 let r = (x.norm_sqr() + y.norm_sqr()).sqrt();
-                if r < 1e-15 { continue; }
+                if r < 1e-15 {
+                    continue;
+                }
                 let gc = x / r;
                 let gs = y / r;
 
@@ -3248,24 +3812,24 @@ fn eig_hessenberg(h_in: &CMatrix) -> Result<Vec<C64>, String> {
                 let jstart = if k > 0 { k - 1 } else { 0 };
                 for j in jstart..p {
                     let u = h[[k, j]];
-                    let v = h[[k+1, j]];
-                    h[[k, j]]   = gc.conj() * u + gs.conj() * v;
-                    h[[k+1, j]] = -gs * u + gc * v;
+                    let v = h[[k + 1, j]];
+                    h[[k, j]] = gc.conj() * u + gs.conj() * v;
+                    h[[k + 1, j]] = -gs * u + gc * v;
                 }
                 // Right multiply: rows 0..p, columns k and k+1
                 // (only need rows 0..min(k+3, p) for Hessenberg, but use p for correctness)
                 let iend = (k + 3).min(p);
                 for i in 0..iend {
                     let u = h[[i, k]];
-                    let v = h[[i, k+1]];
-                    h[[i, k]]   = gc * u + gs * v;
-                    h[[i, k+1]] = -gs.conj() * u + gc.conj() * v;
+                    let v = h[[i, k + 1]];
+                    h[[i, k]] = gc * u + gs * v;
+                    h[[i, k + 1]] = -gs.conj() * u + gc.conj() * v;
                 }
 
                 // Next iteration uses the subdiagonal entry created
                 if k + 1 < p - 1 {
-                    x = h[[k+1, k]];
-                    y = h[[k+2, k]];
+                    x = h[[k + 1, k]];
+                    y = h[[k + 2, k]];
                 }
             }
         }
@@ -3273,7 +3837,7 @@ fn eig_hessenberg(h_in: &CMatrix) -> Result<Vec<C64>, String> {
         if !converged {
             // Force deflation at the bottom even if not fully converged
             // (prevents infinite loop — take best approximation)
-            eigenvalues.push(h[[p-1, p-1]]);
+            eigenvalues.push(h[[p - 1, p - 1]]);
             p -= 1;
         }
     }
@@ -3290,15 +3854,19 @@ fn builtin_eig(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Scalar(n) => {
             return Ok(Value::Vector(Array1::from_vec(vec![Complex::new(*n, 0.0)])));
         }
-        other => return Err(ScriptError::type_err(format!(
-            "eig: expected a square matrix, got {}", other.type_name()
-        ))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "eig: expected a square matrix, got {}",
+                other.type_name()
+            )))
+        }
     };
     let rows = m.nrows();
     let cols = m.ncols();
     if rows != cols {
         return Err(ScriptError::type_err(format!(
-            "eig: matrix must be square (got {}×{})", rows, cols
+            "eig: matrix must be square (got {}×{})",
+            rows, cols
         )));
     }
     let h = hessenberg_reduce(m);
@@ -3312,12 +3880,12 @@ fn builtin_whos_file(args: Vec<Value>) -> Result<Value, ScriptError> {
 
     if !path.ends_with(".npz") {
         return Err(ScriptError::type_err(
-            "whos: only .npz files are supported (e.g. whos(\"data.npz\"))".to_string()
+            "whos: only .npz files are supported (e.g. whos(\"data.npz\"))".to_string(),
         ));
     }
 
-    use zip::ZipArchive;
     use std::io::Read;
+    use zip::ZipArchive;
 
     let file = std::fs::File::open(&path).map_err(|e| ScriptError::runtime(e.to_string()))?;
     let mut zip = ZipArchive::new(file).map_err(|e| ScriptError::runtime(e.to_string()))?;
@@ -3326,12 +3894,16 @@ fn builtin_whos_file(args: Vec<Value>) -> Result<Value, ScriptError> {
     super::output::script_println(&format!("  {}", "─".repeat(44)));
 
     for i in 0..zip.len() {
-        let mut entry = zip.by_index(i).map_err(|e| ScriptError::runtime(e.to_string()))?;
-        let raw_name  = entry.name().to_string();
-        let name      = raw_name.trim_end_matches(".npy");
+        let mut entry = zip
+            .by_index(i)
+            .map_err(|e| ScriptError::runtime(e.to_string()))?;
+        let raw_name = entry.name().to_string();
+        let name = raw_name.trim_end_matches(".npy");
 
         let mut buf = Vec::new();
-        entry.read_to_end(&mut buf).map_err(|e| ScriptError::runtime(e.to_string()))?;
+        entry
+            .read_to_end(&mut buf)
+            .map_err(|e| ScriptError::runtime(e.to_string()))?;
 
         let info = if buf.len() >= 10 && &buf[0..6] == b"\x93NUMPY" {
             let hlen = u16::from_le_bytes([buf[8], buf[9]]) as usize;
@@ -3343,13 +3915,23 @@ fn builtin_whos_file(args: Vec<Value>) -> Result<Value, ScriptError> {
                         "real"
                     };
                     let size = match parse_npy_shape(header) {
-                        Ok(s)  => s.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("×"),
+                        Ok(s) => s
+                            .iter()
+                            .map(|d| d.to_string())
+                            .collect::<Vec<_>>()
+                            .join("×"),
                         Err(_) => "?".to_string(),
                     };
                     (dtype.to_string(), size)
-                } else { ("?".to_string(), "?".to_string()) }
-            } else { ("?".to_string(), "?".to_string()) }
-        } else { ("?".to_string(), "?".to_string()) };
+                } else {
+                    ("?".to_string(), "?".to_string())
+                }
+            } else {
+                ("?".to_string(), "?".to_string())
+            }
+        } else {
+            ("?".to_string(), "?".to_string())
+        };
 
         super::output::script_println(&format!("  {:<20} {:<10} {}", name, info.0, info.1));
     }
@@ -3362,7 +3944,7 @@ fn builtin_whos_file(args: Vec<Value>) -> Result<Value, ScriptError> {
 fn builtin_struct(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.len() % 2 != 0 {
         return Err(ScriptError::runtime(
-            "struct() requires an even number of arguments: (field, value, ...)".to_string()
+            "struct() requires an even number of arguments: (field, value, ...)".to_string(),
         ));
     }
     let mut fields = HashMap::new();
@@ -3384,7 +3966,9 @@ fn builtin_disp(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 fn builtin_fprintf(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.is_empty() {
-        return Err(ScriptError::runtime("fprintf: expected a format string".to_string()));
+        return Err(ScriptError::runtime(
+            "fprintf: expected a format string".to_string(),
+        ));
     }
     let fmt = args[0].to_str().map_err(|e| ScriptError::type_err(e))?;
     let output = apply_format(&fmt, &args[1..]).map_err(|e| ScriptError::runtime(e))?;
@@ -3394,7 +3978,9 @@ fn builtin_fprintf(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 fn builtin_sprintf(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.is_empty() {
-        return Err(ScriptError::runtime("sprintf: expected a format string".to_string()));
+        return Err(ScriptError::runtime(
+            "sprintf: expected a format string".to_string(),
+        ));
     }
     let fmt = args[0].to_str().map_err(|e| ScriptError::type_err(e))?;
     let output = apply_format(&fmt, &args[1..]).map_err(|e| ScriptError::runtime(e))?;
@@ -3403,11 +3989,17 @@ fn builtin_sprintf(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 fn builtin_commas(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.is_empty() || args.len() > 2 {
-        return Err(ScriptError::runtime("commas: expected commas(x) or commas(x, precision)".to_string()));
+        return Err(ScriptError::runtime(
+            "commas: expected commas(x) or commas(x, precision)".to_string(),
+        ));
     }
-    let n = args[0].to_scalar().map_err(|e| ScriptError::type_err(format!("commas: {}", e)))?;
+    let n = args[0]
+        .to_scalar()
+        .map_err(|e| ScriptError::type_err(format!("commas: {}", e)))?;
     let s = if args.len() == 2 {
-        let p = args[1].to_scalar().map_err(|e| ScriptError::type_err(format!("commas: {}", e)))? as usize;
+        let p = args[1]
+            .to_scalar()
+            .map_err(|e| ScriptError::type_err(format!("commas: {}", e)))? as usize;
         insert_commas(&format!("{:.prec$}", n, prec = p))
     } else {
         // Integer if no fractional part, otherwise default float display
@@ -3425,7 +4017,7 @@ fn builtin_commas(args: Vec<Value>) -> Result<Value, ScriptError> {
 fn normalise_exp(s: &str) -> String {
     if let Some(e_pos) = s.find('e') {
         let mantissa = &s[..e_pos];
-        let exp_str  = &s[e_pos + 1..];
+        let exp_str = &s[e_pos + 1..];
         let (sign, digits) = if exp_str.starts_with('-') {
             ("-", &exp_str[1..])
         } else if exp_str.starts_with('+') {
@@ -3453,38 +4045,80 @@ pub fn apply_format(fmt: &str, args: &[Value]) -> Result<String, String> {
         // Escape sequences
         if chars[i] == '\\' && i + 1 < chars.len() {
             match chars[i + 1] {
-                'n'  => { result.push('\n'); i += 2; continue; }
-                't'  => { result.push('\t'); i += 2; continue; }
-                '\\' => { result.push('\\'); i += 2; continue; }
-                _    => { result.push(chars[i]); i += 1; continue; }
+                'n' => {
+                    result.push('\n');
+                    i += 2;
+                    continue;
+                }
+                't' => {
+                    result.push('\t');
+                    i += 2;
+                    continue;
+                }
+                '\\' => {
+                    result.push('\\');
+                    i += 2;
+                    continue;
+                }
+                _ => {
+                    result.push(chars[i]);
+                    i += 1;
+                    continue;
+                }
             }
         }
 
-        if chars[i] != '%' { result.push(chars[i]); i += 1; continue; }
+        if chars[i] != '%' {
+            result.push(chars[i]);
+            i += 1;
+            continue;
+        }
 
         i += 1; // skip '%'
-        if i >= chars.len() { return Err("fprintf: trailing '%'".to_string()); }
-        if chars[i] == '%' { result.push('%'); i += 1; continue; }
+        if i >= chars.len() {
+            return Err("fprintf: trailing '%'".to_string());
+        }
+        if chars[i] == '%' {
+            result.push('%');
+            i += 1;
+            continue;
+        }
 
         // Parse optional flags, width, precision
         let mut flags = String::new();
-        while i < chars.len() && "-+ 0#,".contains(chars[i]) { flags.push(chars[i]); i += 1; }
+        while i < chars.len() && "-+ 0#,".contains(chars[i]) {
+            flags.push(chars[i]);
+            i += 1;
+        }
         let use_commas = flags.contains(',');
 
         let mut width_str = String::new();
-        while i < chars.len() && chars[i].is_ascii_digit() { width_str.push(chars[i]); i += 1; }
+        while i < chars.len() && chars[i].is_ascii_digit() {
+            width_str.push(chars[i]);
+            i += 1;
+        }
 
         let mut prec_str = String::new();
         if i < chars.len() && chars[i] == '.' {
             i += 1;
-            while i < chars.len() && chars[i].is_ascii_digit() { prec_str.push(chars[i]); i += 1; }
+            while i < chars.len() && chars[i].is_ascii_digit() {
+                prec_str.push(chars[i]);
+                i += 1;
+            }
         }
 
-        if i >= chars.len() { return Err("fprintf: incomplete format specifier".to_string()); }
-        let spec = chars[i]; i += 1;
+        if i >= chars.len() {
+            return Err("fprintf: incomplete format specifier".to_string());
+        }
+        let spec = chars[i];
+        i += 1;
 
         let arg = args.get(arg_idx).ok_or_else(|| {
-            format!("fprintf: not enough arguments (need arg {} for '%{}')", arg_idx + 1, spec)
+            format!(
+                "fprintf: not enough arguments (need arg {} for '%{}')",
+                arg_idx + 1,
+                spec
+            )
         })?;
         arg_idx += 1;
 
@@ -3496,16 +4130,30 @@ pub fn apply_format(fmt: &str, args: &[Value]) -> Result<String, String> {
             'd' | 'i' => {
                 let n = arg.to_scalar().map_err(|e| format!("fprintf %d: {}", e))? as i64;
                 let base = format!("{}", n);
-                let base = if use_commas { insert_commas(&base) } else { base };
-                if left { format!("{:<width$}", base, width = w) }
-                else    { format!("{:>width$}", base, width = w) }
+                let base = if use_commas {
+                    insert_commas(&base)
+                } else {
+                    base
+                };
+                if left {
+                    format!("{:<width$}", base, width = w)
+                } else {
+                    format!("{:>width$}", base, width = w)
+                }
             }
             'f' => {
                 let n = arg.to_scalar().map_err(|e| format!("fprintf %f: {}", e))?;
                 let base = format!("{:.prec$}", n, prec = p);
-                let base = if use_commas { insert_commas(&base) } else { base };
-                if left { format!("{:<width$}", base, width = w) }
-                else    { format!("{:>width$}", base, width = w) }
+                let base = if use_commas {
+                    insert_commas(&base)
+                } else {
+                    base
+                };
+                if left {
+                    format!("{:<width$}", base, width = w)
+                } else {
+                    format!("{:>width$}", base, width = w)
+                }
             }
             'e' => {
                 let n = arg.to_scalar().map_err(|e| format!("fprintf %e: {}", e))?;
@@ -3513,9 +4161,16 @@ pub fn apply_format(fmt: &str, args: &[Value]) -> Result<String, String> {
                 // normalise to C-style e+XX / e-XX  (e.g.  1.23e+04)
                 let base = format!("{:.prec$e}", n, prec = p);
                 let base = normalise_exp(&base);
-                let base = if use_commas { insert_commas(&base) } else { base };
-                if left { format!("{:<width$}", base, width = w) }
-                else    { format!("{:>width$}", base, width = w) }
+                let base = if use_commas {
+                    insert_commas(&base)
+                } else {
+                    base
+                };
+                if left {
+                    format!("{:<width$}", base, width = w)
+                } else {
+                    format!("{:>width$}", base, width = w)
+                }
             }
             'g' => {
                 let n = arg.to_scalar().map_err(|e| format!("fprintf %g: {}", e))?;
@@ -3527,14 +4182,24 @@ pub fn apply_format(fmt: &str, args: &[Value]) -> Result<String, String> {
                     let s = format!("{:.prec$e}", n, prec = p);
                     s
                 };
-                let base = if use_commas { insert_commas(&base) } else { base };
-                if left { format!("{:<width$}", base, width = w) }
-                else    { format!("{:>width$}", base, width = w) }
+                let base = if use_commas {
+                    insert_commas(&base)
+                } else {
+                    base
+                };
+                if left {
+                    format!("{:<width$}", base, width = w)
+                } else {
+                    format!("{:>width$}", base, width = w)
+                }
             }
             's' => {
                 let s = arg.to_str().map_err(|e| format!("fprintf %s: {}", e))?;
-                if left { format!("{:<width$}", s, width = w) }
-                else    { format!("{:>width$}", s, width = w) }
+                if left {
+                    format!("{:<width$}", s, width = w)
+                } else {
+                    format!("{:>width$}", s, width = w)
+                }
             }
             other => return Err(format!("fprintf: unknown specifier '%{}'", other)),
         };
@@ -3548,20 +4213,26 @@ pub fn apply_format(fmt: &str, args: &[Value]) -> Result<String, String> {
 fn builtin_all(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("all", &args, 1)?;
     match &args[0] {
-        Value::Bool(b)   => Ok(Value::Bool(*b)),
+        Value::Bool(b) => Ok(Value::Bool(*b)),
         Value::Scalar(n) => Ok(Value::Bool(*n != 0.0)),
         Value::Vector(v) => Ok(Value::Bool(v.iter().all(|c| c.re != 0.0 || c.im != 0.0))),
-        other => Err(ScriptError::type_err(format!("all: expected vector or scalar, got {}", other.type_name()))),
+        other => Err(ScriptError::type_err(format!(
+            "all: expected vector or scalar, got {}",
+            other.type_name()
+        ))),
     }
 }
 
 fn builtin_any(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("any", &args, 1)?;
     match &args[0] {
-        Value::Bool(b)   => Ok(Value::Bool(*b)),
+        Value::Bool(b) => Ok(Value::Bool(*b)),
         Value::Scalar(n) => Ok(Value::Bool(*n != 0.0)),
         Value::Vector(v) => Ok(Value::Bool(v.iter().any(|c| c.re != 0.0 || c.im != 0.0))),
-        other => Err(ScriptError::type_err(format!("any: expected vector or scalar, got {}", other.type_name()))),
+        other => Err(ScriptError::type_err(format!(
+            "any: expected vector or scalar, got {}",
+            other.type_name()
+        ))),
     }
 }
 
@@ -3573,11 +4244,16 @@ fn builtin_rank(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Matrix(m) => m.clone(),
         Value::Scalar(_) => return Ok(Value::Scalar(1.0)),
         Value::Vector(v) if !v.is_empty() => return Ok(Value::Scalar(1.0)),
-        other => return Err(ScriptError::type_err(format!(
-            "rank: expected matrix, got {}", other.type_name()
-        ))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "rank: expected matrix, got {}",
+                other.type_name()
+            )))
+        }
     };
-    if m.nrows() == 0 || m.ncols() == 0 { return Ok(Value::Scalar(0.0)); }
+    if m.nrows() == 0 || m.ncols() == 0 {
+        return Ok(Value::Scalar(0.0));
+    }
 
     // Singular values = sqrt(|eigenvalues of A†A|)
     let ata: CMatrix = m.t().mapv(|c| c.conj()).dot(&m);
@@ -3601,12 +4277,14 @@ fn builtin_roots(args: Vec<Value>) -> Result<Value, ScriptError> {
     // Strip leading near-zero coefficients
     let first = match coeffs.iter().position(|c| c.norm() > 1e-15) {
         Some(i) => i,
-        None    => return Ok(Value::Vector(Array1::zeros(0))),
+        None => return Ok(Value::Vector(Array1::zeros(0))),
     };
     let p: Vec<C64> = coeffs.iter().skip(first).cloned().collect();
 
     let deg = p.len().saturating_sub(1);
-    if deg == 0 { return Ok(Value::Vector(Array1::zeros(0))); }
+    if deg == 0 {
+        return Ok(Value::Vector(Array1::zeros(0)));
+    }
     if deg == 1 {
         // a*x + b = 0  →  x = -b/a
         return Ok(Value::Vector(Array1::from_vec(vec![-p[1] / p[0]])));
@@ -3616,11 +4294,15 @@ fn builtin_roots(args: Vec<Value>) -> Result<Value, ScriptError> {
     let lead = p[0];
     let mut comp: CMatrix = Array2::zeros((deg, deg));
     // First row: -p[1..] / lead
-    for j in 0..deg { comp[[0, j]] = -p[j + 1] / lead; }
+    for j in 0..deg {
+        comp[[0, j]] = -p[j + 1] / lead;
+    }
     // Sub-diagonal of ones
-    for i in 1..deg { comp[[i, i - 1]] = Complex::new(1.0, 0.0); }
+    for i in 1..deg {
+        comp[[i, i - 1]] = Complex::new(1.0, 0.0);
+    }
 
-    let h  = hessenberg_reduce(&comp);
+    let h = hessenberg_reduce(&comp);
     let rs = eig_hessenberg(&h).map_err(|e| ScriptError::runtime(e))?;
     Ok(Value::Vector(Array1::from_vec(rs)))
 }
@@ -3647,7 +4329,8 @@ fn builtin_fieldnames(args: Vec<Value>) -> Result<Value, ScriptError> {
             Ok(Value::None)
         }
         other => Err(ScriptError::runtime(format!(
-            "fieldnames() requires a struct, got {}", other.type_name()
+            "fieldnames() requires a struct, got {}",
+            other.type_name()
         ))),
     }
 }
@@ -3658,7 +4341,8 @@ fn builtin_isfield(args: Vec<Value>) -> Result<Value, ScriptError> {
     match &args[0] {
         Value::Struct(fields) => Ok(Value::Bool(fields.contains_key(&field))),
         other => Err(ScriptError::runtime(format!(
-            "isfield() requires a struct, got {}", other.type_name()
+            "isfield() requires a struct, got {}",
+            other.type_name()
         ))),
     }
 }
@@ -3669,12 +4353,16 @@ fn builtin_rmfield(args: Vec<Value>) -> Result<Value, ScriptError> {
     match args.into_iter().next().unwrap() {
         Value::Struct(mut fields) => {
             if fields.remove(&field).is_none() {
-                return Err(ScriptError::runtime(format!("struct has no field '{}'", field)));
+                return Err(ScriptError::runtime(format!(
+                    "struct has no field '{}'",
+                    field
+                )));
             }
             Ok(Value::Struct(fields))
         }
         other => Err(ScriptError::runtime(format!(
-            "rmfield() requires a struct, got {}", other.type_name()
+            "rmfield() requires a struct, got {}",
+            other.type_name()
         ))),
     }
 }
@@ -3688,45 +4376,69 @@ fn builtin_tf(args: Vec<Value>) -> Result<Value, ScriptError> {
         let s = args[0].to_str().map_err(|e| ScriptError::runtime(e))?;
         if s != "s" {
             return Err(ScriptError::runtime(format!(
-                "tf: single-argument form expects \"s\", got \"{}\"", s
+                "tf: single-argument form expects \"s\", got \"{}\"",
+                s
             )));
         }
-        Ok(Value::TransferFn { num: vec![1.0, 0.0], den: vec![1.0] })
+        Ok(Value::TransferFn {
+            num: vec![1.0, 0.0],
+            den: vec![1.0],
+        })
     } else {
         // tf(num_vec, den_vec) → explicit transfer function
         let num_cv = args[0].to_cvector().map_err(|e| ScriptError::type_err(e))?;
         let den_cv = args[1].to_cvector().map_err(|e| ScriptError::type_err(e))?;
-        let num: Result<Vec<f64>, ScriptError> = num_cv.iter().map(|c| {
-            if c.im.abs() > 1e-12 {
-                Err(ScriptError::type_err("tf: numerator coefficients must be real".to_string()))
-            } else {
-                Ok(c.re)
-            }
-        }).collect();
-        let den: Result<Vec<f64>, ScriptError> = den_cv.iter().map(|c| {
-            if c.im.abs() > 1e-12 {
-                Err(ScriptError::type_err("tf: denominator coefficients must be real".to_string()))
-            } else {
-                Ok(c.re)
-            }
-        }).collect();
+        let num: Result<Vec<f64>, ScriptError> = num_cv
+            .iter()
+            .map(|c| {
+                if c.im.abs() > 1e-12 {
+                    Err(ScriptError::type_err(
+                        "tf: numerator coefficients must be real".to_string(),
+                    ))
+                } else {
+                    Ok(c.re)
+                }
+            })
+            .collect();
+        let den: Result<Vec<f64>, ScriptError> = den_cv
+            .iter()
+            .map(|c| {
+                if c.im.abs() > 1e-12 {
+                    Err(ScriptError::type_err(
+                        "tf: denominator coefficients must be real".to_string(),
+                    ))
+                } else {
+                    Ok(c.re)
+                }
+            })
+            .collect();
         if den_cv.is_empty() {
-            return Err(ScriptError::runtime("tf: denominator must be non-empty".to_string()));
+            return Err(ScriptError::runtime(
+                "tf: denominator must be non-empty".to_string(),
+            ));
         }
-        Ok(Value::TransferFn { num: num?, den: den? })
+        Ok(Value::TransferFn {
+            num: num?,
+            den: den?,
+        })
     }
 }
 
 /// Convert a real polynomial coefficient slice to a complex Value::Vector for roots().
 fn real_poly_to_value(coeffs: &[f64]) -> Value {
-    Value::Vector(Array1::from_iter(coeffs.iter().map(|&x| Complex::new(x, 0.0))))
+    Value::Vector(Array1::from_iter(
+        coeffs.iter().map(|&x| Complex::new(x, 0.0)),
+    ))
 }
 
 fn builtin_pole(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("pole", &args, 1)?;
     match &args[0] {
         Value::TransferFn { den, .. } => builtin_roots(vec![real_poly_to_value(den)]),
-        other => Err(ScriptError::type_err(format!("pole: expected tf, got {}", other.type_name()))),
+        other => Err(ScriptError::type_err(format!(
+            "pole: expected tf, got {}",
+            other.type_name()
+        ))),
     }
 }
 
@@ -3734,7 +4446,10 @@ fn builtin_zero(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("zero", &args, 1)?;
     match &args[0] {
         Value::TransferFn { num, .. } => builtin_roots(vec![real_poly_to_value(num)]),
-        other => Err(ScriptError::type_err(format!("zero: expected tf, got {}", other.type_name()))),
+        other => Err(ScriptError::type_err(format!(
+            "zero: expected tf, got {}",
+            other.type_name()
+        ))),
     }
 }
 
@@ -3764,7 +4479,9 @@ fn tf_to_ss(num: &[f64], den: &[f64]) -> Result<Value, String> {
     let (d_val, b): (f64, Vec<f64>) = if num_norm.len() == n + 1 {
         // Proper (non-strictly-proper): subtract D * monic_den
         let dv = num_norm[0];
-        let bv: Vec<f64> = num_norm[1..].iter().zip(a[1..].iter())
+        let bv: Vec<f64> = num_norm[1..]
+            .iter()
+            .zip(a[1..].iter())
             .map(|(&ni, &ai)| ni - dv * ai)
             .collect();
         (dv, bv)
@@ -3794,14 +4511,23 @@ fn tf_to_ss(num: &[f64], den: &[f64]) -> Result<Value, String> {
 
     // C: 1×n, [1, 0, 0, ...]
     let c_mat: CMatrix = Array2::from_shape_fn((1, n), |(_, j)| {
-        if j == 0 { Complex::new(1.0, 0.0) } else { Complex::new(0.0, 0.0) }
+        if j == 0 {
+            Complex::new(1.0, 0.0)
+        } else {
+            Complex::new(0.0, 0.0)
+        }
     });
 
     // D: 1×1
     let d_mat: CMatrix = Array2::from_shape_vec((1, 1), vec![Complex::new(d_val, 0.0)])
         .map_err(|e| e.to_string())?;
 
-    Ok(Value::StateSpace { a: a_mat, b: b_mat, c: c_mat, d: d_mat })
+    Ok(Value::StateSpace {
+        a: a_mat,
+        b: b_mat,
+        c: c_mat,
+        d: d_mat,
+    })
 }
 
 fn builtin_ss(args: Vec<Value>) -> Result<Value, ScriptError> {
@@ -3819,9 +4545,12 @@ fn builtin_ctrb(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("ctrb", &args, 2)?;
     let a = match &args[0] {
         Value::Matrix(m) => m.clone(),
-        other => return Err(ScriptError::type_err(format!(
-            "ctrb: A must be a matrix, got {}", other.type_name()
-        ))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "ctrb: A must be a matrix, got {}",
+                other.type_name()
+            )))
+        }
     };
     let b = match &args[1] {
         Value::Matrix(m) => m.clone(),
@@ -3830,9 +4559,12 @@ fn builtin_ctrb(args: Vec<Value>) -> Result<Value, ScriptError> {
             let n = v.len();
             Array2::from_shape_fn((n, 1), |(i, _)| v[i])
         }
-        other => return Err(ScriptError::type_err(format!(
-            "ctrb: B must be a matrix or vector, got {}", other.type_name()
-        ))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "ctrb: B must be a matrix or vector, got {}",
+                other.type_name()
+            )))
+        }
     };
     let n = a.nrows();
     if a.ncols() != n {
@@ -3840,7 +4572,10 @@ fn builtin_ctrb(args: Vec<Value>) -> Result<Value, ScriptError> {
     }
     if b.nrows() != n {
         return Err(ScriptError::runtime(format!(
-            "ctrb: B has {} rows but A is {}×{}", b.nrows(), n, n
+            "ctrb: B has {} rows but A is {}×{}",
+            b.nrows(),
+            n,
+            n
         )));
     }
     let m = b.ncols();
@@ -3871,9 +4606,12 @@ fn builtin_obsv(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("obsv", &args, 2)?;
     let a = match &args[0] {
         Value::Matrix(m) => m.clone(),
-        other => return Err(ScriptError::type_err(format!(
-            "obsv: A must be a matrix, got {}", other.type_name()
-        ))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "obsv: A must be a matrix, got {}",
+                other.type_name()
+            )))
+        }
     };
     let c = match &args[1] {
         Value::Matrix(m) => m.clone(),
@@ -3882,9 +4620,12 @@ fn builtin_obsv(args: Vec<Value>) -> Result<Value, ScriptError> {
             let n = v.len();
             Array2::from_shape_fn((1, n), |(_, j)| v[j])
         }
-        other => return Err(ScriptError::type_err(format!(
-            "obsv: C must be a matrix or vector, got {}", other.type_name()
-        ))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "obsv: C must be a matrix or vector, got {}",
+                other.type_name()
+            )))
+        }
     };
     let n = a.nrows();
     if a.ncols() != n {
@@ -3892,7 +4633,10 @@ fn builtin_obsv(args: Vec<Value>) -> Result<Value, ScriptError> {
     }
     if c.ncols() != n {
         return Err(ScriptError::runtime(format!(
-            "obsv: C has {} columns but A is {}×{}", c.ncols(), n, n
+            "obsv: C has {} columns but A is {}×{}",
+            c.ncols(),
+            n,
+            n
         )));
     }
     let p = c.nrows();
@@ -3932,18 +4676,26 @@ fn poly_eval_c(coeffs: &[f64], s: C64) -> C64 {
 
 /// n log-spaced values from start to stop.
 fn logspace(start: f64, stop: f64, n: usize) -> Vec<f64> {
-    if n == 0 { return Vec::new(); }
-    if n == 1 { return vec![start]; }
+    if n == 0 {
+        return Vec::new();
+    }
+    if n == 1 {
+        return vec![start];
+    }
     let ls = start.log10();
     let le = stop.log10();
-    (0..n).map(|i| {
-        let t = i as f64 / (n - 1) as f64;
-        10.0_f64.powf(ls + t * (le - ls))
-    }).collect()
+    (0..n)
+        .map(|i| {
+            let t = i as f64 / (n - 1) as f64;
+            10.0_f64.powf(ls + t * (le - ls))
+        })
+        .collect()
 }
 
 /// Take real part of a CMatrix.
-fn to_real_mat(m: &CMatrix) -> ndarray::Array2<f64> { m.mapv(|c| c.re) }
+fn to_real_mat(m: &CMatrix) -> ndarray::Array2<f64> {
+    m.mapv(|c| c.re)
+}
 
 /// Single RK4 integration step for ẋ = Ax + Bu (real, SISO u scalar).
 fn rk4_step(
@@ -3969,11 +4721,19 @@ fn rk4_step(
 /// Unwrap phase (degrees) across a sequence to remove ±360° jumps.
 fn unwrap_phase_deg(phase: &[f64]) -> Vec<f64> {
     let mut out = vec![0.0f64; phase.len()];
-    if phase.is_empty() { return out; }
+    if phase.is_empty() {
+        return out;
+    }
     out[0] = phase[0];
     for i in 1..phase.len() {
         let diff = phase[i] - out[i - 1];
-        let adj = if diff > 180.0 { diff - 360.0 } else if diff < -180.0 { diff + 360.0 } else { diff };
+        let adj = if diff > 180.0 {
+            diff - 360.0
+        } else if diff < -180.0 {
+            diff + 360.0
+        } else {
+            diff
+        };
         out[i] = out[i - 1] + adj;
     }
     out
@@ -3982,7 +4742,7 @@ fn unwrap_phase_deg(phase: &[f64]) -> Vec<f64> {
 /// Find the x-value where y crosses `target` (first crossing, linear interpolation).
 fn find_crossing(x: &[f64], y: &[f64], target: f64) -> Option<f64> {
     for i in 0..y.len().saturating_sub(1) {
-        let y0 = y[i]     - target;
+        let y0 = y[i] - target;
         let y1 = y[i + 1] - target;
         if y0 * y1 <= 0.0 && (y0 - y1).abs() > 1e-30 {
             let t = y0 / (y0 - y1);
@@ -3994,13 +4754,20 @@ fn find_crossing(x: &[f64], y: &[f64], target: f64) -> Option<f64> {
 
 /// Evaluate Bode data (mag_dB, phase_deg unwrapped) for a TF over frequency vector w.
 fn bode_compute(num: &[f64], den: &[f64], w: &[f64]) -> (Vec<f64>, Vec<f64>) {
-    let h: Vec<C64> = w.iter().map(|&wi| {
-        let jw = Complex::new(0.0, wi);
-        let n = poly_eval_c(num, jw);
-        let d = poly_eval_c(den, jw);
-        if d.norm() < 1e-300 { Complex::new(f64::INFINITY, 0.0) } else { n / d }
-    }).collect();
-    let mag_db:    Vec<f64> = h.iter().map(|v| 20.0 * v.norm().log10()).collect();
+    let h: Vec<C64> = w
+        .iter()
+        .map(|&wi| {
+            let jw = Complex::new(0.0, wi);
+            let n = poly_eval_c(num, jw);
+            let d = poly_eval_c(den, jw);
+            if d.norm() < 1e-300 {
+                Complex::new(f64::INFINITY, 0.0)
+            } else {
+                n / d
+            }
+        })
+        .collect();
+    let mag_db: Vec<f64> = h.iter().map(|v| 20.0 * v.norm().log10()).collect();
     let phase_raw: Vec<f64> = h.iter().map(|v| v.arg().to_degrees()).collect();
     (mag_db, unwrap_phase_deg(&phase_raw))
 }
@@ -4009,8 +4776,9 @@ fn bode_compute(num: &[f64], den: &[f64], w: &[f64]) -> (Vec<f64>, Vec<f64>) {
 fn auto_freq_range(den: &[f64]) -> Result<Vec<f64>, ScriptError> {
     let poles = builtin_roots(vec![real_poly_to_value(den)])?;
     let w_nat = match &poles {
-        Value::Vector(v) if !v.is_empty() =>
-            v.iter().map(|c| c.norm()).fold(0.0f64, f64::max).max(1.0),
+        Value::Vector(v) if !v.is_empty() => {
+            v.iter().map(|c| c.norm()).fold(0.0f64, f64::max).max(1.0)
+        }
         _ => 1.0,
     };
     Ok(logspace((w_nat * 0.01).max(1e-3), w_nat * 100.0, 200))
@@ -4020,17 +4788,23 @@ fn builtin_bode(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("bode", &args, 1, 2)?;
     let (num, den) = match &args[0] {
         Value::TransferFn { num, den } => (num.clone(), den.clone()),
-        other => return Err(ScriptError::type_err(format!(
-            "bode: expected tf, got {}", other.type_name()
-        ))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "bode: expected tf, got {}",
+                other.type_name()
+            )))
+        }
     };
 
     let w_vec: Vec<f64> = if args.len() == 2 {
         match &args[1] {
             Value::Vector(v) => v.iter().map(|c| c.re).collect(),
-            other => return Err(ScriptError::type_err(format!(
-                "bode: w must be a vector, got {}", other.type_name()
-            ))),
+            other => {
+                return Err(ScriptError::type_err(format!(
+                    "bode: w must be a vector, got {}",
+                    other.type_name()
+                )))
+            }
         }
     } else {
         auto_freq_range(&den)?
@@ -4042,7 +4816,14 @@ fn builtin_bode(args: Vec<Value>) -> Result<Value, ScriptError> {
     let log_w: Vec<f64> = w_vec.iter().map(|&w| w.log10()).collect();
 
     FIGURE.with(|fig| fig.borrow_mut().set_subplot(2, 1, 1));
-    push_xy_line(log_w.clone(), mag_db.clone(), "magnitude", "Bode Plot", None, LineStyle::Solid);
+    push_xy_line(
+        log_w.clone(),
+        mag_db.clone(),
+        "magnitude",
+        "Bode Plot",
+        None,
+        LineStyle::Solid,
+    );
     FIGURE.with(|fig| {
         let mut f = fig.borrow_mut();
         let sp = f.current_mut();
@@ -4051,7 +4832,14 @@ fn builtin_bode(args: Vec<Value>) -> Result<Value, ScriptError> {
     });
 
     FIGURE.with(|fig| fig.borrow_mut().set_subplot(2, 1, 2));
-    push_xy_line(log_w, phase_deg.clone(), "phase", "", None, LineStyle::Solid);
+    push_xy_line(
+        log_w,
+        phase_deg.clone(),
+        "phase",
+        "",
+        None,
+        LineStyle::Solid,
+    );
     FIGURE.with(|fig| {
         let mut f = fig.borrow_mut();
         let sp = f.current_mut();
@@ -4062,9 +4850,15 @@ fn builtin_bode(args: Vec<Value>) -> Result<Value, ScriptError> {
     render_figure_terminal().map_err(|e| ScriptError::runtime(e.to_string()))?;
     sync_figure_outputs();
 
-    let w_val   = Value::Vector(Array1::from_iter(w_vec.iter()   .map(|&x| Complex::new(x, 0.0))));
-    let mag_val = Value::Vector(Array1::from_iter(mag_db.iter()  .map(|&x| Complex::new(x, 0.0))));
-    let ph_val  = Value::Vector(Array1::from_iter(phase_deg.iter().map(|&x| Complex::new(x, 0.0))));
+    let w_val = Value::Vector(Array1::from_iter(
+        w_vec.iter().map(|&x| Complex::new(x, 0.0)),
+    ));
+    let mag_val = Value::Vector(Array1::from_iter(
+        mag_db.iter().map(|&x| Complex::new(x, 0.0)),
+    ));
+    let ph_val = Value::Vector(Array1::from_iter(
+        phase_deg.iter().map(|&x| Complex::new(x, 0.0)),
+    ));
     Ok(Value::Tuple(vec![mag_val, ph_val, w_val]))
 }
 
@@ -4072,9 +4866,12 @@ fn builtin_step(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("step", &args, 1, 2)?;
     let (num, den) = match &args[0] {
         Value::TransferFn { num, den } => (num.clone(), den.clone()),
-        other => return Err(ScriptError::type_err(format!(
-            "step: expected tf, got {}", other.type_name()
-        ))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "step: expected tf, got {}",
+                other.type_name()
+            )))
+        }
     };
 
     // Convert TF → SS
@@ -4093,8 +4890,11 @@ fn builtin_step(args: Vec<Value>) -> Result<Value, ScriptError> {
     } else {
         let poles = builtin_roots(vec![real_poly_to_value(&den)])?;
         let min_decay = match &poles {
-            Value::Vector(v) if !v.is_empty() =>
-                v.iter().map(|p| p.re.abs()).fold(f64::INFINITY, f64::min).max(1e-6),
+            Value::Vector(v) if !v.is_empty() => v
+                .iter()
+                .map(|p| p.re.abs())
+                .fold(f64::INFINITY, f64::min)
+                .max(1e-6),
             _ => 1.0,
         };
         (10.0 / min_decay).min(100.0)
@@ -4117,7 +4917,14 @@ fn builtin_step(args: Vec<Value>) -> Result<Value, ScriptError> {
         }
     }
 
-    push_xy_line(t_out.clone(), y_out.clone(), "y(t)", "Step Response", None, LineStyle::Solid);
+    push_xy_line(
+        t_out.clone(),
+        y_out.clone(),
+        "y(t)",
+        "Step Response",
+        None,
+        LineStyle::Solid,
+    );
     FIGURE.with(|fig| {
         let mut f = fig.borrow_mut();
         let sp = f.current_mut();
@@ -4127,8 +4934,12 @@ fn builtin_step(args: Vec<Value>) -> Result<Value, ScriptError> {
     render_figure_terminal().map_err(|e| ScriptError::runtime(e.to_string()))?;
     sync_figure_outputs();
 
-    let y_val = Value::Vector(Array1::from_iter(y_out.iter().map(|&v| Complex::new(v, 0.0))));
-    let t_val = Value::Vector(Array1::from_iter(t_out.iter().map(|&v| Complex::new(v, 0.0))));
+    let y_val = Value::Vector(Array1::from_iter(
+        y_out.iter().map(|&v| Complex::new(v, 0.0)),
+    ));
+    let t_val = Value::Vector(Array1::from_iter(
+        t_out.iter().map(|&v| Complex::new(v, 0.0)),
+    ));
     Ok(Value::Tuple(vec![y_val, t_val]))
 }
 
@@ -4152,7 +4963,11 @@ fn mat_mul_cx(a: &CMatrix, b: &CMatrix) -> CMatrix {
 
 /// Inverse iteration: given matrix M and approximate eigenvalue λ,
 /// return the corresponding eigenvector (2n-dim complex vector).
-fn inverse_iteration_cx(m: &CMatrix, eigenvalue: C64, max_iter: usize) -> Result<CVector, ScriptError> {
+fn inverse_iteration_cx(
+    m: &CMatrix,
+    eigenvalue: C64,
+    max_iter: usize,
+) -> Result<CVector, ScriptError> {
     let n = m.nrows();
     // Perturb the shift so (M - shift*I) is nonsingular
     let scale = eigenvalue.norm().max(1.0);
@@ -4164,7 +4979,10 @@ fn inverse_iteration_cx(m: &CMatrix, eigenvalue: C64, max_iter: usize) -> Result
     }
 
     let inv = matrix_inv(&shifted).map_err(|e| {
-        ScriptError::type_err(format!("lqr: inverse iteration failed (singular shift): {}", e))
+        ScriptError::type_err(format!(
+            "lqr: inverse iteration failed (singular shift): {}",
+            e
+        ))
     })?;
 
     // Initial vector: unit in first component
@@ -4257,14 +5075,20 @@ fn builtin_lqr(args: Vec<Value>) -> Result<Value, ScriptError> {
     if q_mat.nrows() != n || q_mat.ncols() != n {
         return Err(ScriptError::type_err(format!(
             "lqr: Q must be {}×{}, got {}×{}",
-            n, n, q_mat.nrows(), q_mat.ncols()
+            n,
+            n,
+            q_mat.nrows(),
+            q_mat.ncols()
         )));
     }
     let m_in = b_mat.ncols();
     if r_mat.nrows() != m_in || r_mat.ncols() != m_in {
         return Err(ScriptError::type_err(format!(
             "lqr: R must be {}×{} (inputs), got {}×{}",
-            m_in, m_in, r_mat.nrows(), r_mat.ncols()
+            m_in,
+            m_in,
+            r_mat.nrows(),
+            r_mat.ncols()
         )));
     }
 
@@ -4273,33 +5097,30 @@ fn builtin_lqr(args: Vec<Value>) -> Result<Value, ScriptError> {
         .map_err(|e| ScriptError::type_err(format!("lqr: R is singular: {}", e)))?;
 
     // G = B · R⁻¹ · B'  (n×n)
-    let br = mat_mul_cx(&b_mat, &r_inv);               // n×m
+    let br = mat_mul_cx(&b_mat, &r_inv); // n×m
     let bt: CMatrix = b_mat.t().mapv(|c| c.conj()).to_owned(); // m×n
-    let g = mat_mul_cx(&br, &bt);                       // n×n
+    let g = mat_mul_cx(&br, &bt); // n×n
 
     // Hamiltonian H = [A, -G; -Q, -A']  (2n×2n)
     let two_n = 2 * n;
     let mut ham: CMatrix = Array2::zeros((two_n, two_n));
     for i in 0..n {
         for j in 0..n {
-            ham[[i, j]]         =  a_mat[[i, j]];
-            ham[[i, n + j]]     = -g[[i, j]];
-            ham[[n + i, j]]     = -q_mat[[i, j]];
+            ham[[i, j]] = a_mat[[i, j]];
+            ham[[i, n + j]] = -g[[i, j]];
+            ham[[n + i, j]] = -q_mat[[i, j]];
             ham[[n + i, n + j]] = -a_mat[[j, i]].conj(); // -A'
         }
     }
 
     // Eigenvalues of H
     let h_hess = hessenberg_reduce(&ham);
-    let all_eigs = eig_hessenberg(&h_hess)
-        .map_err(|e| ScriptError::type_err(format!("lqr: Hamiltonian eigenvalues failed: {}", e)))?;
+    let all_eigs = eig_hessenberg(&h_hess).map_err(|e| {
+        ScriptError::type_err(format!("lqr: Hamiltonian eigenvalues failed: {}", e))
+    })?;
 
     // Select the n stable eigenvalues (Re < 0), sort for determinism
-    let mut stable: Vec<C64> = all_eigs
-        .iter()
-        .filter(|e| e.re < -1e-10)
-        .cloned()
-        .collect();
+    let mut stable: Vec<C64> = all_eigs.iter().filter(|e| e.re < -1e-10).cloned().collect();
 
     if stable.len() < n {
         return Err(ScriptError::type_err(format!(
@@ -4334,8 +5155,9 @@ fn builtin_lqr(args: Vec<Value>) -> Result<Value, ScriptError> {
     }
 
     // P = V2 · inv(V1)  — should be real symmetric positive semi-definite
-    let v1_inv = matrix_inv(&v1)
-        .map_err(|e| ScriptError::type_err(format!("lqr: eigenvector matrix V1 is singular: {}", e)))?;
+    let v1_inv = matrix_inv(&v1).map_err(|e| {
+        ScriptError::type_err(format!("lqr: eigenvector matrix V1 is singular: {}", e))
+    })?;
     let p_cx = mat_mul_cx(&v2, &v1_inv);
 
     // Take real part (imaginary residuals ≈ 0 for well-conditioned problems)
@@ -4347,7 +5169,7 @@ fn builtin_lqr(args: Vec<Value>) -> Result<Value, ScriptError> {
     }
 
     // K = R⁻¹ · B' · P  (m×n)
-    let bt_p = mat_mul_cx(&bt, &p);   // m×n
+    let bt_p = mat_mul_cx(&bt, &p); // m×n
     let k_mat = mat_mul_cx(&r_inv, &bt_p); // m×n
 
     // Closed-loop eigenvalues  e = eig(A − B·K)
@@ -4394,7 +5216,9 @@ fn pair_roots_by_proximity(new_roots: Vec<C64>, prev: &[C64]) -> Vec<C64> {
     let mut used = vec![false; new_roots.len()];
     let mut result = new_roots.clone();
     for i in 0..n {
-        let best_j = new_roots.iter().enumerate()
+        let best_j = new_roots
+            .iter()
+            .enumerate()
             .filter(|(j, _)| !used[*j])
             .min_by(|(_, a), (_, b)| {
                 let da = (*a - prev[i]).norm();
@@ -4413,14 +5237,19 @@ fn builtin_rlocus(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("rlocus", &args, 1)?;
     let (num, den) = match &args[0] {
         Value::TransferFn { num, den } => (num.clone(), den.clone()),
-        other => return Err(ScriptError::type_err(format!(
-            "rlocus: expected tf, got {}", other.type_name()
-        ))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "rlocus: expected tf, got {}",
+                other.type_name()
+            )))
+        }
     };
 
     let n_poles = den.len().saturating_sub(1);
     if n_poles == 0 {
-        return Err(ScriptError::runtime("rlocus: system has no poles".to_string()));
+        return Err(ScriptError::runtime(
+            "rlocus: system has no poles".to_string(),
+        ));
     }
     let n_zeros = num.len().saturating_sub(1);
     if n_zeros >= n_poles {
@@ -4433,7 +5262,11 @@ fn builtin_rlocus(args: Vec<Value>) -> Result<Value, ScriptError> {
     let ol_val = builtin_roots(vec![real_poly_to_value(&den)])?;
     let mut ol_poles: Vec<C64> = match ol_val {
         Value::Vector(v) => v.to_vec(),
-        _ => return Err(ScriptError::runtime("rlocus: failed to compute poles".to_string())),
+        _ => {
+            return Err(ScriptError::runtime(
+                "rlocus: failed to compute poles".to_string(),
+            ))
+        }
     };
     ol_poles.sort_by(|a, b| a.im.partial_cmp(&b.im).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -4455,7 +5288,9 @@ fn builtin_rlocus(args: Vec<Value>) -> Result<Value, ScriptError> {
             Value::Vector(v) => v.to_vec(),
             _ => continue,
         };
-        if roots.len() != n_poles { continue; }
+        if roots.len() != n_poles {
+            continue;
+        }
         let paired = pair_roots_by_proximity(roots, &prev_roots);
         for (i, r) in paired.iter().enumerate() {
             trajectories[i].push((r.re, r.im));
@@ -4468,7 +5303,7 @@ fn builtin_rlocus(args: Vec<Value>) -> Result<Value, ScriptError> {
         let mut f = fig.borrow_mut();
         f.reset();
         let sp = f.current_mut();
-        sp.title  = "Root Locus".to_string();
+        sp.title = "Root Locus".to_string();
         sp.xlabel = "Real".to_string();
         sp.ylabel = "Imaginary".to_string();
         f.hold = true;
@@ -4477,7 +5312,14 @@ fn builtin_rlocus(args: Vec<Value>) -> Result<Value, ScriptError> {
     for (i, traj) in trajectories.iter().enumerate() {
         let x: Vec<f64> = traj.iter().map(|&(re, _)| re).collect();
         let y: Vec<f64> = traj.iter().map(|&(_, im)| im).collect();
-        push_xy_line(x, y, &format!("root {}", i + 1), "", Some(SeriesColor::cycle(i)), LineStyle::Solid);
+        push_xy_line(
+            x,
+            y,
+            &format!("root {}", i + 1),
+            "",
+            Some(SeriesColor::cycle(i)),
+            LineStyle::Solid,
+        );
     }
 
     render_figure_terminal().map_err(|e| ScriptError::runtime(e.to_string()))?;
@@ -4489,16 +5331,20 @@ fn builtin_margin(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("margin", &args, 1)?;
     let (num, den) = match &args[0] {
         Value::TransferFn { num, den } => (num.clone(), den.clone()),
-        other => return Err(ScriptError::type_err(format!(
-            "margin: expected tf, got {}", other.type_name()
-        ))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "margin: expected tf, got {}",
+                other.type_name()
+            )))
+        }
     };
 
     // Dense grid for accurate crossing detection
     let poles = builtin_roots(vec![real_poly_to_value(&den)])?;
     let w_nat = match &poles {
-        Value::Vector(v) if !v.is_empty() =>
-            v.iter().map(|c| c.norm()).fold(0.0f64, f64::max).max(1.0),
+        Value::Vector(v) if !v.is_empty() => {
+            v.iter().map(|c| c.norm()).fold(0.0f64, f64::max).max(1.0)
+        }
         _ => 1.0,
     };
     let w_vec = logspace((w_nat * 0.001).max(1e-4), w_nat * 1000.0, 1000);
@@ -4514,7 +5360,11 @@ fn builtin_margin(args: Vec<Value>) -> Result<Value, ScriptError> {
     let gm = if let Some(wc) = wcg {
         let jw = Complex::new(0.0, wc);
         let h = poly_eval_c(&num, jw) / poly_eval_c(&den, jw);
-        if h.norm() > 1e-30 { 1.0 / h.norm() } else { f64::INFINITY }
+        if h.norm() > 1e-30 {
+            1.0 / h.norm()
+        } else {
+            f64::INFINITY
+        }
     } else {
         f64::INFINITY
     };
@@ -4548,17 +5398,25 @@ fn builtin_softmax(args: Vec<Value>) -> Result<Value, ScriptError> {
             let max_re = v.iter().map(|c| c.re).fold(f64::NEG_INFINITY, f64::max);
             let exps: Vec<f64> = v.iter().map(|c| (c.re - max_re).exp()).collect();
             let sum: f64 = exps.iter().sum();
-            let result: CVector = Array1::from_iter(exps.iter().map(|&e| Complex::new(e / sum, 0.0)));
+            let result: CVector =
+                Array1::from_iter(exps.iter().map(|&e| Complex::new(e / sum, 0.0)));
             Ok(Value::Vector(result))
         }
         Value::Scalar(_) => Ok(Value::Scalar(1.0)),
-        _ => Err(ScriptError::type_err("softmax: argument must be a non-empty vector or scalar".to_string())),
+        _ => Err(ScriptError::type_err(
+            "softmax: argument must be a non-empty vector or scalar".to_string(),
+        )),
     }
 }
 
 /// relu(x) — rectified linear unit: max(0, x), element-wise.
 fn builtin_relu(args: Vec<Value>) -> Result<Value, ScriptError> {
-    apply_scalar_fn_to_value("relu", args, |x: f64| x.max(0.0), |c: Complex<f64>| Complex::new(c.re.max(0.0), 0.0))
+    apply_scalar_fn_to_value(
+        "relu",
+        args,
+        |x: f64| x.max(0.0),
+        |c: Complex<f64>| Complex::new(c.re.max(0.0), 0.0),
+    )
 }
 
 fn gelu_scalar(x: f64) -> f64 {
@@ -4570,7 +5428,9 @@ fn gelu_scalar(x: f64) -> f64 {
 
 /// gelu(x) — Gaussian error linear unit, element-wise.
 fn builtin_gelu(args: Vec<Value>) -> Result<Value, ScriptError> {
-    apply_scalar_fn_to_value("gelu", args, gelu_scalar, |c: Complex<f64>| Complex::new(gelu_scalar(c.re), 0.0))
+    apply_scalar_fn_to_value("gelu", args, gelu_scalar, |c: Complex<f64>| {
+        Complex::new(gelu_scalar(c.re), 0.0)
+    })
 }
 
 /// layernorm(v) or layernorm(v, eps) — layer normalisation: (v - mean) / sqrt(var + eps).
@@ -4596,7 +5456,9 @@ fn builtin_layernorm(args: Vec<Value>) -> Result<Value, ScriptError> {
             let _ = s;
             Ok(Value::Scalar(0.0))
         }
-        _ => Err(ScriptError::type_err("layernorm: argument must be a non-empty vector or scalar".to_string())),
+        _ => Err(ScriptError::type_err(
+            "layernorm: argument must be a non-empty vector or scalar".to_string(),
+        )),
     }
 }
 
@@ -4608,7 +5470,8 @@ fn builtin_layernorm(args: Vec<Value>) -> Result<Value, ScriptError> {
 fn builtin_bar(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.is_empty() || args.len() > 3 {
         return Err(ScriptError::type_err(
-            "bar: expected bar(y), bar(x,y), bar(labels,y), bar(M), bar(x,M), or bar(...,title)".to_string()
+            "bar: expected bar(y), bar(x,y), bar(labels,y), bar(M), bar(x,M), or bar(...,title)"
+                .to_string(),
         ));
     }
     let mut args = args;
@@ -4616,22 +5479,35 @@ fn builtin_bar(args: Vec<Value>) -> Result<Value, ScriptError> {
     // Categorical bar chart: bar({"A","B","C"}, [10,20,30]) or bar(labels, y, "title")
     if let Value::StringArray(labels) = &args[0] {
         if args.len() < 2 {
-            return Err(ScriptError::type_err("bar: string array labels require a y-data argument".to_string()));
+            return Err(ScriptError::type_err(
+                "bar: string array labels require a y-data argument".to_string(),
+            ));
         }
         let y_data: Vec<f64> = to_real_vector(&args[1])?.to_vec();
         if labels.len() != y_data.len() {
             return Err(ScriptError::type_err(format!(
-                "bar: labels length ({}) must match y-data length ({})", labels.len(), y_data.len()
+                "bar: labels length ({}) must match y-data length ({})",
+                labels.len(),
+                y_data.len()
             )));
         }
-        let title = if args.len() > 2 { args[2].to_str().unwrap_or_default() } else { String::new() };
+        let title = if args.len() > 2 {
+            args[2].to_str().unwrap_or_default()
+        } else {
+            String::new()
+        };
         let x_data: Vec<f64> = (1..=labels.len()).map(|i| i as f64).collect();
         FIGURE.with(|fig| {
             let mut fig = fig.borrow_mut();
-            if !fig.hold { fig.current_mut().series.clear(); fig.current_mut().title.clear(); }
+            if !fig.hold {
+                fig.current_mut().series.clear();
+                fig.current_mut().title.clear();
+            }
             let color = fig.next_color();
             let sp = fig.current_mut();
-            if !title.is_empty() && sp.title.is_empty() { sp.title = title; }
+            if !title.is_empty() && sp.title.is_empty() {
+                sp.title = title;
+            }
             sp.x_labels = Some(labels.clone());
             sp.series.push(rustlab_plot::Series {
                 label: "bar".to_string(),
@@ -4647,7 +5523,11 @@ fn builtin_bar(args: Vec<Value>) -> Result<Value, ScriptError> {
         return Ok(Value::None);
     }
     // Check if the y-data argument is a matrix (grouped bar chart)
-    let y_arg_idx = if args.len() >= 2 && !matches!(&args[1], Value::Str(_)) { 1 } else { 0 };
+    let y_arg_idx = if args.len() >= 2 && !matches!(&args[1], Value::Str(_)) {
+        1
+    } else {
+        0
+    };
     if let Value::Matrix(m) = &args[y_arg_idx] {
         let x_data: Vec<f64> = if y_arg_idx == 1 {
             to_real_vector(&args[0])?.to_vec()
@@ -4662,12 +5542,17 @@ fn builtin_bar(args: Vec<Value>) -> Result<Value, ScriptError> {
         // Each column is a group
         FIGURE.with(|fig| {
             let mut fig = fig.borrow_mut();
-            if !fig.hold { fig.current_mut().series.clear(); fig.current_mut().title.clear(); }
+            if !fig.hold {
+                fig.current_mut().series.clear();
+                fig.current_mut().title.clear();
+            }
             for col in 0..m.ncols() {
                 let y_data: Vec<f64> = m.column(col).iter().map(|c| c.re).collect();
                 let color = fig.next_color();
                 let sp = fig.current_mut();
-                if !title.is_empty() && sp.title.is_empty() { sp.title = title.clone(); }
+                if !title.is_empty() && sp.title.is_empty() {
+                    sp.title = title.clone();
+                }
                 sp.series.push(rustlab_plot::Series {
                     label: format!("group{}", col + 1),
                     x_data: x_data.clone(),
@@ -4695,14 +5580,18 @@ fn builtin_bar(args: Vec<Value>) -> Result<Value, ScriptError> {
 fn builtin_scatter(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.len() < 2 || args.len() > 3 {
         return Err(ScriptError::type_err(
-            "scatter: expected scatter(x, y) or scatter(x, y, title)".to_string()
+            "scatter: expected scatter(x, y) or scatter(x, y, title)".to_string(),
         ));
     }
     let mut args = args;
     flatten_column_matrix_args(&mut args);
     let xv = to_real_vector(&args[0])?;
     let yv = to_real_vector(&args[1])?;
-    let title = if args.len() == 3 { args[2].to_str().map_err(|e| ScriptError::type_err(e))? } else { String::new() };
+    let title = if args.len() == 3 {
+        args[2].to_str().map_err(|e| ScriptError::type_err(e))?
+    } else {
+        String::new()
+    };
     let x_data: Vec<f64> = xv.to_vec();
     let y_data: Vec<f64> = yv.to_vec();
     push_xy_scatter(x_data, y_data, "scatter", &title, None);
@@ -4715,7 +5604,10 @@ fn builtin_scatter(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 /// Extract (x_data, y_data, title) from `bar(y)`, `bar(x,y)`, `bar(y,title)`,
 /// `bar(x,y,title)` style argument lists.
-fn extract_xy_with_title(args: &[Value], name: &str) -> Result<(Vec<f64>, Vec<f64>, String), ScriptError> {
+fn extract_xy_with_title(
+    args: &[Value],
+    name: &str,
+) -> Result<(Vec<f64>, Vec<f64>, String), ScriptError> {
     match args {
         // bar(y)
         [y] => {
@@ -4742,7 +5634,9 @@ fn extract_xy_with_title(args: &[Value], name: &str) -> Result<(Vec<f64>, Vec<f6
             let title = t.to_str().map_err(|e| ScriptError::type_err(e))?;
             Ok((xv.to_vec(), yv.to_vec(), title))
         }
-        _ => Err(ScriptError::type_err(format!("{name}: wrong number of arguments"))),
+        _ => Err(ScriptError::type_err(format!(
+            "{name}: wrong number of arguments"
+        ))),
     }
 }
 
@@ -4751,17 +5645,27 @@ fn extract_xy_with_title(args: &[Value], name: &str) -> Result<(Vec<f64>, Vec<f6
 /// logspace(a, b, n) — n log-spaced points from 10^a to 10^b.
 fn builtin_logspace(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("logspace", &args, 3)?;
-    let a = args[0].to_scalar().map_err(|_| ScriptError::type_err(
-        "logspace: a must be a real scalar".to_string()))?;
-    let b = args[1].to_scalar().map_err(|_| ScriptError::type_err(
-        "logspace: b must be a real scalar".to_string()))?;
+    let a = args[0]
+        .to_scalar()
+        .map_err(|_| ScriptError::type_err("logspace: a must be a real scalar".to_string()))?;
+    let b = args[1]
+        .to_scalar()
+        .map_err(|_| ScriptError::type_err("logspace: b must be a real scalar".to_string()))?;
     let n = match &args[2] {
         Value::Scalar(s) => (*s as usize).max(1),
-        other => return Err(ScriptError::type_err(format!(
-            "logspace: n must be a scalar, got {}", other.type_name()))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "logspace: n must be a scalar, got {}",
+                other.type_name()
+            )))
+        }
     };
     let vals: CVector = Array1::from_iter((0..n).map(|i| {
-        let t = if n == 1 { 0.0 } else { i as f64 / (n - 1) as f64 };
+        let t = if n == 1 {
+            0.0
+        } else {
+            i as f64 / (n - 1) as f64
+        };
         Complex::new(10.0_f64.powf(a + t * (b - a)), 0.0)
     }));
     Ok(Value::Vector(vals))
@@ -4783,10 +5687,19 @@ fn lyap_solve(a: &CMatrix, q: &CMatrix) -> Result<CMatrix, String> {
         return Err(format!("lyap: A must be square (got {}×{})", n, a.ncols()));
     }
     if q.nrows() != n || q.ncols() != n {
-        return Err(format!("lyap: Q must be {}×{} (got {}×{})", n, n, q.nrows(), q.ncols()));
+        return Err(format!(
+            "lyap: Q must be {}×{} (got {}×{})",
+            n,
+            n,
+            q.nrows(),
+            q.ncols()
+        ));
     }
     if n > 50 {
-        eprintln!("lyap: warning: n={} — Kronecker approach is O(n^4); consider smaller systems", n);
+        eprintln!(
+            "lyap: warning: n={} — Kronecker approach is O(n^4); consider smaller systems",
+            n
+        );
     }
     let n2 = n * n;
     let mut km: CMatrix = Array2::zeros((n2, n2));
@@ -4806,8 +5719,8 @@ fn lyap_solve(a: &CMatrix, q: &CMatrix) -> Result<CMatrix, String> {
             q_col[[i * n + j, 0]] = q[[i, j]];
         }
     }
-    let km_inv = matrix_inv(&km).map_err(|e| format!(
-        "lyap: coefficient matrix singular ({e}); system may be unstable"))?;
+    let km_inv = matrix_inv(&km)
+        .map_err(|e| format!("lyap: coefficient matrix singular ({e}); system may be unstable"))?;
     let x_col = mat_mul_cx(&km_inv, &q_col.mapv(|c| -c));
     let mut x: CMatrix = Array2::zeros((n, n));
     for i in 0..n {
@@ -4847,8 +5760,12 @@ fn builtin_gram(args: Vec<Value>) -> Result<Value, ScriptError> {
             let ct: CMatrix = c.t().mapv(|x| x.conj()).to_owned();
             lyap_solve(&at, &mat_mul_cx(&ct, &c)).map_err(|e| ScriptError::runtime(e))?
         }
-        other => return Err(ScriptError::type_err(format!(
-            "gram: type must be \"c\" or \"o\", got {:?}", other))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "gram: type must be \"c\" or \"o\", got {:?}",
+                other
+            )))
+        }
     };
     Ok(Value::Matrix(w))
 }
@@ -4856,8 +5773,8 @@ fn builtin_gram(args: Vec<Value>) -> Result<Value, ScriptError> {
 /// Internal CARE solver: A'P + PA - PBR⁻¹B'P + Q = 0 via Hamiltonian eigendecomposition.
 fn solve_care(a: &CMatrix, b: &CMatrix, q: &CMatrix, r: &CMatrix) -> Result<CMatrix, ScriptError> {
     let n = a.nrows();
-    let r_inv = matrix_inv(r)
-        .map_err(|e| ScriptError::type_err(format!("care: R is singular: {}", e)))?;
+    let r_inv =
+        matrix_inv(r).map_err(|e| ScriptError::type_err(format!("care: R is singular: {}", e)))?;
     let bt: CMatrix = b.t().mapv(|c| c.conj()).to_owned();
     let g = mat_mul_cx(&mat_mul_cx(b, &r_inv), &bt);
 
@@ -4865,9 +5782,9 @@ fn solve_care(a: &CMatrix, b: &CMatrix, q: &CMatrix, r: &CMatrix) -> Result<CMat
     let mut ham: CMatrix = Array2::zeros((two_n, two_n));
     for i in 0..n {
         for j in 0..n {
-            ham[[i,     j    ]] =  a[[i, j]];
-            ham[[i,     n + j]] = -g[[i, j]];
-            ham[[n + i, j    ]] = -q[[i, j]];
+            ham[[i, j]] = a[[i, j]];
+            ham[[i, n + j]] = -g[[i, j]];
+            ham[[n + i, j]] = -q[[i, j]];
             ham[[n + i, n + j]] = -a[[j, i]].conj();
         }
     }
@@ -4877,28 +5794,40 @@ fn solve_care(a: &CMatrix, b: &CMatrix, q: &CMatrix, r: &CMatrix) -> Result<CMat
     if stable.len() < n {
         return Err(ScriptError::type_err(format!(
             "care: only {} stable eigenvalues (need {}); system not stabilizable",
-            stable.len(), n)));
+            stable.len(),
+            n
+        )));
     }
     stable.sort_by(|a, b| a.re.partial_cmp(&b.re).unwrap_or(std::cmp::Ordering::Equal));
 
     let mut v_mat: CMatrix = Array2::zeros((two_n, n));
     for (col, &lam) in stable[..n].iter().enumerate() {
         let v = inverse_iteration_cx(&ham, lam, 40)?;
-        for i in 0..two_n { v_mat[[i, col]] = v[i]; }
+        for i in 0..two_n {
+            v_mat[[i, col]] = v[i];
+        }
     }
     let mut v1: CMatrix = Array2::zeros((n, n));
     let mut v2: CMatrix = Array2::zeros((n, n));
-    for i in 0..n { for j in 0..n {
-        v1[[i,j]] = v_mat[[i,     j]];
-        v2[[i,j]] = v_mat[[n + i, j]];
-    }}
-    let p_cx = mat_mul_cx(&v2, &matrix_inv(&v1)
-        .map_err(|e| ScriptError::type_err(format!("care: eigenvector matrix singular: {}", e)))?);
+    for i in 0..n {
+        for j in 0..n {
+            v1[[i, j]] = v_mat[[i, j]];
+            v2[[i, j]] = v_mat[[n + i, j]];
+        }
+    }
+    let p_cx = mat_mul_cx(
+        &v2,
+        &matrix_inv(&v1).map_err(|e| {
+            ScriptError::type_err(format!("care: eigenvector matrix singular: {}", e))
+        })?,
+    );
     let mut p: CMatrix = Array2::zeros((n, n));
-    for i in 0..n { for j in 0..n {
-        let v = (p_cx[[i,j]] + p_cx[[j,i]].conj()) / 2.0;
-        p[[i,j]] = Complex::new(v.re, 0.0);
-    }}
+    for i in 0..n {
+        for j in 0..n {
+            let v = (p_cx[[i, j]] + p_cx[[j, i]].conj()) / 2.0;
+            p[[i, j]] = Complex::new(v.re, 0.0);
+        }
+    }
     Ok(p)
 }
 
@@ -4915,26 +5844,32 @@ fn builtin_care(args: Vec<Value>) -> Result<Value, ScriptError> {
 /// dare(A, B, Q, R) — solves P = A'PA - A'PB*(R+B'PB)⁻¹*B'PA + Q via value iteration.
 fn builtin_dare(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("dare", &args, 4)?;
-    let a  = to_cmatrix_arg(&args[0], "dare", "A")?;
-    let b  = to_cmatrix_arg(&args[1], "dare", "B")?;
-    let q  = to_cmatrix_arg(&args[2], "dare", "Q")?;
-    let r  = to_cmatrix_arg(&args[3], "dare", "R")?;
-    let n  = a.nrows();
-    if a.ncols() != n { return Err(ScriptError::type_err("dare: A must be square".to_string())); }
+    let a = to_cmatrix_arg(&args[0], "dare", "A")?;
+    let b = to_cmatrix_arg(&args[1], "dare", "B")?;
+    let q = to_cmatrix_arg(&args[2], "dare", "Q")?;
+    let r = to_cmatrix_arg(&args[3], "dare", "R")?;
+    let n = a.nrows();
+    if a.ncols() != n {
+        return Err(ScriptError::type_err("dare: A must be square".to_string()));
+    }
     let at: CMatrix = a.t().mapv(|c| c.conj()).to_owned();
     let bt: CMatrix = b.t().mapv(|c| c.conj()).to_owned();
     let mut p = q.clone();
     for _ in 0..1000 {
-        let pb    = mat_mul_cx(&p, &b);
+        let pb = mat_mul_cx(&p, &b);
         let s_inv = matrix_inv(&(r.clone() + mat_mul_cx(&bt, &pb)))
             .map_err(|e| ScriptError::type_err(format!("dare: (R+B'PB) singular: {}", e)))?;
-        let pa    = mat_mul_cx(&p, &a);
-        let k     = mat_mul_cx(&s_inv, &mat_mul_cx(&bt, &pa));
+        let pa = mat_mul_cx(&p, &a);
+        let k = mat_mul_cx(&s_inv, &mat_mul_cx(&bt, &pa));
         let p_new = mat_mul_cx(&at, &pa) - mat_mul_cx(&mat_mul_cx(&at, &pb), &k) + q.clone();
-        let diff: f64 = (0..n).flat_map(|i| (0..n).map(move |j| (i,j)))
-            .map(|(i,j)| (p_new[[i,j]] - p[[i,j]]).norm()).fold(0.0_f64, f64::max);
+        let diff: f64 = (0..n)
+            .flat_map(|i| (0..n).map(move |j| (i, j)))
+            .map(|(i, j)| (p_new[[i, j]] - p[[i, j]]).norm())
+            .fold(0.0_f64, f64::max);
         p = p_new;
-        if diff < 1e-10 { break; }
+        if diff < 1e-10 {
+            break;
+        }
     }
     Ok(Value::Matrix(p))
 }
@@ -4947,22 +5882,45 @@ fn builtin_place(args: Vec<Value>) -> Result<Value, ScriptError> {
     let b = to_cmatrix_arg(&args[1], "place", "B")?;
     let poles = args[2].to_cvector().map_err(|e| ScriptError::type_err(e))?;
     let n = a.nrows();
-    if a.ncols() != n { return Err(ScriptError::type_err("place: A must be square".to_string())); }
-    if b.ncols() != 1 { return Err(ScriptError::type_err(format!(
-        "place: only SISO supported (B must be n×1, got n×{})", b.ncols()))); }
-    if b.nrows() != n { return Err(ScriptError::type_err(format!(
-        "place: B rows={} but A is {}×{}", b.nrows(), n, n))); }
-    if poles.len() != n { return Err(ScriptError::type_err(format!(
-        "place: {} poles but A is {}×{}", poles.len(), n, n))); }
+    if a.ncols() != n {
+        return Err(ScriptError::type_err("place: A must be square".to_string()));
+    }
+    if b.ncols() != 1 {
+        return Err(ScriptError::type_err(format!(
+            "place: only SISO supported (B must be n×1, got n×{})",
+            b.ncols()
+        )));
+    }
+    if b.nrows() != n {
+        return Err(ScriptError::type_err(format!(
+            "place: B rows={} but A is {}×{}",
+            b.nrows(),
+            n,
+            n
+        )));
+    }
+    if poles.len() != n {
+        return Err(ScriptError::type_err(format!(
+            "place: {} poles but A is {}×{}",
+            poles.len(),
+            n,
+            n
+        )));
+    }
 
     // Controllability matrix
     let mut cols: Vec<CMatrix> = vec![b.clone()];
-    for _ in 1..n { cols.push(a.dot(cols.last().unwrap())); }
+    for _ in 1..n {
+        cols.push(a.dot(cols.last().unwrap()));
+    }
     let ctrb_data: Vec<C64> = (0..n)
-        .flat_map(|r| cols.iter().map(move |col| col[[r, 0]])).collect();
+        .flat_map(|r| cols.iter().map(move |col| col[[r, 0]]))
+        .collect();
     let ctrb_inv = matrix_inv(
-        &Array2::from_shape_vec((n, n), ctrb_data).map_err(|e| ScriptError::runtime(e.to_string()))?)
-        .map_err(|e| ScriptError::type_err(format!("place: not controllable: {}", e)))?;
+        &Array2::from_shape_vec((n, n), ctrb_data)
+            .map_err(|e| ScriptError::runtime(e.to_string()))?,
+    )
+    .map_err(|e| ScriptError::type_err(format!("place: not controllable: {}", e)))?;
 
     // Characteristic polynomial from desired poles
     let mut poly: Vec<C64> = vec![Complex::new(1.0, 0.0)];
@@ -4980,14 +5938,18 @@ fn builtin_place(args: Vec<Value>) -> Result<Value, ScriptError> {
     for k in 1..=n {
         pa = mat_mul_cx(&pa, &a);
         let ck = poly[k];
-        for i in 0..n { pa[[i, i]] += ck; }
+        for i in 0..n {
+            pa[[i, i]] += ck;
+        }
     }
 
     // K = e_n' * inv(ctrb) * p(A)
     let mut en: CMatrix = Array2::zeros((1, n));
     en[[0, n - 1]] = Complex::new(1.0, 0.0);
     let k_mat = mat_mul_cx(&mat_mul_cx(&en, &ctrb_inv), &pa);
-    Ok(Value::Vector(Array1::from_iter((0..n).map(|j| k_mat[[0, j]]))))
+    Ok(Value::Vector(Array1::from_iter(
+        (0..n).map(|j| k_mat[[0, j]]),
+    )))
 }
 
 /// freqresp(A, B, C, D, w) — H(jω) = C*(jω*I-A)^{-1}*B + D evaluated at each ω in w.
@@ -5009,19 +5971,34 @@ fn builtin_freqresp(args: Vec<Value>) -> Result<Value, ScriptError> {
     let w_val = args[4].to_cvector().map_err(|e| ScriptError::type_err(e))?;
     let np = c.nrows();
     let nw = w_val.len();
-    if a.ncols() != n { return Err(ScriptError::type_err("freqresp: A must be square".to_string())); }
+    if a.ncols() != n {
+        return Err(ScriptError::type_err(
+            "freqresp: A must be square".to_string(),
+        ));
+    }
     let eye_n: CMatrix = Array2::eye(n);
     let mut h_mat: CMatrix = Array2::zeros((np, nw));
     for (k, &w_c) in w_val.iter().enumerate() {
         let jw = Complex::new(0.0, w_c.re);
         let mut jwia: CMatrix = eye_n.mapv(|x| x * jw);
-        for i in 0..n { for j in 0..n { jwia[[i,j]] -= a[[i,j]]; } }
-        let jwia_inv = matrix_inv(&jwia).map_err(|e| ScriptError::runtime(format!(
-            "freqresp: singular at ω={:.4}: {}", w_c.re, e)))?;
+        for i in 0..n {
+            for j in 0..n {
+                jwia[[i, j]] -= a[[i, j]];
+            }
+        }
+        let jwia_inv = matrix_inv(&jwia).map_err(|e| {
+            ScriptError::runtime(format!("freqresp: singular at ω={:.4}: {}", w_c.re, e))
+        })?;
         let cb = mat_mul_cx(&c, &mat_mul_cx(&jwia_inv, &b));
-        for p in 0..np { h_mat[[p, k]] = cb[[p, 0]] + d[[p, 0]]; }
+        for p in 0..np {
+            h_mat[[p, k]] = cb[[p, 0]] + d[[p, 0]];
+        }
     }
-    if np == 1 { Ok(Value::Vector(h_mat.row(0).to_owned())) } else { Ok(Value::Matrix(h_mat)) }
+    if np == 1 {
+        Ok(Value::Vector(h_mat.row(0).to_owned()))
+    } else {
+        Ok(Value::Matrix(h_mat))
+    }
 }
 
 /// svd(A) — SVD via symmetric eigendecomposition of A'A (real matrices only).
@@ -5032,17 +6009,28 @@ fn builtin_svd(args: Vec<Value>) -> Result<Value, ScriptError> {
     let max_im: f64 = m.iter().map(|c| c.im.abs()).fold(0.0_f64, f64::max);
     let max_re: f64 = m.iter().map(|c| c.re.abs()).fold(0.0_f64, f64::max);
     if max_im > 1e-10 * max_re.max(1e-300) {
-        eprintln!("svd: warning: imaginary part discarded (max |im|={:.3e})", max_im);
+        eprintln!(
+            "svd: warning: imaginary part discarded (max |im|={:.3e})",
+            max_im
+        );
     }
     let rows = m.nrows();
     let cols = m.ncols();
-    let ar: Vec<Vec<f64>> = (0..rows).map(|i| (0..cols).map(|j| m[[i,j]].re).collect()).collect();
+    let ar: Vec<Vec<f64>> = (0..rows)
+        .map(|i| (0..cols).map(|j| m[[i, j]].re).collect())
+        .collect();
     let (u_r, sv, v_r) = svd_via_ata(&ar, rows, cols);
     let ns = rows.min(cols);
     Ok(Value::Tuple(vec![
-        Value::Matrix(Array2::from_shape_fn((rows, rows), |(i,j)| Complex::new(u_r[i][j], 0.0))),
-        Value::Vector(Array1::from_iter(sv[..ns].iter().map(|&s| Complex::new(s, 0.0)))),
-        Value::Matrix(Array2::from_shape_fn((cols, cols), |(i,j)| Complex::new(v_r[i][j], 0.0))),
+        Value::Matrix(Array2::from_shape_fn((rows, rows), |(i, j)| {
+            Complex::new(u_r[i][j], 0.0)
+        })),
+        Value::Vector(Array1::from_iter(
+            sv[..ns].iter().map(|&s| Complex::new(s, 0.0)),
+        )),
+        Value::Matrix(Array2::from_shape_fn((cols, cols), |(i, j)| {
+            Complex::new(v_r[i][j], 0.0)
+        })),
     ]))
 }
 
@@ -5053,7 +6041,11 @@ fn builtin_svd(args: Vec<Value>) -> Result<Value, ScriptError> {
 ///   3. Singular values sigma_i = sqrt(lambda_i), sorted descending
 ///   4. Left singular vectors: u_i = A * v_i / sigma_i
 ///   5. Fill remaining U columns via Gram-Schmidt
-fn svd_via_ata(a: &[Vec<f64>], rows: usize, cols: usize) -> (Vec<Vec<f64>>, Vec<f64>, Vec<Vec<f64>>) {
+fn svd_via_ata(
+    a: &[Vec<f64>],
+    rows: usize,
+    cols: usize,
+) -> (Vec<Vec<f64>>, Vec<f64>, Vec<Vec<f64>>) {
     // Step 1: Compute S = A'A  (cols×cols)
     let mut s = vec![vec![0.0f64; cols]; cols];
     for i in 0..cols {
@@ -5064,9 +6056,13 @@ fn svd_via_ata(a: &[Vec<f64>], rows: usize, cols: usize) -> (Vec<Vec<f64>>, Vec<
 
     // Step 2: Symmetric Jacobi eigendecomposition of S
     // Accumulate eigenvectors in V (cols×cols identity initially)
-    let mut v: Vec<Vec<f64>> = (0..cols).map(|i| {
-        let mut row = vec![0.0f64; cols]; row[i] = 1.0; row
-    }).collect();
+    let mut v: Vec<Vec<f64>> = (0..cols)
+        .map(|i| {
+            let mut row = vec![0.0f64; cols];
+            row[i] = 1.0;
+            row
+        })
+        .collect();
 
     let tol = 1e-14;
     for _ in 0..500 * cols * cols {
@@ -5074,7 +6070,9 @@ fn svd_via_ata(a: &[Vec<f64>], rows: usize, cols: usize) -> (Vec<Vec<f64>>, Vec<
         for p in 0..cols {
             for q in (p + 1)..cols {
                 let spq = s[p][q];
-                if spq.abs() <= tol { continue; }
+                if spq.abs() <= tol {
+                    continue;
+                }
                 let spp = s[p][p];
                 let sqq = s[q][q];
                 let diff = sqq - spp;
@@ -5092,13 +6090,17 @@ fn svd_via_ata(a: &[Vec<f64>], rows: usize, cols: usize) -> (Vec<Vec<f64>>, Vec<
                 s[p][q] = 0.0;
                 s[q][p] = 0.0;
                 for r in 0..cols {
-                    if r == p || r == q { continue; }
+                    if r == p || r == q {
+                        continue;
+                    }
                     let srp = s[r][p];
                     let srq = s[r][q];
                     let new_rp = c * srp - s_rot * srq;
                     let new_rq = s_rot * srp + c * srq;
-                    s[r][p] = new_rp; s[p][r] = new_rp;
-                    s[r][q] = new_rq; s[q][r] = new_rq;
+                    s[r][p] = new_rp;
+                    s[p][r] = new_rp;
+                    s[r][q] = new_rq;
+                    s[q][r] = new_rq;
                 }
                 // Accumulate V
                 for i in 0..cols {
@@ -5110,7 +6112,9 @@ fn svd_via_ata(a: &[Vec<f64>], rows: usize, cols: usize) -> (Vec<Vec<f64>>, Vec<
                 converged = false;
             }
         }
-        if converged { break; }
+        if converged {
+            break;
+        }
     }
 
     // Step 3: Extract eigenvalues (diagonal of S) and sort descending
@@ -5121,7 +6125,9 @@ fn svd_via_ata(a: &[Vec<f64>], rows: usize, cols: usize) -> (Vec<Vec<f64>>, Vec<
     let mut v_out: Vec<Vec<f64>> = vec![vec![0.0f64; cols]; cols];
     for (new_j, &(sigma, old_j)) in pairs.iter().enumerate() {
         sv[new_j] = sigma;
-        for i in 0..cols { v_out[i][new_j] = v[i][old_j]; }
+        for i in 0..cols {
+            v_out[i][new_j] = v[i][old_j];
+        }
     }
 
     // Step 4: Compute U = A * V / sigma (left singular vectors)
@@ -5137,19 +6143,30 @@ fn svd_via_ata(a: &[Vec<f64>], rows: usize, cols: usize) -> (Vec<Vec<f64>>, Vec<
     }
 
     // Step 5: Fill remaining U columns via modified Gram-Schmidt
-    let mut basis: Vec<Vec<f64>> = (0..rank).map(|j| (0..rows).map(|i| u[i][j]).collect()).collect();
+    let mut basis: Vec<Vec<f64>> = (0..rank)
+        .map(|j| (0..rows).map(|i| u[i][j]).collect())
+        .collect();
     let mut extra_idx = rank;
     for e in 0..rows {
-        if extra_idx >= rows { break; }
-        let mut cand = vec![0.0f64; rows]; cand[e] = 1.0;
+        if extra_idx >= rows {
+            break;
+        }
+        let mut cand = vec![0.0f64; rows];
+        cand[e] = 1.0;
         for bv in &basis {
             let dot: f64 = cand.iter().zip(bv).map(|(a, b)| a * b).sum();
-            for i in 0..rows { cand[i] -= dot * bv[i]; }
+            for i in 0..rows {
+                cand[i] -= dot * bv[i];
+            }
         }
         let norm: f64 = cand.iter().map(|x| x * x).sum::<f64>().sqrt();
         if norm > 1e-10 {
-            for x in &mut cand { *x /= norm; }
-            for i in 0..rows { u[i][extra_idx] = cand[i]; }
+            for x in &mut cand {
+                *x /= norm;
+            }
+            for i in 0..rows {
+                u[i][extra_idx] = cand[i];
+            }
             basis.push(cand);
             extra_idx += 1;
         }
@@ -5180,22 +6197,29 @@ fn builtin_filter_stream(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("filter_stream", &args, 3)?;
 
     let frame = args[0].to_cvector().map_err(|e| ScriptError::type_err(e))?;
-    let h     = args[1].to_cvector().map_err(|e| ScriptError::type_err(e))?;
+    let h = args[1].to_cvector().map_err(|e| ScriptError::type_err(e))?;
     let state = match &args[2] {
         Value::FirState(arc) => Arc::clone(arc),
-        other => return Err(ScriptError::type_err(format!(
-            "filter_stream: expected fir_state for arg 3, got {}", other.type_name()
-        ))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "filter_stream: expected fir_state for arg 3, got {}",
+                other.type_name()
+            )))
+        }
     };
 
-    let m = h.len();       // number of taps
-    let n = frame.len();   // frame size
+    let m = h.len(); // number of taps
+    let n = frame.len(); // frame size
 
     if m == 0 {
-        return Err(ScriptError::runtime("filter_stream: h must be non-empty".to_string()));
+        return Err(ScriptError::runtime(
+            "filter_stream: h must be non-empty".to_string(),
+        ));
     }
     if n == 0 {
-        return Err(ScriptError::runtime("filter_stream: frame must be non-empty".to_string()));
+        return Err(ScriptError::runtime(
+            "filter_stream: frame must be non-empty".to_string(),
+        ));
     }
 
     let history_len = m - 1;
@@ -5205,7 +6229,8 @@ fn builtin_filter_stream(args: Vec<Value>) -> Result<Value, ScriptError> {
         return Err(ScriptError::runtime(format!(
             "filter_stream: state length {} does not match length(h)-1 = {} \
              (hint: use state_init(length(h)-1))",
-            history.len(), history_len
+            history.len(),
+            history_len
         )));
     }
 
@@ -5245,16 +6270,22 @@ fn builtin_filter_stream(args: Vec<Value>) -> Result<Value, ScriptError> {
 fn builtin_audio_in(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("audio_in", &args, 2)?;
     let sample_rate = args[0].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let frame_size  = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
-    Ok(Value::AudioIn { sample_rate, frame_size })
+    let frame_size = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    Ok(Value::AudioIn {
+        sample_rate,
+        frame_size,
+    })
 }
 
 /// `audio_out(sr, n)` — create an audio output metadata handle (no hardware opened).
 fn builtin_audio_out(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("audio_out", &args, 2)?;
     let sample_rate = args[0].to_scalar().map_err(|e| ScriptError::type_err(e))?;
-    let frame_size  = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
-    Ok(Value::AudioOut { sample_rate, frame_size })
+    let frame_size = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    Ok(Value::AudioOut {
+        sample_rate,
+        frame_size,
+    })
 }
 
 /// `audio_read(adc)` — read one frame of f32-LE PCM from stdin.
@@ -5263,9 +6294,12 @@ fn builtin_audio_read(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("audio_read", &args, 1)?;
     let frame_size = match &args[0] {
         Value::AudioIn { frame_size, .. } => *frame_size,
-        other => return Err(ScriptError::type_err(format!(
-            "audio_read: expected audio_in, got {}", other.type_name()
-        ))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "audio_read: expected audio_in, got {}",
+                other.type_name()
+            )))
+        }
     };
     let mut buf = vec![0u8; frame_size * 4];
     match std::io::stdin().lock().read_exact(&mut buf) {
@@ -5275,12 +6309,10 @@ fn builtin_audio_read(args: Vec<Value>) -> Result<Value, ScriptError> {
         }
         Err(e) => return Err(ScriptError::runtime(format!("audio_read: {e}"))),
     };
-    let cvec: CVector = Array1::from_iter(
-        buf.chunks_exact(4).map(|b| {
-            let s = f32::from_le_bytes(b.try_into().unwrap());
-            C64::new(s as f64, 0.0)
-        })
-    );
+    let cvec: CVector = Array1::from_iter(buf.chunks_exact(4).map(|b| {
+        let s = f32::from_le_bytes(b.try_into().unwrap());
+        C64::new(s as f64, 0.0)
+    }));
     Ok(Value::Vector(cvec))
 }
 
@@ -5290,18 +6322,21 @@ fn builtin_audio_write(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("audio_write", &args, 2)?;
     match &args[0] {
         Value::AudioOut { .. } => {}
-        other => return Err(ScriptError::type_err(format!(
-            "audio_write: expected audio_out, got {}", other.type_name()
-        ))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "audio_write: expected audio_out, got {}",
+                other.type_name()
+            )))
+        }
     };
     let frame = args[1].to_cvector().map_err(|e| ScriptError::type_err(e))?;
     let mut out = std::io::stdout().lock();
     for c in frame.iter() {
         out.write_all(&(c.re as f32).to_le_bytes())
-           .map_err(|e| ScriptError::runtime(format!("audio_write: {e}")))?;
+            .map_err(|e| ScriptError::runtime(format!("audio_write: {e}")))?;
     }
     out.flush()
-       .map_err(|e| ScriptError::runtime(format!("audio_write flush: {e}")))?;
+        .map_err(|e| ScriptError::runtime(format!("audio_write flush: {e}")))?;
     Ok(Value::None)
 }
 
@@ -5333,8 +6368,7 @@ fn builtin_figure_live(args: Vec<Value>) -> Result<Value, ScriptError> {
         }
     }
 
-    let fig = LiveFigure::new(rows, cols)
-        .map_err(|e| ScriptError::runtime(e.to_string()))?;
+    let fig = LiveFigure::new(rows, cols).map_err(|e| ScriptError::runtime(e.to_string()))?;
     let boxed: Box<dyn LivePlot> = Box::new(fig);
     Ok(Value::LiveFigure(Arc::new(Mutex::new(Some(boxed)))))
 }
@@ -5345,20 +6379,40 @@ fn builtin_plot_update(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("plot_update", &args, 3, 4)?;
     let Value::LiveFigure(fig) = &args[0] else {
         return Err(ScriptError::runtime(format!(
-            "plot_update: expected live_figure, got {}", args[0].type_name()
+            "plot_update: expected live_figure, got {}",
+            args[0].type_name()
         )));
     };
-    let panel = args[1].to_usize().map_err(|e| ScriptError::runtime(e))?.saturating_sub(1); // 1-based → 0-based
+    let panel = args[1]
+        .to_usize()
+        .map_err(|e| ScriptError::runtime(e))?
+        .saturating_sub(1); // 1-based → 0-based
     let (x, y) = if args.len() == 4 {
-        let x = args[2].to_cvector().map_err(|e| ScriptError::runtime(e))?.iter().map(|c| c.re).collect::<Vec<_>>();
-        let y = args[3].to_cvector().map_err(|e| ScriptError::runtime(e))?.iter().map(|c| c.re).collect::<Vec<_>>();
+        let x = args[2]
+            .to_cvector()
+            .map_err(|e| ScriptError::runtime(e))?
+            .iter()
+            .map(|c| c.re)
+            .collect::<Vec<_>>();
+        let y = args[3]
+            .to_cvector()
+            .map_err(|e| ScriptError::runtime(e))?
+            .iter()
+            .map(|c| c.re)
+            .collect::<Vec<_>>();
         (x, y)
     } else {
-        let y = args[2].to_cvector().map_err(|e| ScriptError::runtime(e))?.iter().map(|c| c.re).collect::<Vec<_>>();
+        let y = args[2]
+            .to_cvector()
+            .map_err(|e| ScriptError::runtime(e))?
+            .iter()
+            .map(|c| c.re)
+            .collect::<Vec<_>>();
         let x = (1..=y.len()).map(|i| i as f64).collect::<Vec<_>>();
         (x, y)
     };
-    fig.lock().unwrap()
+    fig.lock()
+        .unwrap()
         .as_mut()
         .ok_or_else(|| ScriptError::runtime("plot_update: figure is closed".to_string()))?
         .update_panel(panel, x, y);
@@ -5371,15 +6425,28 @@ fn builtin_plot_limits(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("plot_limits", &args, 4)?;
     let Value::LiveFigure(fig) = &args[0] else {
         return Err(ScriptError::runtime(format!(
-            "plot_limits: expected live_figure, got {}", args[0].type_name()
+            "plot_limits: expected live_figure, got {}",
+            args[0].type_name()
         )));
     };
-    let panel = args[1].to_usize().map_err(|e| ScriptError::runtime(e))?.saturating_sub(1);
+    let panel = args[1]
+        .to_usize()
+        .map_err(|e| ScriptError::runtime(e))?
+        .saturating_sub(1);
     let xlim_v = args[2].to_cvector().map_err(|e| ScriptError::runtime(e))?;
     let ylim_v = args[3].to_cvector().map_err(|e| ScriptError::runtime(e))?;
-    let xlim = if xlim_v.len() >= 2 { (Some(xlim_v[0].re), Some(xlim_v[1].re)) } else { (None, None) };
-    let ylim = if ylim_v.len() >= 2 { (Some(ylim_v[0].re), Some(ylim_v[1].re)) } else { (None, None) };
-    fig.lock().unwrap()
+    let xlim = if xlim_v.len() >= 2 {
+        (Some(xlim_v[0].re), Some(xlim_v[1].re))
+    } else {
+        (None, None)
+    };
+    let ylim = if ylim_v.len() >= 2 {
+        (Some(ylim_v[0].re), Some(ylim_v[1].re))
+    } else {
+        (None, None)
+    };
+    fig.lock()
+        .unwrap()
         .as_mut()
         .ok_or_else(|| ScriptError::runtime("plot_limits: figure is closed".to_string()))?
         .set_panel_limits(panel, xlim, ylim);
@@ -5392,14 +6459,19 @@ fn builtin_plot_labels(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("plot_labels", &args, 5)?;
     let Value::LiveFigure(fig) = &args[0] else {
         return Err(ScriptError::runtime(format!(
-            "plot_labels: expected live_figure, got {}", args[0].type_name()
+            "plot_labels: expected live_figure, got {}",
+            args[0].type_name()
         )));
     };
-    let panel = args[1].to_usize().map_err(|e| ScriptError::runtime(e))?.saturating_sub(1);
-    let title  = args[2].to_str().map_err(|e| ScriptError::type_err(e))?;
+    let panel = args[1]
+        .to_usize()
+        .map_err(|e| ScriptError::runtime(e))?
+        .saturating_sub(1);
+    let title = args[2].to_str().map_err(|e| ScriptError::type_err(e))?;
     let xlabel = args[3].to_str().map_err(|e| ScriptError::type_err(e))?;
     let ylabel = args[4].to_str().map_err(|e| ScriptError::type_err(e))?;
-    fig.lock().unwrap()
+    fig.lock()
+        .unwrap()
         .as_mut()
         .ok_or_else(|| ScriptError::runtime("plot_labels: figure is closed".to_string()))?
         .set_panel_labels(panel, &title, &xlabel, &ylabel);
@@ -5411,10 +6483,13 @@ fn builtin_figure_draw(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("figure_draw", &args, 1)?;
     let Value::LiveFigure(fig) = &args[0] else {
         return Err(ScriptError::runtime(format!(
-            "figure_draw: expected live_figure, got {}", args[0].type_name()
+            "figure_draw: expected live_figure, got {}",
+            args[0].type_name()
         )));
     };
-    let result = fig.lock().unwrap()
+    let result = fig
+        .lock()
+        .unwrap()
         .as_mut()
         .ok_or_else(|| ScriptError::runtime("figure_draw: figure is closed".to_string()))?
         .redraw();
@@ -5431,7 +6506,8 @@ fn builtin_figure_close(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("figure_close", &args, 1)?;
     let Value::LiveFigure(fig) = &args[0] else {
         return Err(ScriptError::runtime(format!(
-            "figure_close: expected live_figure, got {}", args[0].type_name()
+            "figure_close: expected live_figure, got {}",
+            args[0].type_name()
         )));
     };
     // .take() drops the LiveFigure, firing Drop → disable_raw_mode + LeaveAlternateScreen.
@@ -5444,20 +6520,22 @@ fn builtin_figure_close(args: Vec<Value>) -> Result<Value, ScriptError> {
 fn builtin_mag2db(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("mag2db", &args, 1)?;
     match &args[0] {
-        Value::Scalar(x)  => Ok(Value::Scalar(20.0 * x.abs().max(1e-10).log10())),
+        Value::Scalar(x) => Ok(Value::Scalar(20.0 * x.abs().max(1e-10).log10())),
         Value::Complex(c) => Ok(Value::Scalar(20.0 * c.norm().max(1e-10).log10())),
-        Value::Vector(v)  => {
-            let out: CVector = v.iter()
+        Value::Vector(v) => {
+            let out: CVector = v
+                .iter()
                 .map(|c| Complex::new(20.0 * c.norm().max(1e-10).log10(), 0.0))
                 .collect();
             Ok(Value::Vector(out))
         }
-        Value::Matrix(m)  => {
+        Value::Matrix(m) => {
             let out = m.mapv(|c| Complex::new(20.0 * c.norm().max(1e-10).log10(), 0.0));
             Ok(Value::Matrix(out))
         }
         other => Err(ScriptError::runtime(format!(
-            "mag2db: expected numeric, got {}", other.type_name()
+            "mag2db: expected numeric, got {}",
+            other.type_name()
         ))),
     }
 }
@@ -5481,11 +6559,10 @@ fn builtin_sparse(args: Vec<Value>) -> Result<Value, ScriptError> {
                 let m = Array2::from_elem((1, 1), *c);
                 Ok(Value::SparseMatrix(SparseMat::from_dense(&m)))
             }
-            Value::SparseVector(_) | Value::SparseMatrix(_) => {
-                Ok(args.into_iter().next().unwrap())
-            }
+            Value::SparseVector(_) | Value::SparseMatrix(_) => Ok(args.into_iter().next().unwrap()),
             other => Err(ScriptError::type_err(format!(
-                "sparse: cannot convert {} to sparse", other.type_name()
+                "sparse: cannot convert {} to sparse",
+                other.type_name()
             ))),
         };
     }
@@ -5497,15 +6574,25 @@ fn builtin_sparse(args: Vec<Value>) -> Result<Value, ScriptError> {
     let n = args[4].to_usize().map_err(|e| ScriptError::type_err(e))?;
     if i_vec.len() != j_vec.len() || i_vec.len() != v_vec.len() {
         return Err(ScriptError::runtime(
-            "sparse: I, J, V must have the same length".to_string()
+            "sparse: I, J, V must have the same length".to_string(),
         ));
     }
     let mut entries = Vec::with_capacity(i_vec.len());
     for k in 0..i_vec.len() {
         let ri = i_vec[k].re as usize;
         let ci = j_vec[k].re as usize;
-        if ri < 1 || ri > m { return Err(ScriptError::runtime(format!("sparse: row index {} out of range [1, {}]", ri, m))); }
-        if ci < 1 || ci > n { return Err(ScriptError::runtime(format!("sparse: col index {} out of range [1, {}]", ci, n))); }
+        if ri < 1 || ri > m {
+            return Err(ScriptError::runtime(format!(
+                "sparse: row index {} out of range [1, {}]",
+                ri, m
+            )));
+        }
+        if ci < 1 || ci > n {
+            return Err(ScriptError::runtime(format!(
+                "sparse: col index {} out of range [1, {}]",
+                ci, n
+            )));
+        }
         entries.push((ri - 1, ci - 1, v_vec[k]));
     }
     Ok(Value::SparseMatrix(SparseMat::new(m, n, entries)))
@@ -5519,7 +6606,7 @@ fn builtin_sparsevec(args: Vec<Value>) -> Result<Value, ScriptError> {
     let n = args[2].to_usize().map_err(|e| ScriptError::type_err(e))?;
     if i_vec.len() != v_vec.len() {
         return Err(ScriptError::runtime(
-            "sparsevec: I and V must have the same length".to_string()
+            "sparsevec: I and V must have the same length".to_string(),
         ));
     }
     let mut entries = Vec::with_capacity(i_vec.len());
@@ -5527,7 +6614,8 @@ fn builtin_sparsevec(args: Vec<Value>) -> Result<Value, ScriptError> {
         let idx = i_vec[k].re as usize;
         if idx < 1 || idx > n {
             return Err(ScriptError::runtime(format!(
-                "sparsevec: index {} out of range [1, {}]", idx, n
+                "sparsevec: index {} out of range [1, {}]",
+                idx, n
             )));
         }
         entries.push((idx - 1, v_vec[k]));
@@ -5540,7 +6628,11 @@ fn builtin_speye(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("speye", &args, 1)?;
     let n = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
     let entries: Vec<_> = (0..n).map(|i| (i, i, Complex::new(1.0, 0.0))).collect();
-    Ok(Value::SparseMatrix(SparseMat { rows: n, cols: n, entries }))
+    Ok(Value::SparseMatrix(SparseMat {
+        rows: n,
+        cols: n,
+        entries,
+    }))
 }
 
 /// `spzeros(m, n)` — m×n all-zero sparse matrix.
@@ -5548,7 +6640,11 @@ fn builtin_spzeros(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("spzeros", &args, 2)?;
     let m = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
     let n = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
-    Ok(Value::SparseMatrix(SparseMat { rows: m, cols: n, entries: Vec::new() }))
+    Ok(Value::SparseMatrix(SparseMat {
+        rows: m,
+        cols: n,
+        entries: Vec::new(),
+    }))
 }
 
 /// `nnz(S)` — number of non-zero entries (for dense, returns numel).
@@ -5560,7 +6656,12 @@ fn builtin_nnz(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Vector(v) => v.len(),
         Value::Matrix(m) => m.nrows() * m.ncols(),
         Value::Scalar(_) | Value::Complex(_) => 1,
-        other => return Err(ScriptError::type_err(format!("nnz: unsupported type {}", other.type_name()))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "nnz: unsupported type {}",
+                other.type_name()
+            )))
+        }
     };
     Ok(Value::Scalar(count as f64))
 }
@@ -5595,7 +6696,8 @@ fn builtin_nonzeros(args: Vec<Value>) -> Result<Value, ScriptError> {
             Ok(Value::Vector(Array1::from_vec(vals)))
         }
         other => Err(ScriptError::type_err(format!(
-            "nonzeros: expected sparse, got {}", other.type_name()
+            "nonzeros: expected sparse, got {}",
+            other.type_name()
         ))),
     }
 }
@@ -5605,7 +6707,11 @@ fn builtin_find(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("find", &args, 1)?;
     match &args[0] {
         Value::SparseVector(sv) => {
-            let indices: Vec<C64> = sv.entries.iter().map(|&(i, _)| Complex::new((i + 1) as f64, 0.0)).collect();
+            let indices: Vec<C64> = sv
+                .entries
+                .iter()
+                .map(|&(i, _)| Complex::new((i + 1) as f64, 0.0))
+                .collect();
             let values: Vec<C64> = sv.entries.iter().map(|&(_, v)| v).collect();
             Ok(Value::Tuple(vec![
                 Value::Vector(Array1::from_vec(indices)),
@@ -5613,8 +6719,16 @@ fn builtin_find(args: Vec<Value>) -> Result<Value, ScriptError> {
             ]))
         }
         Value::SparseMatrix(sm) => {
-            let rows: Vec<C64> = sm.entries.iter().map(|&(r, _, _)| Complex::new((r + 1) as f64, 0.0)).collect();
-            let cols: Vec<C64> = sm.entries.iter().map(|&(_, c, _)| Complex::new((c + 1) as f64, 0.0)).collect();
+            let rows: Vec<C64> = sm
+                .entries
+                .iter()
+                .map(|&(r, _, _)| Complex::new((r + 1) as f64, 0.0))
+                .collect();
+            let cols: Vec<C64> = sm
+                .entries
+                .iter()
+                .map(|&(_, c, _)| Complex::new((c + 1) as f64, 0.0))
+                .collect();
             let vals: Vec<C64> = sm.entries.iter().map(|&(_, _, v)| v).collect();
             Ok(Value::Tuple(vec![
                 Value::Vector(Array1::from_vec(rows)),
@@ -5623,7 +6737,8 @@ fn builtin_find(args: Vec<Value>) -> Result<Value, ScriptError> {
             ]))
         }
         other => Err(ScriptError::type_err(format!(
-            "find: expected sparse, got {}", other.type_name()
+            "find: expected sparse, got {}",
+            other.type_name()
         ))),
     }
 }
@@ -5635,26 +6750,36 @@ fn builtin_spsolve(args: Vec<Value>) -> Result<Value, ScriptError> {
     let a = match &args[0] {
         Value::SparseMatrix(sm) => sm.to_dense(),
         Value::Matrix(m) => m.clone(),
-        other => return Err(ScriptError::type_err(format!(
-            "spsolve: A must be a sparse or dense matrix, got {}", other.type_name()
-        ))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "spsolve: A must be a sparse or dense matrix, got {}",
+                other.type_name()
+            )))
+        }
     };
     let b = args[1].to_cvector().map_err(|e| ScriptError::type_err(e))?;
     let n = a.nrows();
     if n != a.ncols() {
         return Err(ScriptError::type_err(format!(
-            "spsolve: A must be square (got {}×{})", n, a.ncols()
+            "spsolve: A must be square (got {}×{})",
+            n,
+            a.ncols()
         )));
     }
     if n != b.len() {
         return Err(ScriptError::type_err(format!(
-            "spsolve: A is {}×{} but b has length {}", n, n, b.len()
+            "spsolve: A is {}×{} but b has length {}",
+            n,
+            n,
+            b.len()
         )));
     }
     // Augmented [A | b]
     let mut aug: Array2<C64> = Array2::zeros((n, n + 1));
     for i in 0..n {
-        for j in 0..n { aug[[i, j]] = a[[i, j]]; }
+        for j in 0..n {
+            aug[[i, j]] = a[[i, j]];
+        }
         aug[[i, n]] = b[i];
     }
     // Forward elimination with partial pivoting
@@ -5663,7 +6788,10 @@ fn builtin_spsolve(args: Vec<Value>) -> Result<Value, ScriptError> {
         let mut max_val = aug[[k, k]].norm();
         for i in k + 1..n {
             let v = aug[[i, k]].norm();
-            if v > max_val { max_val = v; max_idx = i; }
+            if v > max_val {
+                max_val = v;
+                max_idx = i;
+            }
         }
         if max_idx != k {
             for j in 0..n + 1 {
@@ -5673,7 +6801,9 @@ fn builtin_spsolve(args: Vec<Value>) -> Result<Value, ScriptError> {
             }
         }
         if aug[[k, k]].norm() < 1e-14 {
-            return Err(ScriptError::type_err("spsolve: matrix is singular or nearly singular".to_string()));
+            return Err(ScriptError::type_err(
+                "spsolve: matrix is singular or nearly singular".to_string(),
+            ));
         }
         for i in k + 1..n {
             let factor = aug[[i, k]] / aug[[k, k]];
@@ -5687,12 +6817,18 @@ fn builtin_spsolve(args: Vec<Value>) -> Result<Value, ScriptError> {
     let mut x: CVector = Array1::zeros(n);
     for i in (0..n).rev() {
         let mut s = aug[[i, n]];
-        for j in i + 1..n { s -= aug[[i, j]] * x[j]; }
+        for j in i + 1..n {
+            s -= aug[[i, j]] * x[j];
+        }
         x[i] = s / aug[[i, i]];
     }
     if x.len() == 1 {
         let c = x[0];
-        if c.im.abs() < 1e-12 { Ok(Value::Scalar(c.re)) } else { Ok(Value::Complex(c)) }
+        if c.im.abs() < 1e-12 {
+            Ok(Value::Scalar(c.re))
+        } else {
+            Ok(Value::Complex(c))
+        }
     } else {
         Ok(Value::Vector(x))
     }
@@ -5710,9 +6846,12 @@ fn builtin_spdiags(args: Vec<Value>) -> Result<Value, ScriptError> {
     let diags: Vec<i64> = match &args[1] {
         Value::Scalar(d) => vec![*d as i64],
         Value::Vector(v) => v.iter().map(|c| c.re as i64).collect(),
-        other => return Err(ScriptError::type_err(format!(
-            "spdiags: D must be a scalar or vector, got {}", other.type_name()
-        ))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "spdiags: D must be a scalar or vector, got {}",
+                other.type_name()
+            )))
+        }
     };
 
     // Parse values: vector for single diagonal, matrix for multiple (one column per diag)
@@ -5721,12 +6860,16 @@ fn builtin_spdiags(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Vector(v) => {
             if diags.len() != 1 {
                 return Err(ScriptError::runtime(
-                    "spdiags: when V is a vector, D must be a single diagonal offset".to_string()
+                    "spdiags: when V is a vector, D must be a single diagonal offset".to_string(),
                 ));
             }
             let d = diags[0];
             for (idx, &val) in v.iter().enumerate() {
-                let (r, c) = if d >= 0 { (idx, idx + d as usize) } else { (idx + (-d) as usize, idx) };
+                let (r, c) = if d >= 0 {
+                    (idx, idx + d as usize)
+                } else {
+                    (idx + (-d) as usize, idx)
+                };
                 if r < m && c < n {
                     entries.push((r, c, val));
                 }
@@ -5736,13 +6879,18 @@ fn builtin_spdiags(args: Vec<Value>) -> Result<Value, ScriptError> {
             if mat.ncols() != diags.len() {
                 return Err(ScriptError::runtime(format!(
                     "spdiags: V has {} columns but D has {} offsets",
-                    mat.ncols(), diags.len()
+                    mat.ncols(),
+                    diags.len()
                 )));
             }
             for (col_idx, &d) in diags.iter().enumerate() {
                 for row_idx in 0..mat.nrows() {
                     let val = mat[[row_idx, col_idx]];
-                    let (r, c) = if d >= 0 { (row_idx, row_idx + d as usize) } else { (row_idx + (-d) as usize, row_idx) };
+                    let (r, c) = if d >= 0 {
+                        (row_idx, row_idx + d as usize)
+                    } else {
+                        (row_idx + (-d) as usize, row_idx)
+                    };
                     if r < m && c < n {
                         entries.push((r, c, val));
                     }
@@ -5752,7 +6900,7 @@ fn builtin_spdiags(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Scalar(s) => {
             if diags.len() != 1 {
                 return Err(ScriptError::runtime(
-                    "spdiags: when V is a scalar, D must be a single diagonal offset".to_string()
+                    "spdiags: when V is a scalar, D must be a single diagonal offset".to_string(),
                 ));
             }
             let d = diags[0];
@@ -5763,13 +6911,20 @@ fn builtin_spdiags(args: Vec<Value>) -> Result<Value, ScriptError> {
                 (n).min(m.saturating_sub((-d) as usize))
             };
             for idx in 0..diag_len {
-                let (r, c) = if d >= 0 { (idx, idx + d as usize) } else { (idx + (-d) as usize, idx) };
+                let (r, c) = if d >= 0 {
+                    (idx, idx + d as usize)
+                } else {
+                    (idx + (-d) as usize, idx)
+                };
                 entries.push((r, c, val));
             }
         }
-        other => return Err(ScriptError::type_err(format!(
-            "spdiags: V must be a scalar, vector, or matrix, got {}", other.type_name()
-        ))),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "spdiags: V must be a scalar, vector, or matrix, got {}",
+                other.type_name()
+            )))
+        }
     }
 
     Ok(Value::SparseMatrix(SparseMat::new(m, n, entries)))
@@ -5783,7 +6938,7 @@ fn builtin_sprand(args: Vec<Value>) -> Result<Value, ScriptError> {
     let density = args[2].to_scalar().map_err(|e| ScriptError::type_err(e))?;
     if density < 0.0 || density > 1.0 {
         return Err(ScriptError::runtime(
-            "sprand: density must be in [0, 1]".to_string()
+            "sprand: density must be in [0, 1]".to_string(),
         ));
     }
     let mut rng = rand::thread_rng();

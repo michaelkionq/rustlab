@@ -1,7 +1,7 @@
+use crate::error::DspError;
 use ndarray::Array1;
 use num_complex::Complex;
 use rustlab_core::CVector;
-use crate::error::DspError;
 
 /// Upsample by `p`, apply FIR filter `h`, then downsample by `q`.
 ///
@@ -43,7 +43,9 @@ pub fn upfirdn(x: &CVector, h: &[f64], p: usize, q: usize) -> Result<CVector, Ds
         return Err(DspError::InvalidParameter("upfirdn: q must be >= 1".into()));
     }
     if h.is_empty() {
-        return Err(DspError::InvalidParameter("upfirdn: filter h must be non-empty".into()));
+        return Err(DspError::InvalidParameter(
+            "upfirdn: filter h must be non-empty".into(),
+        ));
     }
     if x.is_empty() {
         return Ok(Array1::zeros(0));
@@ -62,9 +64,9 @@ pub fn upfirdn(x: &CVector, h: &[f64], p: usize, q: usize) -> Result<CVector, Ds
     let mut y: CVector = Array1::zeros(n_out);
 
     for m in 0..n_out {
-        let t = m * q;       // virtual time in the upsampled coordinate
-        let r = t % p;       // selects subfilter: h[r], h[r+p], h[r+2p], ...
-        let x_pos = t / p;   // most-recent contributing sample index in x
+        let t = m * q; // virtual time in the upsampled coordinate
+        let r = t % p; // selects subfilter: h[r], h[r+p], h[r+2p], ...
+        let x_pos = t / p; // most-recent contributing sample index in x
 
         let mut acc = Complex::new(0.0f64, 0.0f64);
         for k in 0..n_poly {

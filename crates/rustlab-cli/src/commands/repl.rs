@@ -1,19 +1,19 @@
 use anyhow::Result;
-use rustyline::completion::{Completer, FilenameCompleter, Pair};
-use rustyline::hint::HistoryHinter;
-use rustyline::{CompletionType, Config, Context, Editor};
-use rustyline::highlight::Highlighter;
-use rustyline::{error::ReadlineError, Helper, Hinter, Validator};
 use rustlab_script::{lexer, parser, Evaluator};
+use rustyline::completion::{Completer, FilenameCompleter, Pair};
+use rustyline::highlight::Highlighter;
+use rustyline::hint::HistoryHinter;
+use rustyline::{error::ReadlineError, Helper, Hinter, Validator};
+use rustyline::{CompletionType, Config, Context, Editor};
 
 use crate::color;
 
 // ─── Help text ────────────────────────────────────────────────────────────────
 
 struct HelpEntry {
-    name:    &'static str,
-    brief:   &'static str,
-    detail:  &'static str,
+    name: &'static str,
+    brief: &'static str,
+    detail: &'static str,
 }
 
 const HELP: &[HelpEntry] = &[
@@ -478,25 +478,25 @@ const HELP: &[HelpEntry] = &[
 fn whos_type(v: &rustlab_script::Value) -> &'static str {
     use rustlab_script::Value;
     match v {
-        Value::Scalar(_)  => "scalar",
+        Value::Scalar(_) => "scalar",
         Value::Complex(_) => "complex",
-        Value::Vector(_)  => "vector",
-        Value::Matrix(_)  => "matrix",
-        Value::Bool(_)    => "bool",
-        Value::Str(_)     => "string",
-        Value::QFmt(_)    => "qfmt",
-        Value::Struct(_)  => "struct",
-        Value::Tuple(_)   => "tuple",
-        Value::All        => "all-index",
-        Value::None       => "none",
+        Value::Vector(_) => "vector",
+        Value::Matrix(_) => "matrix",
+        Value::Bool(_) => "bool",
+        Value::Str(_) => "string",
+        Value::QFmt(_) => "qfmt",
+        Value::Struct(_) => "struct",
+        Value::Tuple(_) => "tuple",
+        Value::All => "all-index",
+        Value::None => "none",
         Value::TransferFn { .. } => "tf",
         Value::StateSpace { .. } => "ss",
-        Value::Lambda { .. }  => "lambda",
-        Value::FuncHandle(_)  => "function_handle",
-        Value::FirState(_)    => "fir_state",
-        Value::AudioIn  { .. } => "audio_in",
+        Value::Lambda { .. } => "lambda",
+        Value::FuncHandle(_) => "function_handle",
+        Value::FirState(_) => "fir_state",
+        Value::AudioIn { .. } => "audio_in",
         Value::AudioOut { .. } => "audio_out",
-        Value::LiveFigure(_)  => "live_figure",
+        Value::LiveFigure(_) => "live_figure",
         Value::SparseVector(_) => "sparse_vector",
         Value::SparseMatrix(_) => "sparse_matrix",
         Value::StringArray(_) => "string_array",
@@ -506,31 +506,45 @@ fn whos_type(v: &rustlab_script::Value) -> &'static str {
 fn whos_size(v: &rustlab_script::Value) -> String {
     use rustlab_script::Value;
     match v {
-        Value::Vector(v)  => format!("1×{}", v.len()),
-        Value::Matrix(m)  => format!("{}×{}", m.nrows(), m.ncols()),
-        Value::Str(s)     => format!("1×{}", s.len()),
-        Value::Struct(f)      => format!("1×1 ({} fields)", f.len()),
-        Value::Tuple(v)       => format!("1×{}", v.len()),
+        Value::Vector(v) => format!("1×{}", v.len()),
+        Value::Matrix(m) => format!("{}×{}", m.nrows(), m.ncols()),
+        Value::Str(s) => format!("1×{}", s.len()),
+        Value::Struct(f) => format!("1×1 ({} fields)", f.len()),
+        Value::Tuple(v) => format!("1×{}", v.len()),
         Value::StateSpace { a, .. } => format!("{}×{}", a.nrows(), a.ncols()),
         Value::SparseVector(sv) => {
-            let fill = if sv.len > 0 { 100.0 * sv.nnz() as f64 / sv.len as f64 } else { 0.0 };
+            let fill = if sv.len > 0 {
+                100.0 * sv.nnz() as f64 / sv.len as f64
+            } else {
+                0.0
+            };
             format!("1×{}, nnz={}, fill={:.0}%", sv.len, sv.nnz(), fill)
         }
         Value::SparseMatrix(sm) => {
             let total = sm.rows * sm.cols;
-            let fill = if total > 0 { 100.0 * sm.nnz() as f64 / total as f64 } else { 0.0 };
-            format!("{}×{}, nnz={}, fill={:.0}%", sm.rows, sm.cols, sm.nnz(), fill)
+            let fill = if total > 0 {
+                100.0 * sm.nnz() as f64 / total as f64
+            } else {
+                0.0
+            };
+            format!(
+                "{}×{}, nnz={}, fill={:.0}%",
+                sm.rows,
+                sm.cols,
+                sm.nnz(),
+                fill
+            )
         }
         Value::StringArray(v) => format!("1×{}", v.len()),
-        Value::All            => "—".to_string(),
-        _                     => "1×1".to_string(),
+        Value::All => "—".to_string(),
+        _ => "1×1".to_string(),
     }
 }
 
 fn whos_preview(v: &rustlab_script::Value) -> String {
     use rustlab_script::Value;
     match v {
-        Value::Scalar(n)  => format!("{n}"),
+        Value::Scalar(n) => format!("{n}"),
         Value::Complex(c) => {
             if c.im >= 0.0 {
                 format!("{}+{}j", c.re, c.im)
@@ -538,56 +552,70 @@ fn whos_preview(v: &rustlab_script::Value) -> String {
                 format!("{}{}j", c.re, c.im)
             }
         }
-        Value::Bool(b)    => format!("{b}"),
-        Value::Str(s)     => {
-            if s.len() <= 40 { format!("\"{s}\"") }
-            else             { format!("\"{}…\"", &s[..37]) }
+        Value::Bool(b) => format!("{b}"),
+        Value::Str(s) => {
+            if s.len() <= 40 {
+                format!("\"{s}\"")
+            } else {
+                format!("\"{}…\"", &s[..37])
+            }
         }
         Value::Vector(v) => {
-            let preview: Vec<String> = v.iter().take(3)
-                .map(|c| if c.im == 0.0 { format!("{:.4}", c.re) }
-                         else            { format!("{:.4}+{:.4}j", c.re, c.im) })
+            let preview: Vec<String> = v
+                .iter()
+                .take(3)
+                .map(|c| {
+                    if c.im == 0.0 {
+                        format!("{:.4}", c.re)
+                    } else {
+                        format!("{:.4}+{:.4}j", c.re, c.im)
+                    }
+                })
                 .collect();
             let suffix = if v.len() > 3 { ", …" } else { "" };
             format!("[{}{}]", preview.join(", "), suffix)
         }
-        Value::Matrix(m)  => format!("[{}×{} matrix]", m.nrows(), m.ncols()),
-        Value::Struct(f)  => {
+        Value::Matrix(m) => format!("[{}×{} matrix]", m.nrows(), m.ncols()),
+        Value::Struct(f) => {
             let mut names: Vec<&str> = f.keys().map(|s| s.as_str()).collect();
             names.sort();
             let preview = names.iter().take(3).cloned().collect::<Vec<_>>().join(", ");
             let suffix = if names.len() > 3 { ", …" } else { "" };
-            format!("{{{}{}}}",  preview, suffix)
+            format!("{{{}{}}}", preview, suffix)
         }
         Value::QFmt(spec) => format!("{}", rustlab_script::Value::QFmt(spec.clone())),
-        Value::Tuple(v)   => format!("({} values)", v.len()),
-        Value::All        => ":".to_string(),
-        Value::None       => "none".to_string(),
-        Value::TransferFn { num, den } => format!(
-            "{} / ({} terms)",
-            num.len(), den.len()
-        ),
+        Value::Tuple(v) => format!("({} values)", v.len()),
+        Value::All => ":".to_string(),
+        Value::None => "none".to_string(),
+        Value::TransferFn { num, den } => format!("{} / ({} terms)", num.len(), den.len()),
         Value::StateSpace { a, b, c, .. } => format!(
             "{}-state, {} input, {} output",
-            a.nrows(), b.ncols(), c.nrows()
+            a.nrows(),
+            b.ncols(),
+            c.nrows()
         ),
         Value::Lambda { params, .. } => format!("@({}) <expr>", params.join(", ")),
         Value::FuncHandle(name) => format!("@{}", name),
-        Value::FirState(buf)    => format!("<fir_state {}>", buf.lock().unwrap().len()),
-        Value::AudioIn  { sample_rate, frame_size } =>
-            format!("<audio_in {:.0} Hz / {}>", sample_rate, frame_size),
-        Value::AudioOut { sample_rate, frame_size } =>
-            format!("<audio_out {:.0} Hz / {}>", sample_rate, frame_size),
+        Value::FirState(buf) => format!("<fir_state {}>", buf.lock().unwrap().len()),
+        Value::AudioIn {
+            sample_rate,
+            frame_size,
+        } => format!("<audio_in {:.0} Hz / {}>", sample_rate, frame_size),
+        Value::AudioOut {
+            sample_rate,
+            frame_size,
+        } => format!("<audio_out {:.0} Hz / {}>", sample_rate, frame_size),
         Value::LiveFigure(fig) => {
-            if fig.lock().unwrap().is_some() { "<live_figure>".to_string() }
-            else                             { "<live_figure closed>".to_string() }
+            if fig.lock().unwrap().is_some() {
+                "<live_figure>".to_string()
+            } else {
+                "<live_figure closed>".to_string()
+            }
         }
         Value::SparseVector(sv) => format!("sparse [1×{}, nnz={}]", sv.len, sv.nnz()),
         Value::SparseMatrix(sm) => format!("sparse [{}×{}, nnz={}]", sm.rows, sm.cols, sm.nnz()),
         Value::StringArray(arr) => {
-            let preview: Vec<String> = arr.iter().take(3)
-                .map(|s| format!("\"{}\"", s))
-                .collect();
+            let preview: Vec<String> = arr.iter().take(3).map(|s| format!("\"{}\"", s)).collect();
             let suffix = if arr.len() > 3 { ", …" } else { "" };
             format!("{{{}{}}}", preview.join(", "), suffix)
         }
@@ -596,29 +624,44 @@ fn whos_preview(v: &rustlab_script::Value) -> String {
 
 fn print_whos(ev: &rustlab_script::Evaluator) {
     let vars = ev.vars();
-    let fns  = ev.user_fn_names();
+    let fns = ev.user_fn_names();
     if vars.is_empty() && fns.is_empty() {
         println!("  {}", color::dim("(no variables defined)"));
         return;
     }
     // Compute column widths from actual data
-    let name_w = vars.iter().map(|(n, _)| n.len())
+    let name_w = vars
+        .iter()
+        .map(|(n, _)| n.len())
         .chain(fns.iter().map(|n| n.len()))
-        .max().unwrap_or(4).max(4);
-    let type_w = vars.iter().map(|(_, v)| whos_type(v).len())
-        .max().unwrap_or(4).max(4);
-    let size_w = vars.iter().map(|(_, v)| whos_size(v).len())
-        .max().unwrap_or(4).max(4);
+        .max()
+        .unwrap_or(4)
+        .max(4);
+    let type_w = vars
+        .iter()
+        .map(|(_, v)| whos_type(v).len())
+        .max()
+        .unwrap_or(4)
+        .max(4);
+    let size_w = vars
+        .iter()
+        .map(|(_, v)| whos_size(v).len())
+        .max()
+        .unwrap_or(4)
+        .max(4);
     println!();
-    println!("  {}  {}  {}  {}",
+    println!(
+        "  {}  {}  {}  {}",
         color::bold(&format!("{:<nw$}", "Name", nw = name_w)),
         color::bold(&format!("{:<tw$}", "Type", tw = type_w)),
         color::bold(&format!("{:<sw$}", "Size", sw = size_w)),
-        color::bold("Value"));
+        color::bold("Value")
+    );
     let total_w = name_w + type_w + size_w + 12; // 12 = padding between columns + "Value"
     println!("  {}", color::dim(&"─".repeat(total_w.max(50))));
     for (name, val) in &vars {
-        println!("  {}  {}  {}  {}",
+        println!(
+            "  {}  {}  {}  {}",
             color::green(&format!("{:<nw$}", name, nw = name_w)),
             color::cyan(&format!("{:<tw$}", whos_type(val), tw = type_w)),
             format!("{:<sw$}", whos_size(val), sw = size_w),
@@ -626,18 +669,20 @@ fn print_whos(ev: &rustlab_script::Evaluator) {
         );
     }
     for name in &fns {
-        println!("  {}  {}  {}  {}",
+        println!(
+            "  {}  {}  {}  {}",
             color::green(&format!("{:<nw$}", name, nw = name_w)),
             color::cyan(&format!("{:<tw$}", "function", tw = type_w)),
             format!("{:<sw$}", "", sw = size_w),
-            color::dim("<user-defined>"));
+            color::dim("<user-defined>")
+        );
     }
     println!();
 }
 
 fn cmd_pwd() {
     match std::env::current_dir() {
-        Ok(p)  => println!("{}", p.display()),
+        Ok(p) => println!("{}", p.display()),
         Err(e) => eprintln!("pwd: {e}"),
     }
 }
@@ -658,14 +703,15 @@ fn cmd_ls(path: &str) {
     let dir = std::path::Path::new(target);
 
     let mut entries = match std::fs::read_dir(dir) {
-        Ok(rd) => rd
-            .filter_map(|e| e.ok())
-            .collect::<Vec<_>>(),
-        Err(e) => { eprintln!("ls: {target}: {e}"); return; }
+        Ok(rd) => rd.filter_map(|e| e.ok()).collect::<Vec<_>>(),
+        Err(e) => {
+            eprintln!("ls: {target}: {e}");
+            return;
+        }
     };
     entries.sort_by_key(|e| e.file_name());
 
-    let mut dirs:  Vec<String> = Vec::new();
+    let mut dirs: Vec<String> = Vec::new();
     let mut files: Vec<String> = Vec::new();
 
     for entry in &entries {
@@ -680,14 +726,18 @@ fn cmd_ls(path: &str) {
 
     // Print directories first, then files, in columns of 4
     let all: Vec<String> = dirs.into_iter().chain(files).collect();
-    if all.is_empty() { return; }
+    if all.is_empty() {
+        return;
+    }
 
     let col_w = all.iter().map(|s| s.len()).max().unwrap_or(0) + 2;
-    let cols  = (80 / col_w).max(1);
+    let cols = (80 / col_w).max(1);
 
     println!();
     for (i, name) in all.iter().enumerate() {
-        if i > 0 && i % cols == 0 { println!(); }
+        if i > 0 && i % cols == 0 {
+            println!();
+        }
         print!("  {:<width$}", name, width = col_w);
     }
     println!("\n");
@@ -735,7 +785,10 @@ pub(crate) fn run_script_source(src: &str, ev: &mut Evaluator) {
             // Flush accumulated code first
             if !code_buf.trim().is_empty() {
                 match lexer::tokenize(&code_buf).and_then(|t| parser::parse(t)) {
-                    Err(e) => { eprintln!("error: {e}"); had_error = true; }
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        had_error = true;
+                    }
                     Ok(stmts) => {
                         for stmt in &stmts {
                             if let Err(e) = ev.exec_stmt(stmt) {
@@ -748,7 +801,9 @@ pub(crate) fn run_script_source(src: &str, ev: &mut Evaluator) {
                 }
             }
             code_buf.clear();
-            if had_error { break; }
+            if had_error {
+                break;
+            }
 
             // Execute the report directive
             let args = trimmed.strip_prefix("report").unwrap().trim();
@@ -785,32 +840,42 @@ pub(crate) fn cmd_report(args: &str) {
 
     let (sub, rest) = match args.find(|c: char| c.is_whitespace()) {
         Some(i) => (&args[..i], args[i..].trim()),
-        None    => (args, ""),
+        None => (args, ""),
     };
 
     // Strip surrounding quotes from rest argument if present
     let rest_unquoted = rest
-        .strip_prefix('"').and_then(|s| s.strip_suffix('"'))
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
         .or_else(|| rest.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
         .unwrap_or(rest);
 
     match sub {
         "start" => {
-            let title = if rest_unquoted.is_empty() { "RustLab Report" } else { rest_unquoted };
+            let title = if rest_unquoted.is_empty() {
+                "RustLab Report"
+            } else {
+                rest_unquoted
+            };
             rustlab_plot::report_start(title);
-            eprintln!("report: started \"{}\" — figures auto-captured on clf/figure()", title);
+            eprintln!(
+                "report: started \"{}\" — figures auto-captured on clf/figure()",
+                title
+            );
         }
-        "add" => {
-            match rustlab_plot::report_add(rest_unquoted) {
-                Ok(()) => {
-                    let n = rustlab_plot::report_len();
-                    eprintln!("report: captured figure ({} total)", n);
-                }
-                Err(e) => eprintln!("report: {e}"),
+        "add" => match rustlab_plot::report_add(rest_unquoted) {
+            Ok(()) => {
+                let n = rustlab_plot::report_len();
+                eprintln!("report: captured figure ({} total)", n);
             }
-        }
+            Err(e) => eprintln!("report: {e}"),
+        },
         "save" => {
-            let path = if rest_unquoted.is_empty() { "report/index.html" } else { rest_unquoted };
+            let path = if rest_unquoted.is_empty() {
+                "report/index.html"
+            } else {
+                rest_unquoted
+            };
             match rustlab_plot::report_save(path) {
                 Ok(n) => eprintln!("report: saved {} figure(s) to {path}", n),
                 Err(e) => eprintln!("report: {e}"),
@@ -825,46 +890,183 @@ pub(crate) fn cmd_report(args: &str) {
 
 fn print_help_list() {
     println!();
-    println!("  {:<26}  {}", color::bold("Command / Topic"), color::bold("Description"));
+    println!(
+        "  {:<26}  {}",
+        color::bold("Command / Topic"),
+        color::bold("Description")
+    );
     println!("  {}", color::dim(&"-".repeat(60)));
 
     let categories = [
-        ("Math",             &["abs","angle","real","imag","conj","cos","sin","acos","asin","atan","atan2","tanh","sinh","cosh","sqrt","exp","log","log10","log2","floor","ceil","round","sign","mod"][..]),
-        ("ML / Activation",  &["softmax","relu","gelu","layernorm","tanh"]),
-        ("Array / Stats",    &["zeros","ones","linspace","logspace","rand","randn","randi",
-                               "min","max","sum","prod","cumsum","argmin","argmax","sort","trapz",
-                               "mean","median","std","hist",
-                               "len","length","numel","size","meshgrid","all","any"]),
-        ("Matrix",           &["eye","transpose","diag","trace","reshape","repmat",
-                               "horzcat","vertcat","rank"]),
-        ("Linear Algebra",   &["dot","cross","outer","kron","norm","det","inv","expm","linsolve","eig","svd","laguerre","legendre","factor","roots"]),
-        ("DSP",              &["fir_lowpass","fir_highpass","fir_bandpass",
-                               "fir_lowpass_kaiser","fir_highpass_kaiser","fir_bandpass_kaiser",
-                               "fir_notch","firpm","firpmq","freqz",
-                               "butterworth_lowpass","butterworth_highpass",
-                               "filtfilt","convolve","upfirdn","window",
-                               "fft","ifft","fftshift","fftfreq","spectrum","mag2db"]),
-        ("Streaming DSP",    &["state_init","filter_stream"]),
-        ("Audio I/O",        &["audio_in","audio_out","audio_read","audio_write"]),
-        ("Live Plotting",    &["figure_live","plot_update","plot_labels","plot_limits","figure_draw","figure_close"]),
-        ("Fixed-point",      &["qfmt","quantize","qadd","qmul","qconv","snr"]),
-        ("Plotting",         &["plot","stem","bar","scatter","hline","yline","plotdb","imagesc",
-                               "savefig","hist"]),
-        ("Figure Controls",  &["figure","clf","hold","grid","viewer","xlabel","ylabel","title",
-                               "xlim","ylim","subplot","legend","report"]),
-        ("Controls",         &["tf","pole","zero","ss","ctrb","obsv",
-                               "bode","step","margin","lqr","rlocus",
-                               "rk4","lyap","gram","care","dare","place","freqresp"]),
-        ("Sparse",           &["sparse","sparsevec","speye","spzeros","spdiags","sprand","full","nnz","issparse","nonzeros","find","spsolve"]),
-        ("Structs",          &["struct","isstruct","fieldnames","isfield","rmfield"]),
-        ("Cell Arrays",      &["iscell"]),
-        ("Control Flow",     &["if","elseif","switch","for","function","error","index_assign","chained_index"]),
-        ("Output",           &["disp","fprintf","sprintf","commas","print"]),
-        ("Formatting",       &["format","underscores"]),
-        ("I/O",              &["print","save","load","whos","sleep"]),
-        ("Language / REPL",  &["i / j","pi","e","Inf","NaN","range","index","index_assign","chained_index","compound_assign","clear","whos",
-                               "arrayfun","feval","profile","profile_report"]),
-        ("Filesystem",       &["run","ls","cd","pwd"]),
+        (
+            "Math",
+            &[
+                "abs", "angle", "real", "imag", "conj", "cos", "sin", "acos", "asin", "atan",
+                "atan2", "tanh", "sinh", "cosh", "sqrt", "exp", "log", "log10", "log2", "floor",
+                "ceil", "round", "sign", "mod",
+            ][..],
+        ),
+        (
+            "ML / Activation",
+            &["softmax", "relu", "gelu", "layernorm", "tanh"],
+        ),
+        (
+            "Array / Stats",
+            &[
+                "zeros", "ones", "linspace", "logspace", "rand", "randn", "randi", "min", "max",
+                "sum", "prod", "cumsum", "argmin", "argmax", "sort", "trapz", "mean", "median",
+                "std", "hist", "len", "length", "numel", "size", "meshgrid", "all", "any",
+            ],
+        ),
+        (
+            "Matrix",
+            &[
+                "eye",
+                "transpose",
+                "diag",
+                "trace",
+                "reshape",
+                "repmat",
+                "horzcat",
+                "vertcat",
+                "rank",
+            ],
+        ),
+        (
+            "Linear Algebra",
+            &[
+                "dot", "cross", "outer", "kron", "norm", "det", "inv", "expm", "linsolve", "eig",
+                "svd", "laguerre", "legendre", "factor", "roots",
+            ],
+        ),
+        (
+            "DSP",
+            &[
+                "fir_lowpass",
+                "fir_highpass",
+                "fir_bandpass",
+                "fir_lowpass_kaiser",
+                "fir_highpass_kaiser",
+                "fir_bandpass_kaiser",
+                "fir_notch",
+                "firpm",
+                "firpmq",
+                "freqz",
+                "butterworth_lowpass",
+                "butterworth_highpass",
+                "filtfilt",
+                "convolve",
+                "upfirdn",
+                "window",
+                "fft",
+                "ifft",
+                "fftshift",
+                "fftfreq",
+                "spectrum",
+                "mag2db",
+            ],
+        ),
+        ("Streaming DSP", &["state_init", "filter_stream"]),
+        (
+            "Audio I/O",
+            &["audio_in", "audio_out", "audio_read", "audio_write"],
+        ),
+        (
+            "Live Plotting",
+            &[
+                "figure_live",
+                "plot_update",
+                "plot_labels",
+                "plot_limits",
+                "figure_draw",
+                "figure_close",
+            ],
+        ),
+        (
+            "Fixed-point",
+            &["qfmt", "quantize", "qadd", "qmul", "qconv", "snr"],
+        ),
+        (
+            "Plotting",
+            &[
+                "plot", "stem", "bar", "scatter", "hline", "yline", "plotdb", "imagesc", "savefig",
+                "hist",
+            ],
+        ),
+        (
+            "Figure Controls",
+            &[
+                "figure", "clf", "hold", "grid", "viewer", "xlabel", "ylabel", "title", "xlim",
+                "ylim", "subplot", "legend", "report",
+            ],
+        ),
+        (
+            "Controls",
+            &[
+                "tf", "pole", "zero", "ss", "ctrb", "obsv", "bode", "step", "margin", "lqr",
+                "rlocus", "rk4", "lyap", "gram", "care", "dare", "place", "freqresp",
+            ],
+        ),
+        (
+            "Sparse",
+            &[
+                "sparse",
+                "sparsevec",
+                "speye",
+                "spzeros",
+                "spdiags",
+                "sprand",
+                "full",
+                "nnz",
+                "issparse",
+                "nonzeros",
+                "find",
+                "spsolve",
+            ],
+        ),
+        (
+            "Structs",
+            &["struct", "isstruct", "fieldnames", "isfield", "rmfield"],
+        ),
+        ("Cell Arrays", &["iscell"]),
+        (
+            "Control Flow",
+            &[
+                "if",
+                "elseif",
+                "switch",
+                "for",
+                "function",
+                "error",
+                "index_assign",
+                "chained_index",
+            ],
+        ),
+        ("Output", &["disp", "fprintf", "sprintf", "commas", "print"]),
+        ("Formatting", &["format", "underscores"]),
+        ("I/O", &["print", "save", "load", "whos", "sleep"]),
+        (
+            "Language / REPL",
+            &[
+                "i / j",
+                "pi",
+                "e",
+                "Inf",
+                "NaN",
+                "range",
+                "index",
+                "index_assign",
+                "chained_index",
+                "compound_assign",
+                "clear",
+                "whos",
+                "arrayfun",
+                "feval",
+                "profile",
+                "profile_report",
+            ],
+        ),
+        ("Filesystem", &["run", "ls", "cd", "pwd"]),
     ];
 
     for (cat, names) in &categories {
@@ -876,8 +1078,11 @@ fn print_help_list() {
         }
     }
     println!();
-    println!("  Type  {}  or  {}  for details.",
-        color::bold("help <command>"), color::bold("? <command>"));
+    println!(
+        "  Type  {}  or  {}  for details.",
+        color::bold("help <command>"),
+        color::bold("? <command>")
+    );
     println!();
 }
 
@@ -892,9 +1097,11 @@ fn print_help_detail(topic: &str) {
             }
             println!();
         }
-        None => println!("No help found for '{}'.  Type {} for a full list.",
+        None => println!(
+            "No help found for '{}'.  Type {} for a full list.",
             color::yellow(&format!("'{}'", topic)),
-            color::bold("'help'")),
+            color::bold("'help'")
+        ),
     }
 }
 
@@ -920,7 +1127,8 @@ impl ReplHelper {
 
     fn sync(&mut self, ev: &Evaluator) {
         self.names = ev.vars().iter().map(|(n, _)| n.to_string()).collect();
-        self.names.extend(ev.user_fn_names().iter().map(|n| n.to_string()));
+        self.names
+            .extend(ev.user_fn_names().iter().map(|n| n.to_string()));
         self.names.sort();
     }
 }
@@ -973,22 +1181,21 @@ impl Completer for ReplHelper {
         let s = &line[..pos];
 
         // ── run <path>  or  ls/cd <path> — filesystem, no quotes ─────────────
-        let is_path_cmd = s.starts_with("run ")
-            || s.starts_with("ls ")
-            || s.starts_with("cd ");
+        let is_path_cmd = s.starts_with("run ") || s.starts_with("ls ") || s.starts_with("cd ");
         if is_path_cmd || inside_string(s) {
             return self.file_completer.complete(line, pos, ctx);
         }
 
         // ── help <topic> ──────────────────────────────────────────────────────
-        let help_prefix = s
-            .strip_prefix("help ")
-            .or_else(|| s.strip_prefix("? "));
+        let help_prefix = s.strip_prefix("help ").or_else(|| s.strip_prefix("? "));
         if let Some(rest) = help_prefix {
             let candidates = builtin_names()
                 .into_iter()
                 .filter(|n| n.starts_with(rest))
-                .map(|n| Pair { display: n.to_string(), replacement: n.to_string() })
+                .map(|n| Pair {
+                    display: n.to_string(),
+                    replacement: n.to_string(),
+                })
                 .collect();
             return Ok((pos - rest.len(), candidates));
         }
@@ -1009,7 +1216,10 @@ impl Completer for ReplHelper {
             .names
             .iter()
             .filter(|n| n.starts_with(prefix))
-            .map(|n| Pair { display: n.clone(), replacement: n.clone() })
+            .map(|n| Pair {
+                display: n.clone(),
+                replacement: n.clone(),
+            })
             .collect();
         for name in builtins {
             if name.starts_with(prefix) && !self.names.iter().any(|n| n == name) {
@@ -1027,12 +1237,17 @@ impl Completer for ReplHelper {
 // ─── REPL ─────────────────────────────────────────────────────────────────────
 
 pub fn execute() -> Result<()> {
-    println!("rustlab {} — type {} or {} for help, {} or Ctrl+D to quit",
+    println!(
+        "rustlab {} — type {} or {} for help, {} or Ctrl+D to quit",
         color::bold_green(env!("CARGO_PKG_VERSION")),
         color::bold("'help'"),
         color::bold("'?'"),
-        color::bold("'exit'"));
-    println!("{}\n", color::dim("Tip: end a line with ; to suppress output"));
+        color::bold("'exit'")
+    );
+    println!(
+        "{}\n",
+        color::dim("Tip: end a line with ; to suppress output")
+    );
 
     let config = Config::builder()
         .completion_type(CompletionType::List)
@@ -1070,7 +1285,10 @@ pub fn execute() -> Result<()> {
                     print_help_list();
                     continue;
                 }
-                if let Some(topic) = trimmed.strip_prefix("help ").or_else(|| trimmed.strip_prefix("? ")) {
+                if let Some(topic) = trimmed
+                    .strip_prefix("help ")
+                    .or_else(|| trimmed.strip_prefix("? "))
+                {
                     print_help_detail(topic.trim());
                     continue;
                 }
@@ -1084,7 +1302,9 @@ pub fn execute() -> Result<()> {
                 // clear
                 if trimmed == "clear" {
                     ev.clear_vars();
-                    if let Some(h) = rl.helper_mut() { h.sync(&ev); }
+                    if let Some(h) = rl.helper_mut() {
+                        h.sync(&ev);
+                    }
                     continue;
                 }
 
@@ -1097,7 +1317,9 @@ pub fn execute() -> Result<()> {
                             run_script_source(&src, &mut ev);
                         }
                     }
-                    if let Some(h) = rl.helper_mut() { h.sync(&ev); }
+                    if let Some(h) = rl.helper_mut() {
+                        h.sync(&ev);
+                    }
                     continue;
                 }
 
@@ -1143,15 +1365,22 @@ pub fn execute() -> Result<()> {
                                 let ct = cont.trim();
                                 rl.add_history_entry(ct).ok();
                                 // Track nesting for nested function defs
-                                if ct.starts_with("function ") || ct == "function" { depth += 1; }
+                                if ct.starts_with("function ") || ct == "function" {
+                                    depth += 1;
+                                }
                                 buf.push_str(ct);
                                 buf.push('\n');
                                 if ct == "end" || ct == "end;" {
                                     depth -= 1;
-                                    if depth <= 0 { break; }
+                                    if depth <= 0 {
+                                        break;
+                                    }
                                 }
                             }
-                            Err(ReadlineError::Interrupted) => { println!("(interrupted)"); break; }
+                            Err(ReadlineError::Interrupted) => {
+                                println!("(interrupted)");
+                                break;
+                            }
                             Err(_) => break,
                         }
                     }
@@ -1160,16 +1389,16 @@ pub fn execute() -> Result<()> {
                     format!("{}\n", trimmed)
                 };
 
-                match lexer::tokenize(&source)
-                    .and_then(|tokens| parser::parse(tokens))
-                {
+                match lexer::tokenize(&source).and_then(|tokens| parser::parse(tokens)) {
                     Ok(stmts) => {
                         for stmt in &stmts {
                             if let Err(e) = ev.exec_stmt(stmt) {
                                 eprintln!("{} {}", color::bold_red("error:"), e);
                             }
                         }
-                        if let Some(h) = rl.helper_mut() { h.sync(&ev); }
+                        if let Some(h) = rl.helper_mut() {
+                            h.sync(&ev);
+                        }
                     }
                     Err(e) => eprintln!("{} {}", color::bold_red("error:"), e),
                 }

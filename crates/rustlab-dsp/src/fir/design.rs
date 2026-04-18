@@ -1,10 +1,10 @@
-use std::f64::consts::PI;
-use ndarray::Array1;
-use num_complex::Complex;
-use rustlab_core::{C64, CVector, CoreError, Filter};
 use crate::convolution::convolve;
 use crate::error::DspError;
 use crate::window::WindowFunction;
+use ndarray::Array1;
+use num_complex::Complex;
+use rustlab_core::{CVector, CoreError, Filter, C64};
+use std::f64::consts::PI;
 
 /// A linear-phase FIR filter represented by its complex tap coefficients.
 ///
@@ -31,14 +31,19 @@ impl Filter for FirFilter {
             return Ok(Array1::zeros(0));
         }
         let h = &self.coefficients;
-        let response = (0..n_points).map(|i| {
-            // omega in [0, 0.5) normalized frequency -> [0, pi) radians/sample
-            let omega = PI * i as f64 / n_points as f64;
-            h.iter().enumerate().map(|(k, &hk)| {
-                let angle = -omega * k as f64;
-                hk * Complex::new(angle.cos(), angle.sin())
-            }).sum::<C64>()
-        }).collect::<Vec<_>>();
+        let response = (0..n_points)
+            .map(|i| {
+                // omega in [0, 0.5) normalized frequency -> [0, pi) radians/sample
+                let omega = PI * i as f64 / n_points as f64;
+                h.iter()
+                    .enumerate()
+                    .map(|(k, &hk)| {
+                        let angle = -omega * k as f64;
+                        hk * Complex::new(angle.cos(), angle.sin())
+                    })
+                    .sum::<C64>()
+            })
+            .collect::<Vec<_>>();
 
         Ok(Array1::from_vec(response))
     }
@@ -60,7 +65,10 @@ fn validate_fir(num_taps: usize, cutoff_hz: f64, sample_rate: f64) -> Result<(),
     }
     let nyquist = sample_rate / 2.0;
     if cutoff_hz <= 0.0 || cutoff_hz >= nyquist {
-        return Err(DspError::InvalidCutoff { cutoff: cutoff_hz, nyquist });
+        return Err(DspError::InvalidCutoff {
+            cutoff: cutoff_hz,
+            nyquist,
+        });
     }
     Ok(())
 }
@@ -114,7 +122,9 @@ pub fn fir_lowpass(
         coeffs
     };
 
-    Ok(FirFilter { coefficients: coeffs })
+    Ok(FirFilter {
+        coefficients: coeffs,
+    })
 }
 
 /// Design a windowed-sinc FIR highpass filter via spectral inversion.
@@ -149,7 +159,9 @@ pub fn fir_highpass(
     let mut hp_coeffs = -lp.coefficients;
     hp_coeffs[m] = hp_coeffs[m] + Complex::new(1.0, 0.0);
 
-    Ok(FirFilter { coefficients: hp_coeffs })
+    Ok(FirFilter {
+        coefficients: hp_coeffs,
+    })
 }
 
 /// Design a windowed-sinc FIR bandpass filter.
@@ -187,20 +199,28 @@ pub fn fir_bandpass(
         return Err(DspError::InvalidOrder(num_taps));
     }
     if low_hz <= 0.0 || low_hz >= nyquist {
-        return Err(DspError::InvalidCutoff { cutoff: low_hz, nyquist });
+        return Err(DspError::InvalidCutoff {
+            cutoff: low_hz,
+            nyquist,
+        });
     }
     if high_hz <= 0.0 || high_hz >= nyquist {
-        return Err(DspError::InvalidCutoff { cutoff: high_hz, nyquist });
+        return Err(DspError::InvalidCutoff {
+            cutoff: high_hz,
+            nyquist,
+        });
     }
     if low_hz >= high_hz {
         return Err(DspError::Core(rustlab_core::CoreError::InvalidParameter(
-            format!("low_hz ({low_hz}) must be less than high_hz ({high_hz})")
+            format!("low_hz ({low_hz}) must be less than high_hz ({high_hz})"),
         )));
     }
 
     let lp_high = fir_lowpass(num_taps, high_hz, sample_rate, window.clone())?;
-    let lp_low  = fir_lowpass(num_taps, low_hz,  sample_rate, window)?;
+    let lp_low = fir_lowpass(num_taps, low_hz, sample_rate, window)?;
 
     let bp_coeffs = lp_high.coefficients - lp_low.coefficients;
-    Ok(FirFilter { coefficients: bp_coeffs })
+    Ok(FirFilter {
+        coefficients: bp_coeffs,
+    })
 }

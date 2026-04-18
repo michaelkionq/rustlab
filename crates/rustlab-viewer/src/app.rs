@@ -1,14 +1,14 @@
 //! Main eframe application for rustlab-viewer.
 
+use rustlab_proto::ViewerMsg;
 use std::collections::HashMap;
 use std::sync::mpsc;
-use rustlab_proto::ViewerMsg;
 
 use crate::figure::{FigureWindow, HeatmapImage};
 
 /// The viewer application state.
 pub struct ViewerApp {
-    rx:      mpsc::Receiver<ViewerMsg>,
+    rx: mpsc::Receiver<ViewerMsg>,
     figures: HashMap<u32, FigureWindow>,
 }
 
@@ -26,13 +26,20 @@ impl ViewerApp {
         while let Ok(msg) = self.rx.try_recv() {
             any_update = true;
             match msg {
-                ViewerMsg::FigureOpen { id, rows, cols, title } => {
-                    self.figures.insert(
-                        id,
-                        FigureWindow::new(rows as usize, cols as usize, title),
-                    );
+                ViewerMsg::FigureOpen {
+                    id,
+                    rows,
+                    cols,
+                    title,
+                } => {
+                    self.figures
+                        .insert(id, FigureWindow::new(rows as usize, cols as usize, title));
                 }
-                ViewerMsg::PanelUpdate { fig_id, panel, series } => {
+                ViewerMsg::PanelUpdate {
+                    fig_id,
+                    panel,
+                    series,
+                } => {
                     if let Some(fig) = self.figures.get_mut(&fig_id) {
                         let idx = panel as usize;
                         if idx < fig.panels.len() {
@@ -41,7 +48,13 @@ impl ViewerApp {
                         }
                     }
                 }
-                ViewerMsg::PanelLabels { fig_id, panel, title, xlabel, ylabel } => {
+                ViewerMsg::PanelLabels {
+                    fig_id,
+                    panel,
+                    title,
+                    xlabel,
+                    ylabel,
+                } => {
                     if let Some(fig) = self.figures.get_mut(&fig_id) {
                         let idx = panel as usize;
                         if idx < fig.panels.len() {
@@ -51,7 +64,12 @@ impl ViewerApp {
                         }
                     }
                 }
-                ViewerMsg::PanelLimits { fig_id, panel, xlim, ylim } => {
+                ViewerMsg::PanelLimits {
+                    fig_id,
+                    panel,
+                    xlim,
+                    ylim,
+                } => {
                     if let Some(fig) = self.figures.get_mut(&fig_id) {
                         let idx = panel as usize;
                         if idx < fig.panels.len() {
@@ -60,14 +78,18 @@ impl ViewerApp {
                         }
                     }
                 }
-                ViewerMsg::PanelHeatmap { fig_id, panel, heatmap } => {
+                ViewerMsg::PanelHeatmap {
+                    fig_id,
+                    panel,
+                    heatmap,
+                } => {
                     if let Some(fig) = self.figures.get_mut(&fig_id) {
                         let idx = panel as usize;
                         if idx < fig.panels.len() {
                             fig.panels[idx].heatmap = Some(HeatmapImage {
-                                width:  heatmap.width,
+                                width: heatmap.width,
                                 height: heatmap.height,
-                                rgba:   heatmap.rgba,
+                                rgba: heatmap.rgba,
                                 texture: None, // created on first render
                             });
                             fig.dirty = true;

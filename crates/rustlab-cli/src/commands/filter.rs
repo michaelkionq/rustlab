@@ -1,8 +1,7 @@
-use clap::{Args, Subcommand};
 use anyhow::{bail, Result};
+use clap::{Args, Subcommand};
 use rustlab_dsp::{
-    fir_lowpass, fir_highpass, fir_bandpass,
-    butterworth_lowpass, butterworth_highpass,
+    butterworth_highpass, butterworth_lowpass, fir_bandpass, fir_highpass, fir_lowpass,
     WindowFunction,
 };
 
@@ -63,22 +62,18 @@ pub fn execute(cmd: FilterCommands) -> Result<()> {
 }
 
 fn execute_fir(args: FirArgs) -> Result<()> {
-    let window = WindowFunction::from_str(&args.window, args.beta)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let window =
+        WindowFunction::from_str(&args.window, args.beta).map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let filter = match args.r#type.to_ascii_lowercase().as_str() {
-        "low" | "lowpass" => {
-            fir_lowpass(args.taps, args.cutoff, args.sr, window)
-                .map_err(|e| anyhow::anyhow!("{}", e))?
-        }
-        "high" | "highpass" => {
-            fir_highpass(args.taps, args.cutoff, args.sr, window)
-                .map_err(|e| anyhow::anyhow!("{}", e))?
-        }
+        "low" | "lowpass" => fir_lowpass(args.taps, args.cutoff, args.sr, window)
+            .map_err(|e| anyhow::anyhow!("{}", e))?,
+        "high" | "highpass" => fir_highpass(args.taps, args.cutoff, args.sr, window)
+            .map_err(|e| anyhow::anyhow!("{}", e))?,
         "band" | "bandpass" => {
-            let cutoff_high = args.cutoff_high.ok_or_else(|| {
-                anyhow::anyhow!("--cutoff-high is required for bandpass filter")
-            })?;
+            let cutoff_high = args
+                .cutoff_high
+                .ok_or_else(|| anyhow::anyhow!("--cutoff-high is required for bandpass filter"))?;
             fir_bandpass(args.taps, args.cutoff, cutoff_high, args.sr, window)
                 .map_err(|e| anyhow::anyhow!("{}", e))?
         }
@@ -97,14 +92,10 @@ fn execute_fir(args: FirArgs) -> Result<()> {
 
 fn execute_iir(args: IirArgs) -> Result<()> {
     let filter = match args.r#type.to_ascii_lowercase().as_str() {
-        "low" | "lowpass" => {
-            butterworth_lowpass(args.order, args.cutoff, args.sr)
-                .map_err(|e| anyhow::anyhow!("{}", e))?
-        }
-        "high" | "highpass" => {
-            butterworth_highpass(args.order, args.cutoff, args.sr)
-                .map_err(|e| anyhow::anyhow!("{}", e))?
-        }
+        "low" | "lowpass" => butterworth_lowpass(args.order, args.cutoff, args.sr)
+            .map_err(|e| anyhow::anyhow!("{}", e))?,
+        "high" | "highpass" => butterworth_highpass(args.order, args.cutoff, args.sr)
+            .map_err(|e| anyhow::anyhow!("{}", e))?,
         other => bail!("unknown filter type '{}': use low or high", other),
     };
 
