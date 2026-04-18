@@ -298,10 +298,14 @@ fn compile_pdf(tex_path: &PathBuf, pdf_path: &PathBuf) {
     let (cmd, args): (&str, Vec<&str>) = if which_exists("pdflatex") {
         (
             "pdflatex",
-            vec!["-interaction=nonstopmode", "-halt-on-error"],
+            vec![
+                "-interaction=nonstopmode",
+                "-halt-on-error",
+                "-shell-escape",
+            ],
         )
     } else if which_exists("tectonic") {
-        ("tectonic", vec![])
+        ("tectonic", vec!["-Z", "shell-escape"])
     } else {
         eprintln!("error: neither pdflatex nor tectonic found in PATH");
         eprintln!("  Install TeX Live: https://tug.org/texlive/");

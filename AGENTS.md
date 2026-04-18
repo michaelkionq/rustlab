@@ -387,12 +387,27 @@ The notebook binary ships with every release; exercise it end-to-end so a
 broken templating / KaTeX / figure-snapshot change does not slip out:
 
 ```sh
-./target/release/rustlab-notebook render examples/<notebook>.md -o /tmp/nb.html
-./target/release/rustlab-notebook render examples/<notebook>.md -o /tmp/nb.pdf --format pdf
+./target/release/rustlab-notebook render examples/notebooks/quick_look.md -o /tmp/nb.html
+./target/release/rustlab-notebook render examples/notebooks/quick_look.md -o /tmp/nb.pdf --format pdf
 ```
 
-Open both artifacts and confirm code blocks, math, and plots render. If the
-repo has no example notebook yet, add one before cutting the release.
+Open both artifacts and confirm code blocks, math, and plots render.
+
+**PDF dependencies** (`--format pdf` only): `pdflatex` (or `tectonic`) plus
+the LaTeX packages `svg`, `transparent`, `trimspaces`, `pagecolor`, and
+Inkscape on PATH. rustlab invokes `pdflatex -shell-escape` so the `svg`
+package can launch Inkscape to convert each plot SVG to PDF. Install on
+macOS with:
+
+```sh
+brew install --cask inkscape
+sudo tlmgr install svg transparent trimspaces pagecolor
+# or: brew install --cask mactex-no-gui   # bundles all LaTeX packages
+```
+
+If HTML renders cleanly but PDF fails, the break is usually environmental
+(missing LaTeX package or Inkscape), not a code bug. Check
+`/tmp/<name>.log` for the LaTeX error before touching the template.
 
 ### 7. Documentation audit
 

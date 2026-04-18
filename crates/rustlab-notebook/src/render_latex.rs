@@ -115,8 +115,10 @@ pub fn render_latex(
         let text_hex = &theme.text[1..];
         format!(
             "\\usepackage{{pagecolor}}\n\
-             \\pagecolor[HTML]{{{bg_hex}}}\n\
-             \\color[HTML]{{{text_hex}}}\n"
+             \\definecolor{{pagebg}}{{HTML}}{{{bg_hex}}}\n\
+             \\definecolor{{pagetext}}{{HTML}}{{{text_hex}}}\n\
+             \\pagecolor{{pagebg}}\n\
+             \\color{{pagetext}}\n"
         )
     } else {
         String::new()

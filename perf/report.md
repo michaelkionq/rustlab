@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Generated** | 2026-04-18 10:46:23 |
+| **Generated** | 2026-04-18 11:09:09 |
 | **Version** | 0.1.7 |
 | **Platform** | Darwin 25.3.0 arm64 |
 | **Binary** | `target/release/rustlab` |
@@ -30,7 +30,7 @@ __TEXT	__DATA	__OBJC	others	dec	hex
 
 | | |
 |---|---|
-| **Wall time** | 212 ms |
+| **Wall time** | 181 ms |
 | **Status** | PASS |
 
 ```
@@ -50,11 +50,11 @@ cos   n=100000
 tanh  n=100000
   out:  100000
 sum   n=100000
-  sum:  199.2218436837493
+  sum:  -136.52610083445452
 mean  n=100000
-  mean:  0.0019922184368374933
+  mean:  -0.0013652610083445453
 std   n=100000
-  std:  0.9987089558763885
+  std:  1.0001849943129166
 sort  n=100000
   out:  100000
 done
@@ -64,7 +64,7 @@ done
 
 | | |
 |---|---|
-| **Wall time** | 40 ms |
+| **Wall time** | 41 ms |
 | **Status** | PASS |
 
 ```
@@ -83,7 +83,7 @@ done
 
 | | |
 |---|---|
-| **Wall time** | 25 ms |
+| **Wall time** | 26 ms |
 | **Status** | PASS |
 
 ```
@@ -104,7 +104,7 @@ done
 
 | | |
 |---|---|
-| **Wall time** | 19 ms |
+| **Wall time** | 17 ms |
 | **Status** | PASS |
 
 ```
@@ -134,7 +134,7 @@ done
 
 | | |
 |---|---|
-| **Wall time** | 19 ms |
+| **Wall time** | 18 ms |
 | **Status** | PASS |
 
 ```
@@ -153,7 +153,7 @@ done
 
 | | |
 |---|---|
-| **Wall time** | 29 ms |
+| **Wall time** | 23 ms |
 | **Status** | PASS |
 
 ```
@@ -172,7 +172,7 @@ done
 
 | | |
 |---|---|
-| **Wall time** | 22 ms |
+| **Wall time** | 21 ms |
 | **Status** | PASS |
 
 ```
