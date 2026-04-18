@@ -836,6 +836,7 @@ primary     = NUMBER | STRING | IDENT
 | `sprintf` | `sprintf(fmt, args...)` | Like `fprintf` but returns the formatted string |
 | `commas` | `commas(x)` / `commas(x, prec)` | Format number with thousands separators; returns Str |
 | `error` | `error(msg)` | Halt script execution with a runtime error message |
+| `sleep` | `sleep(seconds)` | Pause execution for a non-negative scalar duration; fractional seconds OK |
 | `min` | `min(v)` / `min(a, b)` | Minimum of vector or two scalars |
 | `max` | `max(v)` / `max(a, b)` | Maximum of vector or two scalars |
 

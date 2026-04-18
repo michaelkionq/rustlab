@@ -1026,6 +1026,93 @@ Singular value decomposition via Jacobi eigendecomposition of A'A. Returns a tup
 
 ---
 
+## Sparse Vectors & Matrices
+
+Sparse storage keeps only non-zero entries, enabling O(nnz) operations on matrices that would be infeasible in dense form. All indices are 1-based. Sparse matrices participate transparently in arithmetic — mixed sparse+dense pairs auto-promote to dense.
+
+### `sparse(I, J, V, m, n)` / `sparse(A)`
+Build a sparse matrix. With four or five arguments, construct an m×n matrix from 1-based row indices `I`, column indices `J`, and values `V` (COO triples). With one matrix/vector argument, convert a dense input to sparse (near-zero entries are dropped).
+```
+S = sparse([1, 2, 3], [1, 2, 3], [10, 20, 30], 3, 3)   # diagonal sparse
+S = sparse(A)                                            # dense → sparse
+```
+
+### `sparsevec(I, V, n)`
+Build a sparse vector of length `n` from 1-based indices and corresponding values.
+```
+sv = sparsevec([1, 5, 10], [1.0, 2.0, 3.0], 10)
+```
+
+### `speye(n)`
+n×n sparse identity matrix.
+```
+speye(4)    # → 4×4 sparse identity (4 stored non-zeros)
+```
+
+### `spzeros(m, n)`
+m×n all-zero sparse matrix (zero stored entries).
+```
+Z = spzeros(1000, 1000)   # no memory for entries
+```
+
+### `spdiags(V, D, m, n)`
+Build a sparse matrix from diagonal vectors. Each column of `V` is placed on diagonal `D[k]` of the result: `D=0` is the main diagonal, `D>0` is super-diagonal, `D<0` is sub-diagonal.
+```
+V = [1,1,1; 2,2,2; 3,3,3]
+D = [-1, 0, 1]
+S = spdiags(V, D, 3, 3)    # tridiagonal
+```
+
+### `sprand(m, n, density)`
+Random sparse matrix with approximately `density × m × n` non-zero entries. Values are drawn from `[0, 1)`.
+```
+S = sprand(100, 100, 0.01)   # ~100 non-zeros in a 100×100 sparse matrix
+```
+
+### `spsolve(A, b)`
+Solve the linear system `A·x = b` where `A` is sparse. Currently converts to dense internally for the solve — provided for API parity.
+```
+x = spsolve(A, b)
+```
+
+### `full(S)`
+Convert a sparse value to dense. Acts as the identity for already-dense inputs.
+```
+M = full(S)       # sparse → matrix
+v = full(sv)      # sparse vector → vector
+```
+
+### `nnz(S)`
+Number of stored non-zero entries. For dense inputs, returns `numel`.
+```
+nnz(speye(4))          # → 4
+nnz(sparse(zeros(5)))  # → 0
+```
+
+### `issparse(x)`
+Returns `1` if `x` is a sparse matrix or sparse vector, `0` otherwise.
+```
+issparse(speye(3))   # → 1
+issparse(eye(3))     # → 0
+```
+
+### `nonzeros(S)`
+Vector of stored non-zero values in storage order.
+```
+nonzeros(sparse([1,2], [1,2], [7.0, 9.0], 2, 2))   # → [7.0, 9.0]
+```
+
+### `find(S)`
+Locate non-zero entries. For a sparse matrix, returns a tuple `[I, J, V]` of 1-based row indices, column indices, and values. For a sparse vector, returns `[I, V]`.
+```
+[I, J, V] = find(S)      # sparse matrix
+[I, V] = find(sv)        # sparse vector
+```
+
+Native O(nnz) operations: `S+S`, `S-S`, `S*scalar`, `S/scalar`, `S*M` (SpMM), `S*v'` (SpMV via SpMM), `dot(sv, sv)`, `dot(sv, v)`, `transpose(S)`, `S'`. Indexing `S(i,j)` reads (returning 0 for absent entries) and `S(i,j) = val` writes (setting to 0 removes the entry).
+
+---
+
 ## Plotting
 
 All plot functions accumulate series into a shared **figure state** and render immediately. Use `figure()`, `hold()`, `subplot()` etc. to control layout before calling plot functions.
@@ -1685,6 +1772,13 @@ Executes the first matching case. Falls through to `otherwise` if no case matche
 Halt script execution with an error message.
 ```
 error('Invalid input')
+```
+
+### `sleep(seconds)`
+Pause execution for the given duration in seconds. Accepts a non-negative scalar; fractional seconds are supported. Useful for pacing real-time control loops and animations.
+```
+sleep(0.01)    # pause for 10 ms
+sleep(1.5)     # pause for 1.5 seconds
 ```
 
 ### `clear`

@@ -319,6 +319,7 @@ Mixed sparse+dense pairs auto-promote to dense.
 | `load("file.toml")` | Load TOML → struct |
 | `whos` | List workspace variables with type and size |
 | `whos("file.npz")` | Inspect arrays stored in an NPZ file |
+| `sleep(seconds)` | Pause execution for a non-negative duration in seconds (fractional OK) |
 
 ---
 
