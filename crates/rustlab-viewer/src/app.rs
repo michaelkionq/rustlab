@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::mpsc;
 
 use crate::figure::{FigureWindow, HeatmapImage};
+use crate::surface::Surface3dData;
 
 /// The viewer application state.
 pub struct ViewerApp {
@@ -92,6 +93,37 @@ impl ViewerApp {
                                 rgba: heatmap.rgba,
                                 texture: None, // created on first render
                             });
+                            fig.dirty = true;
+                        }
+                    }
+                }
+                ViewerMsg::PanelSurface {
+                    fig_id,
+                    panel,
+                    surface,
+                } => {
+                    if let Some(fig) = self.figures.get_mut(&fig_id) {
+                        let idx = panel as usize;
+                        if idx < fig.panels.len() {
+                            let data = Surface3dData {
+                                nrows: surface.nrows as usize,
+                                ncols: surface.ncols as usize,
+                                x: surface.x,
+                                y: surface.y,
+                                z: surface.z,
+                                colorscale: surface.colorscale,
+                            };
+                            // Preserve camera if user was already rotating
+                            // this panel; otherwise start at the default view.
+                            let cam = fig.panels[idx]
+                                .surface
+                                .as_ref()
+                                .map(|(_, c)| *c)
+                                .unwrap_or_default();
+                            fig.panels[idx].surface = Some((data, cam));
+                            // A surface replaces any heatmap/series in this panel.
+                            fig.panels[idx].heatmap = None;
+                            fig.panels[idx].series.clear();
                             fig.dirty = true;
                         }
                     }

@@ -103,6 +103,7 @@ pub fn render_figure_plotly_div(fig: &FigureState, div_id: &str, theme: &ThemeCo
 
     let mut traces = String::new();
     let mut layout_axes = String::new();
+    let mut scenes = String::new();
     let mut annotations = String::new();
 
     for (idx, panel) in fig.subplots.iter().enumerate().take(n_panels) {
@@ -156,22 +157,44 @@ pub fn render_figure_plotly_div(fig: &FigureState, div_id: &str, theme: &ThemeCo
         } else {
             String::new()
         };
-        layout_axes.push_str(&format!(
-            r#"xaxis{ax}: {{ domain: [{x0:.4}, {x1:.4}], title: {{ text: "{xlabel}" }}{xrange}, showgrid: {grid}, gridcolor: "{plot_grid}"{xtick} }},
+        let has_surface = panel.surface.is_some();
+        if has_surface {
+            // 3D surface: position a Plotly `scene` in the subplot's domain.
+            // Scenes are independent of xaxis/yaxis, so skip 2D axis layout.
+            let scene_key = if axis_suffix.is_empty() {
+                "scene".to_string()
+            } else {
+                format!("scene{}", idx + 1)
+            };
+            scenes.push_str(&format!(
+                r#"{scene_key}: {{ domain: {{ x: [{x0:.4}, {x1:.4}], y: [{y0:.4}, {y1:.4}] }}, xaxis: {{ title: {{ text: "{xlabel}" }}, color: "{text}" }}, yaxis: {{ title: {{ text: "{ylabel}" }}, color: "{text}" }}, zaxis: {{ color: "{text}" }}, bgcolor: "{plot_bg}" }},
+"#,
+                scene_key = scene_key,
+                x0 = x_start, x1 = x_end,
+                y0 = y_start, y1 = y_end,
+                xlabel = escape_js(&panel.xlabel),
+                ylabel = escape_js(&panel.ylabel),
+                text = theme.text,
+                plot_bg = theme.plot_bg,
+            ));
+        } else {
+            layout_axes.push_str(&format!(
+                r#"xaxis{ax}: {{ domain: [{x0:.4}, {x1:.4}], title: {{ text: "{xlabel}" }}{xrange}, showgrid: {grid}, gridcolor: "{plot_grid}"{xtick} }},
 yaxis{ax}: {{ domain: [{y0:.4}, {y1:.4}], title: {{ text: "{ylabel}" }}{yrange}, showgrid: {grid}, gridcolor: "{plot_grid}"{yextra} }},
 "#,
-            ax = axis_suffix,
-            x0 = x_start, x1 = x_end,
-            y0 = y_start, y1 = y_end,
-            grid = show_grid,
-            plot_grid = theme.plot_grid,
-            xlabel = escape_js(&panel.xlabel),
-            ylabel = escape_js(&panel.ylabel),
-            xrange = format_range(panel.xlim),
-            yrange = format_range(panel.ylim),
-            xtick = xtick_extra,
-            yextra = yaxis_extra,
-        ));
+                ax = axis_suffix,
+                x0 = x_start, x1 = x_end,
+                y0 = y_start, y1 = y_end,
+                grid = show_grid,
+                plot_grid = theme.plot_grid,
+                xlabel = escape_js(&panel.xlabel),
+                ylabel = escape_js(&panel.ylabel),
+                xrange = format_range(panel.xlim),
+                yrange = format_range(panel.ylim),
+                xtick = xtick_extra,
+                yextra = yaxis_extra,
+            ));
+        }
 
         // Title as annotation
         if !panel.title.is_empty() {
@@ -182,6 +205,35 @@ yaxis{ax}: {{ domain: [{y0:.4}, {y1:.4}], title: {{ text: "{ylabel}" }}{yrange},
                 cx = (x_start + x_end) / 2.0,
                 ty = y_end + 0.03,
             ));
+        }
+
+        // 3D surface trace (takes precedence over heatmap and series)
+        if let Some(sf) = &panel.surface {
+            let plotly_cmap = match sf.colorscale.as_str() {
+                "jet" => "Jet",
+                "hot" => "Hot",
+                "gray" => "Greys",
+                _ => "Viridis",
+            };
+            let scene_key = if axis_suffix.is_empty() {
+                "scene".to_string()
+            } else {
+                format!("scene{}", idx + 1)
+            };
+            let z_rows: Vec<String> = sf.z.iter().map(|row| json_f64_array(row)).collect();
+            let z_json = format!("[{}]", z_rows.join(","));
+            let x_json = json_f64_array(&sf.x);
+            let y_json = json_f64_array(&sf.y);
+            traces.push_str(&format!(
+                r#"{{ type: "surface", z: {z}, x: {x}, y: {y}, colorscale: "{cmap}", showscale: true, scene: "{scene}" }},
+"#,
+                z = z_json,
+                x = x_json,
+                y = y_json,
+                cmap = plotly_cmap,
+                scene = scene_key,
+            ));
+            continue;
         }
 
         // Heatmap trace (takes precedence when present)
@@ -336,6 +388,7 @@ var layout_{js_var} = {{
         text = theme.text
     ));
     out.push_str(&layout_axes);
+    out.push_str(&scenes);
     out.push_str("  annotations: [");
     out.push_str(&annotations);
     out.push_str(&format!(

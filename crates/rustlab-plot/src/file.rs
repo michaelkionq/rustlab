@@ -1,7 +1,7 @@
 use crate::error::PlotError;
 use crate::figure::{
     colormap_rgb, plot_context, push_notebook_figure_snapshot, FigureState, LineStyle, PlotContext,
-    PlotKind, SubplotState, FIGURE,
+    PlotKind, SubplotState, SurfaceData, FIGURE,
 };
 use plotters::prelude::*;
 
@@ -78,6 +78,16 @@ where
             break;
         }
         let sp = &fig.subplots[idx];
+        // Surface rendering takes precedence over heatmap/series
+        if let Some(sf) = &sp.surface {
+            let caption = if sp.title.is_empty() {
+                format!("surf — {}", sf.colorscale)
+            } else {
+                format!("{} — surf {}", sp.title, sf.colorscale)
+            };
+            render_surface_to_backend(panel.clone(), sf, &caption)?;
+            continue;
+        }
         // Heatmap rendering takes precedence
         if let Some(hm) = &sp.heatmap {
             let nrows = hm.z.len();
@@ -389,6 +399,224 @@ where
             }
         }
     }
+    Ok(())
+}
+
+/// Render a 3D surface to a plotters backend using a fixed isometric camera.
+/// Draws colored quads over the grid (painter's algorithm depth sort) plus a
+/// simple wireframe + axis box. Matches the HTML/viewer surface output at a
+/// reasonable static angle so SVG/PNG exports look like 3D surfaces, not 2D heatmaps.
+fn render_surface_to_backend<DB>(
+    root: DrawingArea<DB, plotters::coord::Shift>,
+    sf: &SurfaceData,
+    caption: &str,
+) -> Result<(), PlotError>
+where
+    DB: DrawingBackend,
+    DB::ErrorType: std::error::Error + Send + Sync + 'static,
+{
+    let err = |e: DrawingAreaErrorKind<DB::ErrorType>| PlotError::FileOutput(e.to_string());
+    root.fill(&WHITE).map_err(err)?;
+
+    let nrows = sf.z.len();
+    let ncols = if nrows > 0 { sf.z[0].len() } else { 0 };
+    if nrows < 2 || ncols < 2 {
+        return Ok(());
+    }
+
+    // Caption
+    let (w_pixels, h_pixels) = root.dim_in_pixel();
+    let caption_style: TextStyle = ("sans-serif", 18u32).into_font().into();
+    root.draw_text(caption, &caption_style, (MARGIN as i32, 4))
+        .map_err(err)?;
+
+    // Plot area inside root (leave margins for caption + axes).
+    let pad_l = 50i32;
+    let pad_r = 20i32;
+    let pad_t = 34i32;
+    let pad_b = 40i32;
+    let plot_w = (w_pixels as i32 - pad_l - pad_r).max(50);
+    let plot_h = (h_pixels as i32 - pad_t - pad_b).max(50);
+
+    // Z min/max for normalization.
+    let mut min_z = f64::INFINITY;
+    let mut max_z = f64::NEG_INFINITY;
+    for row in &sf.z {
+        for &v in row {
+            if v < min_z {
+                min_z = v;
+            }
+            if v > max_z {
+                max_z = v;
+            }
+        }
+    }
+    let z_range = (max_z - min_z).max(1e-12);
+
+    // Data bounds
+    let x_min = sf.x.iter().copied().fold(f64::INFINITY, f64::min);
+    let x_max = sf.x.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let y_min = sf.y.iter().copied().fold(f64::INFINITY, f64::min);
+    let y_max = sf.y.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let x_span = (x_max - x_min).max(1e-12);
+    let y_span = (y_max - y_min).max(1e-12);
+
+    // Camera: yaw about z (azimuth) + pitch about x (elevation).
+    // yaw = -45°, pitch = 30° gives a standard isometric look.
+    let yaw = -45f64.to_radians();
+    let pitch = 30f64.to_radians();
+    let (sy, cy) = yaw.sin_cos();
+    let (sp, cp) = pitch.sin_cos();
+
+    // World-to-camera projection (orthographic) of (x, y, z) in normalized units.
+    // Each axis is mapped to [-1, 1] before projection.
+    let project = |xi: f64, yi: f64, zi: f64| -> (f64, f64, f64) {
+        let nx = 2.0 * (xi - x_min) / x_span - 1.0;
+        let ny = 2.0 * (yi - y_min) / y_span - 1.0;
+        let nz = 2.0 * (zi - min_z) / z_range - 1.0;
+        // Rotate about z (yaw)
+        let xr = nx * cy - ny * sy;
+        let yr = nx * sy + ny * cy;
+        // Rotate about x (pitch)
+        let zr = nz * cp - yr * sp;
+        let yr2 = nz * sp + yr * cp;
+        (xr, yr2, zr) // (screen-x, depth, screen-y)
+    };
+
+    // Compute projected-extent to rescale to pixel coords.
+    let mut sxmin = f64::INFINITY;
+    let mut sxmax = f64::NEG_INFINITY;
+    let mut symin = f64::INFINITY;
+    let mut symax = f64::NEG_INFINITY;
+    for r in 0..nrows {
+        for c in 0..ncols {
+            let (sx, _d, sz) = project(sf.x[c], sf.y[r], sf.z[r][c]);
+            if sx < sxmin {
+                sxmin = sx;
+            }
+            if sx > sxmax {
+                sxmax = sx;
+            }
+            if sz < symin {
+                symin = sz;
+            }
+            if sz > symax {
+                symax = sz;
+            }
+        }
+    }
+    let sxr = (sxmax - sxmin).max(1e-12);
+    let syr = (symax - symin).max(1e-12);
+    let scale = (plot_w as f64 / sxr).min(plot_h as f64 / syr) * 0.92;
+    let cx = pad_l as f64 + plot_w as f64 * 0.5;
+    let cy_px = pad_t as f64 + plot_h as f64 * 0.5;
+    let to_px = |sx: f64, sz: f64| -> (i32, i32) {
+        let x = cx + (sx - (sxmin + sxmax) * 0.5) * scale;
+        // Screen y grows downward; invert sz.
+        let y = cy_px - (sz - (symin + symax) * 0.5) * scale;
+        (x.round() as i32, y.round() as i32)
+    };
+
+    // Draw axes box as a faint wireframe cube: project the 8 corners of the
+    // unit bounding box in world space, then connect edges.
+    let corners = [
+        (x_min, y_min, min_z),
+        (x_max, y_min, min_z),
+        (x_max, y_max, min_z),
+        (x_min, y_max, min_z),
+        (x_min, y_min, max_z),
+        (x_max, y_min, max_z),
+        (x_max, y_max, max_z),
+        (x_min, y_max, max_z),
+    ];
+    let pc: Vec<(i32, i32)> = corners
+        .iter()
+        .map(|&(x, y, z)| {
+            let (sx, _d, sz) = project(x, y, z);
+            to_px(sx, sz)
+        })
+        .collect();
+    let edges = [
+        (0, 1),
+        (1, 2),
+        (2, 3),
+        (3, 0),
+        (4, 5),
+        (5, 6),
+        (6, 7),
+        (7, 4),
+        (0, 4),
+        (1, 5),
+        (2, 6),
+        (3, 7),
+    ];
+    let axis_color = RGBColor(160, 160, 160);
+    for (a, b) in edges {
+        root.draw(&PathElement::new(vec![pc[a], pc[b]], axis_color.stroke_width(1)))
+            .map_err(err)?;
+    }
+
+    // Build quads with their centroid depth for sorting.
+    struct Quad {
+        depth: f64,
+        pts: [(i32, i32); 4],
+        color: RGBColor,
+    }
+    let mut quads: Vec<Quad> = Vec::with_capacity((nrows - 1) * (ncols - 1));
+    for r in 0..(nrows - 1) {
+        for c in 0..(ncols - 1) {
+            let v00 = (sf.x[c], sf.y[r], sf.z[r][c]);
+            let v10 = (sf.x[c + 1], sf.y[r], sf.z[r][c + 1]);
+            let v11 = (sf.x[c + 1], sf.y[r + 1], sf.z[r + 1][c + 1]);
+            let v01 = (sf.x[c], sf.y[r + 1], sf.z[r + 1][c]);
+            let p00 = project(v00.0, v00.1, v00.2);
+            let p10 = project(v10.0, v10.1, v10.2);
+            let p11 = project(v11.0, v11.1, v11.2);
+            let p01 = project(v01.0, v01.1, v01.2);
+            let depth = (p00.1 + p10.1 + p11.1 + p01.1) * 0.25;
+            let zc = (sf.z[r][c] + sf.z[r][c + 1] + sf.z[r + 1][c + 1] + sf.z[r + 1][c]) * 0.25;
+            let t = (zc - min_z) / z_range;
+            let (rr, gg, bb) = colormap_rgb(t, &sf.colorscale);
+            quads.push(Quad {
+                depth,
+                pts: [
+                    to_px(p00.0, p00.2),
+                    to_px(p10.0, p10.2),
+                    to_px(p11.0, p11.2),
+                    to_px(p01.0, p01.2),
+                ],
+                color: RGBColor(rr, gg, bb),
+            });
+        }
+    }
+    // Painter's algorithm: draw far faces first (smallest depth first).
+    quads.sort_by(|a, b| {
+        a.depth
+            .partial_cmp(&b.depth)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let edge_style = RGBColor(80, 80, 80).stroke_width(1);
+    for q in &quads {
+        root.draw(&Polygon::new(q.pts.to_vec(), q.color.filled()))
+            .map_err(err)?;
+        let mut ring = q.pts.to_vec();
+        ring.push(q.pts[0]);
+        root.draw(&PathElement::new(ring, edge_style)).map_err(err)?;
+    }
+
+    // Axis tick labels (min/max on X and Y, min/max on Z).
+    let tick_font = ("sans-serif", 11u32).into_font();
+    let label = |corner: &(i32, i32), s: String| -> Result<(), PlotError> {
+        root.draw(&Text::new(s, (corner.0 + 4, corner.1 + 2), tick_font.clone()))
+            .map_err(err)?;
+        Ok(())
+    };
+    label(&pc[0], format!("x={:.3}", x_min))?;
+    label(&pc[1], format!("x={:.3}", x_max))?;
+    label(&pc[3], format!("y={:.3}", y_max))?;
+    label(&pc[4], format!("z={:.3}", max_z))?;
+
+    root.present().map_err(err)?;
     Ok(())
 }
 

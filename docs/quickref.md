@@ -337,6 +337,7 @@ Mixed sparse+dense pairs auto-promote to dense.
 | `hline(y)` / `hline(y, color, label)` | Horizontal reference line (dashed); `yline()` alias |
 | `plotdb(Hz)` / `plotdb(Hz, "title")` | dB frequency response (Hz from `freqz` or `spectrum`) |
 | `imagesc(M)` / `imagesc(M, cmap)` | Matrix heatmap; colormaps: `"viridis"` `"jet"` `"hot"` `"gray"` |
+| `surf(Z)` / `surf(X, Y, Z)` / `surf(X, Y, Z, cmap)` | 3D surface; interactive rotate/zoom in viewer, Plotly 3D in HTML |
 
 ---
 
@@ -353,6 +354,7 @@ Any interactive plot can be saved to a file by calling `savefig(path)` immediate
 | `plotdb(Hz, "title"); savefig("file.svg")` | dB response → file |
 | `histogram(v); savefig("file.svg")` | Histogram → file |
 | `imagesc(M); savefig("file.svg")` | Heatmap → file |
+| `surf(X, Y, Z); savefig("file.html")` | 3D surface → interactive Plotly (or SVG/PNG wireframe) |
 | `savefig("file.html")` | Export current figure to interactive HTML (Plotly) |
 
 Supported extensions: `.svg`, `.png`, `.html`.
@@ -368,7 +370,7 @@ Supported extensions: `.svg`, `.png`, `.html`.
 | `figure(N)` | Switch to figure N (creates if it doesn't exist) |
 | `hold on` / `hold off` | Overlay series on current subplot (also `hold("on")`) |
 | `grid on` / `grid off` | Show / hide grid lines (also `grid("on")`) |
-| `viewer on` / `viewer on <name>` / `viewer off` | Route plots to external rustlab-viewer; optional name for multi-session (requires `viewer` feature) |
+| `viewer` / `viewer on` / `viewer on <name>` / `viewer off` | Bare `viewer` = status (connection state + current figure routing); `on`/`off` route plots to/from external rustlab-viewer. Auto-falls-back to TUI if the viewer dies. Requires `viewer` feature. |
 | `title("text")` | Set subplot title |
 | `xlabel("text")` | Set x-axis label |
 | `ylabel("text")` | Set y-axis label |

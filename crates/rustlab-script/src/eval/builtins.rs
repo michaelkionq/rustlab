@@ -17,7 +17,7 @@ use rustlab_dsp::{
 use rustlab_plot::{
     compute_histogram, histogram_matrix, imagesc_terminal, plot_db, plot_histogram, push_xy_bar,
     push_xy_line, push_xy_scatter, push_xy_stem, render_figure_file, render_figure_terminal,
-    sync_figure_outputs, LineStyle, LiveFigure, LivePlot, SeriesColor, FIGURE,
+    surf_terminal, sync_figure_outputs, LineStyle, LiveFigure, LivePlot, SeriesColor, FIGURE,
 };
 use std::collections::HashMap;
 use std::io::{Read as IoRead, Write as IoWrite};
@@ -141,6 +141,7 @@ impl BuiltinRegistry {
         r.register("hline", builtin_hline);
         r.register("yline", builtin_hline); // common alias
         r.register("imagesc", builtin_imagesc);
+        r.register("surf", builtin_surf);
         // Import / export
         r.register("save", builtin_save);
         r.register("load", builtin_load);
@@ -2215,6 +2216,129 @@ fn builtin_imagesc(args: Vec<Value>) -> Result<Value, ScriptError> {
     imagesc_terminal(&matrix, "", &colormap).map_err(|e| ScriptError::runtime(e.to_string()))?;
     sync_figure_outputs();
     Ok(Value::None)
+}
+
+/// `surf(Z)` / `surf(X, Y, Z)` / `surf(X, Y, Z, "colormap")` — 3D surface plot.
+///
+/// Z is an nrows×ncols matrix. X and Y may be either:
+///   - 1-D vectors: length must match ncols (X) and nrows (Y), OR
+///   - 2-D matrices from `meshgrid(...)`: we take row 0 for X and column 0 for Y.
+///
+/// Under the viewer (`viewer on` or `--plot viewer`), renders an interactive
+/// 3D surface with mouse drag to rotate, scroll to zoom, right-drag to pan.
+/// Under HTML output, emits a Plotly 3D surface. Terminal/SVG/PNG fall back
+/// to static renders.
+fn builtin_surf(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args_range("surf", &args, 1, 4)?;
+
+    let (x, y, z_mat, colormap) = match args.len() {
+        1 => {
+            let z = match &args[0] {
+                Value::Matrix(m) => m.clone(),
+                other => {
+                    return Err(ScriptError::type_err(format!(
+                        "surf: expected matrix Z, got {}",
+                        other.type_name()
+                    )))
+                }
+            };
+            let (nrows, ncols) = (z.nrows(), z.ncols());
+            let x: Vec<f64> = (0..ncols).map(|i| (i + 1) as f64).collect();
+            let y: Vec<f64> = (0..nrows).map(|i| (i + 1) as f64).collect();
+            (x, y, z, "viridis".to_string())
+        }
+        n @ (3 | 4) => {
+            let z = match &args[2] {
+                Value::Matrix(m) => m.clone(),
+                other => {
+                    return Err(ScriptError::type_err(format!(
+                        "surf: expected matrix Z as third argument, got {}",
+                        other.type_name()
+                    )))
+                }
+            };
+            let x = axis_from_value(&args[0], "surf", "X", z.ncols(), false)?;
+            let y = axis_from_value(&args[1], "surf", "Y", z.nrows(), true)?;
+            let cmap = if n == 4 {
+                args[3].to_str().map_err(|e| ScriptError::type_err(e))?
+            } else {
+                "viridis".to_string()
+            };
+            (x, y, z, cmap)
+        }
+        _ => {
+            return Err(ScriptError::runtime(format!(
+                "surf: expected 1, 3, or 4 arguments, got {}",
+                args.len()
+            )));
+        }
+    };
+
+    let nrows = z_mat.nrows();
+    let ncols = z_mat.ncols();
+    if nrows == 0 || ncols == 0 {
+        return Err(ScriptError::type_err("surf: Z is empty".to_string()));
+    }
+    // Convert Z matrix (C64) to Vec<Vec<f64>> using magnitudes so complex
+    // inputs degrade sensibly (matches imagesc's convention).
+    let z_rows: Vec<Vec<f64>> = (0..nrows)
+        .map(|r| (0..ncols).map(|c| z_mat[[r, c]].norm()).collect())
+        .collect();
+
+    surf_terminal(z_rows, x, y, "", &colormap)
+        .map_err(|e| ScriptError::runtime(e.to_string()))?;
+    sync_figure_outputs();
+    Ok(Value::None)
+}
+
+/// Normalize a meshgrid-style axis argument to a 1-D Vec<f64> of `expected` length.
+/// Accepts a 1-D vector, or a 2-D matrix from `meshgrid(...)`:
+///   - `is_y = false` (X axis): take row 0 (length = ncols).
+///   - `is_y = true`  (Y axis): take column 0 (length = nrows).
+fn axis_from_value(
+    val: &Value,
+    fn_name: &str,
+    arg_name: &str,
+    expected: usize,
+    is_y: bool,
+) -> Result<Vec<f64>, ScriptError> {
+    match val {
+        Value::Vector(v) => {
+            if v.len() != expected {
+                return Err(ScriptError::type_err(format!(
+                    "{}: {} length ({}) must match Z dimension ({})",
+                    fn_name,
+                    arg_name,
+                    v.len(),
+                    expected
+                )));
+            }
+            Ok(v.iter().map(|c| c.re).collect())
+        }
+        Value::Matrix(m) => {
+            let axis: Vec<f64> = if is_y {
+                (0..m.nrows()).map(|i| m[[i, 0]].re).collect()
+            } else {
+                (0..m.ncols()).map(|j| m[[0, j]].re).collect()
+            };
+            if axis.len() != expected {
+                return Err(ScriptError::type_err(format!(
+                    "{}: {} dimension ({}) must match Z ({})",
+                    fn_name,
+                    arg_name,
+                    axis.len(),
+                    expected
+                )));
+            }
+            Ok(axis)
+        }
+        other => Err(ScriptError::type_err(format!(
+            "{}: {} must be a vector or matrix, got {}",
+            fn_name,
+            arg_name,
+            other.type_name()
+        ))),
+    }
 }
 
 /// Extract (freqs: RVector, H: CVector) from a 2×n Matrix (as returned by freqz).

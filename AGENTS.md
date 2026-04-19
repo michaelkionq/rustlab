@@ -549,7 +549,7 @@ rustlab run examples/lowpass.r   # must exit 0 with a plot
 - `src/figure.rs` — `FigureState`, `FIGURE` thread-local, and the multi-figure store (`FigureStore`). `figure_new()`, `figure_new_html(path)`, `figure_switch(id)` manage figure handles. Each figure tracks its own `FigureOutput` mode (Terminal, Html, or Viewer). The swap approach keeps a single active `FIGURE` workspace with inactive figures stored in a HashMap.
 - `src/html.rs` — `render_figure_html(path)`: exports current FIGURE state to a self-contained HTML file with Plotly.js (CDN). Also provides HTML figure mode (`set_html_figure_path`, `sync_html_file`, `html_figure_active`) where `figure("file.html")` causes all subsequent plot commands to auto-update the HTML file instead of rendering to the terminal.
 - `src/viewer_client.rs` — (feature `viewer`) thin Unix socket client for communicating with `rustlab-viewer`. Supports `connect()` (default socket) and `connect_named(name)` (named session socket).
-- `src/viewer_live.rs` — (feature `viewer`) `ViewerFigure` implementing `LivePlot`, routes live plot data to the viewer over IPC. Also provides `connect_viewer()`, `connect_viewer_named(name)`, `disconnect_viewer()`, `viewer_active()`, `sync_viewer()` for routing regular (non-live) plot commands to the viewer when `viewer on` is active. Figure IDs use PID-based prefixes (`(pid << 16) | counter`) to avoid collisions when multiple rustlab processes connect to the same viewer.
+- `src/viewer_live.rs` — (feature `viewer`) `ViewerFigure` implementing `LivePlot`, routes live plot data to the viewer over IPC. Also provides `connect_viewer()`, `connect_viewer_named(name)`, `disconnect_viewer()`, `viewer_active()`, `sync_viewer()` for routing regular (non-live) plot commands to the viewer when `viewer on` is active. Figure IDs use PID-based prefixes (`(pid << 16) | counter`) to avoid collisions when multiple rustlab processes connect to the same viewer. **Dead-connection recovery:** `sync_viewer()` detects write failures (viewer closed/crashed), clears the `VIEWER_CONN`/`VIEWER_SESSION` thread-locals, resets `FigureOutput` to `Terminal`, prints a warning to stderr, and re-renders the current figure in the TUI — subsequent plots keep using the terminal until another `viewer on`.
 
 **Trait:** `LivePlot` (in `lib.rs`) — backend-agnostic interface for live plots. Implemented by `LiveFigure` (ratatui) and `ViewerFigure` (egui viewer). The script engine stores `Box<dyn LivePlot>` in `Value::LiveFigure`.
 
@@ -747,6 +747,7 @@ primary     = NUMBER | STRING | IDENT
 | Clear workspace | `clear` | Bare command (no parens); removes all user vars/fns, keeps built-in constants |
 | Clear figure | `clf` | Bare command (no parens); resets figure state (equivalent to `figure()`) |
 | Hold/Grid/Viewer | `hold on`, `grid off`, `viewer on` | Bare keyword commands; also accept function-call form `hold("on")` |
+| Viewer status | `viewer` | Bare `viewer` (no arg) reports connection state + current figure routing (rustlab-viewer / HTML file / TUI) |
 | Lambda | `f = @(x) x^2` | Creates anonymous function; captures env by snapshot at creation |
 | Function handle | `@sin`, `@myFn` | Reference to builtin or user-defined function |
 | Higher-order | `arrayfun(@sin, v)` | Maps callable over vector; scalar outputs → Vector, vector outputs → Matrix |
@@ -841,6 +842,7 @@ primary     = NUMBER | STRING | IDENT
 | `sleep` | `sleep(seconds)` | Pause execution for a non-negative scalar duration; fractional seconds OK |
 | `min` | `min(v)` / `min(a, b)` | Minimum of vector or two scalars |
 | `max` | `max(v)` / `max(a, b)` | Maximum of vector or two scalars |
+| `surf` | `surf(Z)` / `surf(X, Y, Z)` / `surf(X, Y, Z, cmap)` | 3D surface plot; viewer renders interactive rotate/zoom, HTML emits Plotly 3D, SVG/PNG draws a static isometric wireframe, terminal falls back to a heatmap |
 
 Window names: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`
 

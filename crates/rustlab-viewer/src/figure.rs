@@ -5,6 +5,7 @@ use rustlab_proto::WireSeries;
 use std::sync::Arc;
 
 use crate::render;
+use crate::surface::{Surface3dData, SurfaceCamera};
 
 /// Pre-rendered heatmap image ready for egui display.
 pub struct HeatmapImage {
@@ -24,6 +25,9 @@ pub struct PanelState {
     pub xlim: (Option<f64>, Option<f64>),
     pub ylim: (Option<f64>, Option<f64>),
     pub heatmap: Option<HeatmapImage>,
+    /// 3D surface data + camera. When present, the panel renders a rotatable
+    /// surface instead of the 2D egui_plot chart.
+    pub surface: Option<(Surface3dData, SurfaceCamera)>,
 }
 
 impl PanelState {
@@ -36,6 +40,7 @@ impl PanelState {
             xlim: (None, None),
             ylim: (None, None),
             heatmap: None,
+            surface: None,
         }
     }
 }
@@ -86,6 +91,15 @@ impl FigureWindow {
                             ui.vertical_centered(|ui| {
                                 ui.label(egui::RichText::new(&panel.title).strong().size(14.0));
                             });
+                        }
+
+                        // 3D surface panel: render via the custom software
+                        // renderer instead of egui_plot so users can rotate,
+                        // tilt, and zoom.
+                        if let Some((data, cam)) = panel.surface.as_mut() {
+                            let size = egui::Vec2::new(cell_w - 8.0, cell_h - 8.0 - title_h);
+                            crate::surface::draw(ui, size, data, cam);
+                            return;
                         }
 
                         let plot_id = format!("fig_{}_panel_{}_{}", fig_id, row, col);

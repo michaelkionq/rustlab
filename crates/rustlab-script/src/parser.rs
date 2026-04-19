@@ -633,6 +633,23 @@ impl Parser {
         let line = self.current_line();
         self.advance(); // consume keyword
 
+        // Bare `viewer` (no on/off, no args) — status query.
+        if cmd == "viewer"
+            && matches!(
+                self.peek_token(),
+                Token::Newline | Token::Eof | Token::Semicolon
+            )
+        {
+            let _ = self.consume_stmt_end()?;
+            return Ok(Stmt::new(
+                StmtKind::Viewer {
+                    on: None,
+                    name: None,
+                },
+                line,
+            ));
+        }
+
         // Bare form: `hold on` / `grid off` / `viewer on <name>`
         if let Token::Ident(s) = self.peek_token() {
             let val = match s.as_str() {
@@ -664,7 +681,7 @@ impl Parser {
                 "grid" => Ok(Stmt::new(StmtKind::Grid { on: val }, line)),
                 "viewer" => Ok(Stmt::new(
                     StmtKind::Viewer {
-                        on: val,
+                        on: Some(val),
                         name: viewer_name,
                     },
                     line,

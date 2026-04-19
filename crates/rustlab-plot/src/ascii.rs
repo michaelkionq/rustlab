@@ -464,6 +464,125 @@ pub fn imagesc_terminal(matrix: &CMatrix, title: &str, colormap: &str) -> Result
     k
 }
 
+/// Store a 3D surface into FIGURE and, under `PlotContext::Terminal`,
+/// render a heatmap-of-Z preview in the terminal. True 3D rotate/zoom
+/// lives in `rustlab-viewer`; HTML uses Plotly's native 3D surface.
+pub fn surf_terminal(
+    z: Vec<Vec<f64>>,
+    x: Vec<f64>,
+    y: Vec<f64>,
+    title: &str,
+    colormap: &str,
+) -> Result<(), PlotError> {
+    let nrows = z.len();
+    let ncols = if nrows > 0 { z[0].len() } else { 0 };
+    if nrows == 0 || ncols == 0 {
+        return Err(PlotError::EmptyData);
+    }
+
+    // Flat value list for min/max computation.
+    let vals: Vec<f64> = z.iter().flat_map(|row| row.iter().copied()).collect();
+    let min_v = vals.iter().copied().fold(f64::INFINITY, f64::min);
+    let max_v = vals.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let range = (max_v - min_v).max(1e-12);
+
+    // Clone z before moving into SurfaceData so we can still use it below.
+    let z_for_draw = z.clone();
+
+    FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        if !fig.hold {
+            let sp = fig.current_mut();
+            sp.series.clear();
+            sp.title.clear();
+            sp.heatmap = None;
+        }
+        let sp = fig.current_mut();
+        if !title.is_empty() && sp.title.is_empty() {
+            sp.title = title.to_string();
+        }
+        sp.surface = Some(crate::figure::SurfaceData {
+            z,
+            x,
+            y,
+            colorscale: colormap.to_string(),
+        });
+    });
+
+    // Notebook / Headless: state set, no terminal render.
+    match crate::figure::plot_context() {
+        crate::figure::PlotContext::Notebook | crate::figure::PlotContext::Headless => {
+            return Ok(());
+        }
+        crate::figure::PlotContext::Terminal => {}
+    }
+
+    // When the current figure routes to HTML or the external viewer, the
+    // surface is rendered there — don't draw a TUI preview over it.
+    match crate::figure::current_figure_output() {
+        crate::figure::FigureOutput::Html(_) => return Ok(()),
+        #[cfg(feature = "viewer")]
+        crate::figure::FigureOutput::Viewer(_) => return Ok(()),
+        crate::figure::FigureOutput::Terminal => {}
+    }
+
+    // Skip when stdout is not a real terminal (tests, piped runs).
+    use std::io::IsTerminal;
+    if !std::io::stdout().is_terminal() {
+        return Ok(());
+    }
+
+    execute!(stdout(), EnterAlternateScreen)?;
+    enable_raw_mode()?;
+    let backend = CrosstermBackend::new(stdout());
+    let mut terminal = Terminal::new(backend).map_err(|e| {
+        restore_terminal();
+        PlotError::Terminal(e.to_string())
+    })?;
+
+    let result = terminal.draw(|f| {
+        let area = f.area();
+        let inner_h = (area.height as usize).saturating_sub(2);
+        let inner_w = (area.width as usize).saturating_sub(2);
+
+        let px_cols = inner_w / 2;
+        let disp_rows = nrows.min(inner_h);
+        let disp_cols = ncols.min(px_cols);
+
+        let mut tui_lines: Vec<TuiLine> = Vec::with_capacity(disp_rows);
+        for dr in 0..disp_rows {
+            let mr = dr * nrows / disp_rows.max(1);
+            let mut spans: Vec<Span<'static>> = Vec::with_capacity(disp_cols);
+            for dc in 0..disp_cols {
+                let mc = dc * ncols / disp_cols.max(1);
+                let v = z_for_draw[mr.min(nrows - 1)][mc.min(ncols - 1)];
+                let t = (v - min_v) / range;
+                let (r, g, b) = colormap_rgb(t, colormap);
+                spans.push(Span::styled("  ", Style::default().bg(Color::Rgb(r, g, b))));
+            }
+            tui_lines.push(TuiLine::from(spans));
+        }
+
+        let subtitle = format!("surf {} [{}, {}]", colormap, fmt_g(min_v), fmt_g(max_v));
+        let full_title = if title.is_empty() {
+            subtitle
+        } else {
+            format!("{} — {}", title, subtitle)
+        };
+        let para = Paragraph::new(tui_lines)
+            .block(Block::default().borders(Borders::ALL).title(full_title));
+        f.render_widget(para, area);
+    });
+
+    if let Err(e) = result {
+        restore_terminal();
+        return Err(PlotError::Terminal(e.to_string()));
+    }
+    let k = wait_for_key();
+    restore_terminal();
+    k
+}
+
 // ─── Helpers that push series into FIGURE ──────────────────────────────────
 
 fn push_line_series(

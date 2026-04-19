@@ -12,6 +12,7 @@ mod app;
 mod figure;
 mod net;
 mod render;
+mod surface;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

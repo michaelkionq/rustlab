@@ -7,7 +7,9 @@
 use crate::figure::{FigureState, LineStyle, PlotKind, SeriesColor, FIGURE};
 use crate::viewer_client::ViewerClient;
 use crate::{LivePlot, PlotError};
-use rustlab_proto::{ViewerMsg, WireColor, WireHeatmap, WireLineStyle, WirePlotKind, WireSeries};
+use rustlab_proto::{
+    ViewerMsg, WireColor, WireHeatmap, WireLineStyle, WirePlotKind, WireSeries, WireSurface,
+};
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -250,17 +252,36 @@ pub fn allocate_viewer_fig_id() -> u32 {
 }
 
 /// Send the current FIGURE state to the viewer. No-op if not connected.
+///
+/// If the send fails (e.g. the viewer window was closed), tears down the
+/// viewer connection, switches the current figure back to terminal output,
+/// emits a warning, and renders the pending figure to the TUI so the plot
+/// is not silently lost.
 pub fn sync_viewer() {
-    VIEWER_CONN.with(|c| {
+    let send_err = VIEWER_CONN.with(|c| {
         let mut guard = c.borrow_mut();
         let Some(ref mut conn) = *guard else {
-            return;
+            return None;
         };
         FIGURE.with(|fig| {
             let fig = fig.borrow();
-            let _ = send_figure_state(conn, &fig);
-        });
+            send_figure_state(conn, &fig).err()
+        })
     });
+
+    if let Some(err) = send_err {
+        // Drop the dead connection.
+        VIEWER_CONN.with(|c| *c.borrow_mut() = None);
+        VIEWER_SESSION.with(|s| *s.borrow_mut() = None);
+        // Route the current (and future) figure output back to the terminal.
+        crate::figure::set_current_figure_output(crate::figure::FigureOutput::Terminal);
+        eprintln!(
+            "viewer: connection lost ({}) — falling back to terminal rendering",
+            err
+        );
+        // Best-effort TUI render so the user actually sees their plot.
+        let _ = crate::ascii::render_figure_terminal();
+    }
 }
 
 /// Serialize a full FigureState to the viewer via protocol messages.
@@ -282,6 +303,30 @@ fn send_figure_state(conn: &mut ViewerConn, fig: &FigureState) -> Result<(), Plo
     }
 
     for (idx, panel) in fig.subplots.iter().enumerate().take(n_panels) {
+        // Send 3D surface if present (takes precedence over heatmap in the viewer).
+        if let Some(sf) = &panel.surface {
+            let nrows = sf.z.len();
+            let ncols = if nrows > 0 { sf.z[0].len() } else { 0 };
+            if nrows > 0 && ncols > 0 {
+                let mut z_flat = Vec::with_capacity(nrows * ncols);
+                for row in &sf.z {
+                    z_flat.extend_from_slice(row);
+                }
+                conn.client.send_nowait(&ViewerMsg::PanelSurface {
+                    fig_id,
+                    panel: idx as u16,
+                    surface: WireSurface {
+                        nrows: nrows as u32,
+                        ncols: ncols as u32,
+                        x: sf.x.clone(),
+                        y: sf.y.clone(),
+                        z: z_flat,
+                        colorscale: sf.colorscale.clone(),
+                    },
+                })?;
+            }
+        }
+
         // Send heatmap if present
         if let Some(hm) = &panel.heatmap {
             let height = hm.z.len();

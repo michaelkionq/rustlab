@@ -13,14 +13,15 @@ pub mod viewer_live;
 
 pub use ascii::{
     imagesc_terminal, plot_complex, plot_db, plot_histogram, plot_real, push_xy_bar, push_xy_line,
-    push_xy_scatter, push_xy_stem, render_figure_terminal, stem_real,
+    push_xy_scatter, push_xy_stem, render_figure_terminal, stem_real, surf_terminal,
 };
 pub use error::PlotError;
 pub use figure::{
     clear_notebook_figures, colormap_rgb, current_figure_id, current_figure_output, figure_new,
     figure_new_html, figure_switch, plot_context, push_notebook_figure_snapshot,
     set_current_figure_output, set_plot_context, take_notebook_figures, FigureOutput, FigureState,
-    HeatmapData, LineStyle, PlotContext, PlotKind, Series, SeriesColor, SubplotState, FIGURE,
+    HeatmapData, LineStyle, PlotContext, PlotKind, Series, SeriesColor, SubplotState, SurfaceData,
+    FIGURE,
 };
 pub use file::{render_figure_file, render_figure_state_to_file};
 pub use html::{

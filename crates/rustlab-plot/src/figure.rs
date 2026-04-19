@@ -104,6 +104,19 @@ pub struct HeatmapData {
     pub colorscale: String,
 }
 
+/// 3D surface data for a subplot (produced by `surf`).
+#[derive(Debug, Clone)]
+pub struct SurfaceData {
+    /// Row-major matrix values. `z[row][col]`; rows = y, cols = x.
+    pub z: Vec<Vec<f64>>,
+    /// X-axis coordinates, length = ncols.
+    pub x: Vec<f64>,
+    /// Y-axis coordinates, length = nrows.
+    pub y: Vec<f64>,
+    /// Colorscale name (rustlab convention: "viridis", "jet", "hot", "gray").
+    pub colorscale: String,
+}
+
 /// State for a single subplot panel.
 #[derive(Debug, Clone)]
 pub struct SubplotState {
@@ -118,6 +131,8 @@ pub struct SubplotState {
     pub x_labels: Option<Vec<String>>,
     /// Optional 2D heatmap data (takes precedence over series when present).
     pub heatmap: Option<HeatmapData>,
+    /// Optional 3D surface data (takes precedence over heatmap and series when present).
+    pub surface: Option<SurfaceData>,
 }
 impl SubplotState {
     pub fn new() -> Self {
@@ -131,6 +146,7 @@ impl SubplotState {
             ylim: (None, None),
             x_labels: None,
             heatmap: None,
+            surface: None,
         }
     }
 }

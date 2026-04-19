@@ -1146,15 +1146,18 @@ hold off
 #### `grid on` / `grid off`
 Show or hide grid lines on the current subplot. Also accepts function-call form: `grid("on")`, `grid(1)`. Default is on.
 
-#### `viewer on` / `viewer on <name>` / `viewer off`
-Connect to a running `rustlab-viewer` process. When connected, all plot commands (`plot`, `stem`, `bar`, `bode`, etc.) render in the external egui viewer with zoom/pan/crosshairs instead of the terminal. `viewer off` disconnects and returns to terminal plotting.
+#### `viewer` / `viewer on` / `viewer on <name>` / `viewer off`
+Connect to a running `rustlab-viewer` process. When connected, all plot commands (`plot`, `stem`, `bar`, `bode`, `surf`, etc.) render in the external egui viewer with zoom/pan/crosshairs instead of the terminal. `viewer off` disconnects and returns to terminal plotting. Bare `viewer` (no argument) reports the current connection state and where the active figure will be rendered (rustlab-viewer, HTML file, or the TUI).
 
 Requires the `viewer` feature (included in `make install`). Start `rustlab-viewer` before typing `viewer on`.
 ```
 viewer on          % connect to default viewer
 plot(x, sin(x))   % renders in viewer window
+viewer             % status: "connected, current figure → rustlab-viewer (figure id N)"
 viewer off         % back to terminal
 ```
+
+**Automatic fallback.** If the viewer is closed or crashes while still connected, the next plot command detects the broken connection, prints `viewer: connection lost (...) — falling back to terminal rendering`, clears the viewer session, and renders the current figure in the TUI. Subsequent plots continue to render in the terminal until you run `viewer on` again.
 
 **Named sessions** allow multiple viewers to run simultaneously, each receiving plots from different rustlab instances:
 ```
@@ -1334,6 +1337,25 @@ imagesc(spectrogram_matrix)
 imagesc(M, "jet")
 ```
 
+### `surf(Z)` / `surf(X, Y, Z)` / `surf(X, Y, Z, colormap)`
+Plot a Z-grid as a 3D surface. `Z` is a matrix (rows = Y samples, cols = X samples). `X` and `Y` may be 1-D vectors or 2-D `meshgrid` matrices. Optional colormap: `"viridis"` (default), `"jet"`, `"hot"`, `"gray"`.
+
+Per-backend behaviour:
+
+- **Terminal** — heatmap of Z (no 3D interaction in a terminal).
+- **Viewer** (`viewer on`) — interactive 3D: left-drag rotate, scroll zoom, shift+scroll scale Z, right-drag pan, `R` to reset.
+- **HTML** (`savefig("...html")`) — Plotly 3D surface (draggable in browser).
+- **SVG / PNG** — static isometric wireframe.
+- **Notebook** (`rustlab-notebook render`) — captured as a figure snapshot; HTML output embeds a Plotly 3D surface (rotate/zoom in browser), PDF output embeds the SVG wireframe.
+
+```
+[X, Y] = meshgrid(linspace(-3, 3, 40), linspace(-3, 3, 40));
+Z = sin(X.^2 + Y.^2);
+surf(X, Y, Z);            % X, Y from meshgrid
+surf(X, Y, Z, "jet");     % with colormap
+surf(Z);                  % x = 1..cols, y = 1..rows
+```
+
 ---
 
 ## Visualization — File Output (PNG / SVG / HTML)
@@ -1341,7 +1363,7 @@ imagesc(M, "jet")
 File format is detected from the extension (`.svg`, `.png`, or `.html`).
 
 ### `savefig(filename)`
-Save the current figure state to file. Any interactive plot (`plot`, `stem`, `bar`, `scatter`, `plotdb`, `histogram`, `imagesc`) pushes data into the figure, then `savefig(path)` renders it.
+Save the current figure state to file. Any interactive plot (`plot`, `stem`, `bar`, `scatter`, `plotdb`, `histogram`, `imagesc`, `surf`) pushes data into the figure, then `savefig(path)` renders it.
 
 ```
 plot(real(signal), "440 Hz Sinusoid")

@@ -45,6 +45,12 @@ pub enum ViewerMsg {
         panel: u16,
         heatmap: WireHeatmap,
     },
+    /// Replace 3D surface data in one panel (0-based).
+    PanelSurface {
+        fig_id: u32,
+        panel: u16,
+        surface: WireSurface,
+    },
     /// Request a redraw of all panels in a figure.
     Redraw { fig_id: u32 },
     /// Close a figure window.
@@ -109,6 +115,22 @@ pub struct WireHeatmap {
     pub height: u32,
     /// RGBA pixel data, row-major, 4 bytes per pixel.
     pub rgba: Vec<u8>,
+}
+
+/// Raw 3D surface grid on the wire. The viewer handles projection/shading
+/// so the user can rotate, tilt, and zoom interactively.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WireSurface {
+    pub nrows: u32,
+    pub ncols: u32,
+    /// X coordinates, length = ncols.
+    pub x: Vec<f64>,
+    /// Y coordinates, length = nrows.
+    pub y: Vec<f64>,
+    /// Row-major z values, length = nrows * ncols.
+    pub z: Vec<f64>,
+    /// Colorscale name: "viridis" (default), "jet", "hot", "gray".
+    pub colorscale: String,
 }
 
 // ─── Framing helpers ────────────────────────────────────────────────────────

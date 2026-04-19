@@ -333,48 +333,77 @@ impl Evaluator {
             StmtKind::Viewer { on, name } => {
                 #[cfg(feature = "viewer")]
                 {
-                    if *on {
-                        let connect_result = if let Some(name) = name {
-                            rustlab_plot::connect_viewer_named(name)
-                        } else {
-                            rustlab_plot::connect_viewer()
-                        };
-                        match connect_result {
-                            Ok(true) => {
-                                let fig_id =
-                                    rustlab_plot::viewer_live::get_viewer_fig_id().unwrap_or(1);
-                                rustlab_plot::set_current_figure_output(
-                                    rustlab_plot::FigureOutput::Viewer(fig_id),
-                                );
-                                if let Some(n) = name {
-                                    eprintln!("viewer: connected to session '{}' — plots will render in rustlab-viewer", n);
-                                } else {
-                                    eprintln!(
-                                        "viewer: connected — plots will render in rustlab-viewer"
+                    match on {
+                        Some(true) => {
+                            let connect_result = if let Some(name) = name {
+                                rustlab_plot::connect_viewer_named(name)
+                            } else {
+                                rustlab_plot::connect_viewer()
+                            };
+                            match connect_result {
+                                Ok(true) => {
+                                    let fig_id =
+                                        rustlab_plot::viewer_live::get_viewer_fig_id()
+                                            .unwrap_or(1);
+                                    rustlab_plot::set_current_figure_output(
+                                        rustlab_plot::FigureOutput::Viewer(fig_id),
                                     );
+                                    if let Some(n) = name {
+                                        eprintln!("viewer: connected to session '{}' — plots will render in rustlab-viewer", n);
+                                    } else {
+                                        eprintln!(
+                                            "viewer: connected — plots will render in rustlab-viewer"
+                                        );
+                                    }
                                 }
-                            }
-                            Ok(false) => {
-                                if let Some(n) = name {
-                                    eprintln!("viewer: could not connect to session '{}' — is rustlab-viewer --name {} running?", n, n);
-                                } else {
-                                    eprintln!(
-                                        "viewer: could not connect — is rustlab-viewer running?"
-                                    );
+                                Ok(false) => {
+                                    if let Some(n) = name {
+                                        eprintln!("viewer: could not connect to session '{}' — is rustlab-viewer --name {} running?", n, n);
+                                    } else {
+                                        eprintln!(
+                                            "viewer: could not connect — is rustlab-viewer running?"
+                                        );
+                                    }
+                                    eprintln!("  plots will continue to render in the terminal");
                                 }
-                                eprintln!("  plots will continue to render in the terminal");
-                            }
-                            Err(e) => {
-                                eprintln!("viewer: connection failed — {}", e);
-                                eprintln!("  plots will continue to render in the terminal");
+                                Err(e) => {
+                                    eprintln!("viewer: connection failed — {}", e);
+                                    eprintln!("  plots will continue to render in the terminal");
+                                }
                             }
                         }
-                    } else {
-                        rustlab_plot::disconnect_viewer();
-                        rustlab_plot::set_current_figure_output(
-                            rustlab_plot::FigureOutput::Terminal,
-                        );
-                        eprintln!("viewer: disconnected — plots will render in the terminal");
+                        Some(false) => {
+                            rustlab_plot::disconnect_viewer();
+                            rustlab_plot::set_current_figure_output(
+                                rustlab_plot::FigureOutput::Terminal,
+                            );
+                            eprintln!("viewer: disconnected — plots will render in the terminal");
+                        }
+                        None => {
+                            // Status query: report connection + current routing.
+                            let connected = rustlab_plot::viewer_active();
+                            let routing = match rustlab_plot::current_figure_output() {
+                                rustlab_plot::FigureOutput::Viewer(id) => {
+                                    format!("rustlab-viewer (figure id {})", id)
+                                }
+                                rustlab_plot::FigureOutput::Html(path) if !path.is_empty() => {
+                                    format!("HTML file '{}'", path)
+                                }
+                                rustlab_plot::FigureOutput::Html(_) => {
+                                    "HTML (pending savefig path)".to_string()
+                                }
+                                rustlab_plot::FigureOutput::Terminal => "the TUI".to_string(),
+                            };
+                            if connected {
+                                eprintln!("viewer: connected");
+                            } else {
+                                eprintln!("viewer: not connected");
+                            }
+                            eprintln!("  current figure → {}", routing);
+                            if !connected {
+                                eprintln!("  use `viewer on` to connect an external rustlab-viewer");
+                            }
+                        }
                     }
                 }
                 #[cfg(not(feature = "viewer"))]

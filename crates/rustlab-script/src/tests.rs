@@ -4466,7 +4466,7 @@ ref_full = convolve(x, h);
         assert_eq!(stmts.len(), 1);
         match &stmts[0].kind {
             crate::ast::StmtKind::Viewer { on, name } => {
-                assert!(*on);
+                assert_eq!(*on, Some(true));
                 assert_eq!(*name, None);
             }
             other => panic!("expected Viewer, got {:?}", other),
@@ -4481,7 +4481,7 @@ ref_full = convolve(x, h);
         assert_eq!(stmts.len(), 1);
         match &stmts[0].kind {
             crate::ast::StmtKind::Viewer { on, name } => {
-                assert!(*on);
+                assert_eq!(*on, Some(true));
                 assert_eq!(name.as_deref(), Some("work"));
             }
             other => panic!("expected Viewer, got {:?}", other),
@@ -4496,7 +4496,7 @@ ref_full = convolve(x, h);
         assert_eq!(stmts.len(), 1);
         match &stmts[0].kind {
             crate::ast::StmtKind::Viewer { on, name } => {
-                assert!(!*on);
+                assert_eq!(*on, Some(false));
                 assert_eq!(*name, None);
             }
             other => panic!("expected Viewer, got {:?}", other),
@@ -4512,8 +4512,24 @@ ref_full = convolve(x, h);
         let stmts = parser::parse(tokens).unwrap();
         match &stmts[0].kind {
             crate::ast::StmtKind::Viewer { on, name } => {
-                assert!(!*on);
+                assert_eq!(*on, Some(false));
                 assert!(name.is_none());
+            }
+            other => panic!("expected Viewer, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn viewer_bare_parses_as_status() {
+        // bare `viewer` is a status query — on: None, name: None
+        let src = "viewer\n";
+        let tokens = lexer::tokenize(src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        assert_eq!(stmts.len(), 1);
+        match &stmts[0].kind {
+            crate::ast::StmtKind::Viewer { on, name } => {
+                assert_eq!(*on, None);
+                assert_eq!(*name, None);
             }
             other => panic!("expected Viewer, got {:?}", other),
         }
@@ -5141,6 +5157,75 @@ mod figure_state_tests {
             assert_eq!(sp.series[0].x_data, vec![1.0, 2.0, 3.0]);
             assert_eq!(sp.series[0].y_data, vec![4.0, 5.0, 6.0]);
         });
+    }
+
+    #[test]
+    fn surf_single_arg_sets_surface() {
+        run("Z = [1.0, 2.0, 3.0; 4.0, 5.0, 6.0]; surf(Z);");
+        FIGURE.with(|f| {
+            let fig = f.borrow();
+            let sp = fig.current();
+            let surf = sp.surface.as_ref().expect("surface should be set");
+            assert_eq!(surf.z.len(), 2);
+            assert_eq!(surf.z[0].len(), 3);
+            assert_eq!(surf.x, vec![1.0, 2.0, 3.0]);
+            assert_eq!(surf.y, vec![1.0, 2.0]);
+            assert_eq!(surf.colorscale, "viridis");
+        });
+    }
+
+    #[test]
+    fn surf_xyz_with_vectors() {
+        run("x = [10.0, 20.0, 30.0]; y = [100.0, 200.0]; Z = [1.0, 2.0, 3.0; 4.0, 5.0, 6.0]; surf(x, y, Z);");
+        FIGURE.with(|f| {
+            let fig = f.borrow();
+            let sp = fig.current();
+            let surf = sp.surface.as_ref().expect("surface should be set");
+            assert_eq!(surf.x, vec![10.0, 20.0, 30.0]);
+            assert_eq!(surf.y, vec![100.0, 200.0]);
+            assert_eq!(surf.z.len(), 2);
+            assert_eq!(surf.z[0].len(), 3);
+        });
+    }
+
+    #[test]
+    fn surf_accepts_meshgrid_matrices() {
+        run("[X, Y] = meshgrid([1.0, 2.0, 3.0], [10.0, 20.0]); Z = X + Y; surf(X, Y, Z);");
+        FIGURE.with(|f| {
+            let fig = f.borrow();
+            let sp = fig.current();
+            let surf = sp.surface.as_ref().expect("surface should be set");
+            assert_eq!(surf.x, vec![1.0, 2.0, 3.0]);
+            assert_eq!(surf.y, vec![10.0, 20.0]);
+            assert_eq!(surf.z.len(), 2);
+            assert_eq!(surf.z[0].len(), 3);
+        });
+    }
+
+    #[test]
+    fn surf_with_colormap_string() {
+        run("Z = [1.0, 2.0; 3.0, 4.0]; surf(Z, Z, Z, \"jet\");");
+        FIGURE.with(|f| {
+            let fig = f.borrow();
+            let sp = fig.current();
+            let surf = sp.surface.as_ref().expect("surface should be set");
+            assert_eq!(surf.colorscale, "jet");
+        });
+    }
+
+    #[test]
+    fn surf_rejects_mismatched_axis_length() {
+        reset_figure();
+        let src = "x = [1.0, 2.0]; y = [1.0, 2.0]; Z = [1.0, 2.0, 3.0; 4.0, 5.0, 6.0]; surf(x, y, Z);\n";
+        let tokens = crate::lexer::tokenize(src).unwrap();
+        let stmts = crate::parser::parse(tokens).unwrap();
+        let mut ev = crate::Evaluator::new();
+        let err = ev.run(&stmts).expect_err("expected dim mismatch error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("surf") && msg.contains("match"),
+            "expected dim error, got: {msg}"
+        );
     }
 }
 
