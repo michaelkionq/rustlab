@@ -1485,7 +1485,10 @@ mod tests {
     fn protect_math_skips_inside_fenced_code() {
         let src = "```\n$$ a \\\\ b $$\n```\nafter";
         let (rewritten, stash) = protect_math(src);
-        assert!(stash.is_empty(), "math inside code fence must not be stashed");
+        assert!(
+            stash.is_empty(),
+            "math inside code fence must not be stashed"
+        );
         assert!(rewritten.contains("$$ a \\\\ b $$"));
     }
 
