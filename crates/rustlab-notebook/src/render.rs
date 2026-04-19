@@ -34,6 +34,8 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
             Rendered::Markdown(md) => {
                 // Rewrite .md links to .html for cross-notebook references
                 let md = rewrite_md_links(md);
+                // Stash math spans before CommonMark eats LaTeX backslashes
+                let (md, math) = protect_math(&md);
                 // Convert markdown to HTML
                 let mut opts = Options::empty();
                 opts.insert(Options::ENABLE_TABLES);
@@ -41,6 +43,7 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
                 let parser = Parser::new_ext(&md, opts);
                 let mut html = String::new();
                 push_html(&mut html, parser);
+                let html = restore_math(&html, &math);
 
                 // Extract headings for nav and inject IDs
                 let html = inject_heading_ids(&html, &mut nav_items, &mut heading_idx);
@@ -128,12 +131,14 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
                 body.push_str(&format!("<div class=\"callout callout-{class}\">\n"));
                 body.push_str(&format!("<div class=\"callout-title\">{label}</div>\n"));
                 let md = rewrite_md_links(content);
+                let (md, math) = protect_math(&md);
                 let mut opts = Options::empty();
                 opts.insert(Options::ENABLE_TABLES);
                 opts.insert(Options::ENABLE_STRIKETHROUGH);
                 let parser = Parser::new_ext(&md, opts);
                 let mut html = String::new();
                 push_html(&mut html, parser);
+                let html = restore_math(&html, &math);
                 body.push_str(&html);
                 body.push_str("</div>\n");
             }
@@ -735,6 +740,268 @@ fn rewrite_md_links(md: &str) -> String {
     md.replace(".md)", ".html)").replace(".md#", ".html#")
 }
 
+// ── Math protection ─────────────────────────────────────────────────────────
+// CommonMark consumes `\\` → `\`, which destroys LaTeX row separators inside
+// `$$...$$`. We replace math spans with placeholders before parsing and
+// restore them after, so KaTeX sees the original LaTeX. PUA characters survive
+// pulldown-cmark and `escape_html` unchanged.
+
+fn math_placeholder(idx: usize) -> String {
+    format!("\u{E000}M{idx}\u{E001}")
+}
+
+/// Replace `$$...$$` and `$...$` math spans with opaque placeholders.
+/// Returns the rewritten markdown plus the stashed originals (delimiters
+/// included). Skips fenced code blocks and inline code spans, and respects
+/// `\$` escapes per CommonMark.
+fn protect_math(md: &str) -> (String, Vec<String>) {
+    let s = md.as_bytes();
+    let n = s.len();
+    let mut out = String::with_capacity(n);
+    let mut stash: Vec<String> = Vec::new();
+    let mut i = 0;
+    let mut at_line_start = true;
+
+    while i < n {
+        // Fenced code block opening at start of line (0–3 leading spaces, then ``` or ~~~).
+        if at_line_start {
+            if let Some((after_open, fence_char, fence_len)) = detect_fence_open(s, i) {
+                // Copy through end of opening line.
+                let eol = line_end(s, i);
+                out.push_str(&md[i..eol]);
+                i = eol;
+                // Consume body until close fence (or EOF).
+                while i < n {
+                    let next = line_end(s, i);
+                    let line = &md[i..next];
+                    out.push_str(line);
+                    i = next;
+                    if is_close_fence(line.as_bytes(), fence_char, fence_len) {
+                        break;
+                    }
+                }
+                at_line_start = true;
+                let _ = after_open; // unused; kept for symmetry/clarity
+                continue;
+            }
+        }
+
+        let b = s[i];
+
+        // Inline code span: matched run of N backticks.
+        if b == b'`' {
+            let run_start = i;
+            while i < n && s[i] == b'`' {
+                i += 1;
+            }
+            let open_len = i - run_start;
+            // Find a matching closing run of the same length.
+            let mut j = i;
+            let mut close: Option<(usize, usize)> = None;
+            while j < n {
+                if s[j] == b'`' {
+                    let cs = j;
+                    while j < n && s[j] == b'`' {
+                        j += 1;
+                    }
+                    if j - cs == open_len {
+                        close = Some((cs, j));
+                        break;
+                    }
+                } else {
+                    j += 1;
+                }
+            }
+            if let Some((_, ce)) = close {
+                out.push_str(&md[run_start..ce]);
+                at_line_start = ce > 0 && s[ce - 1] == b'\n';
+                i = ce;
+                continue;
+            }
+            // Unclosed run: treat as literal text.
+            out.push_str(&md[run_start..i]);
+            at_line_start = false;
+            continue;
+        }
+
+        // CommonMark backslash escape of $ or `: copy verbatim, do not enter math.
+        if b == b'\\' && i + 1 < n && (s[i + 1] == b'$' || s[i + 1] == b'`') {
+            out.push('\\');
+            out.push(s[i + 1] as char);
+            i += 2;
+            at_line_start = false;
+            continue;
+        }
+
+        // Display math: $$ ... $$
+        if b == b'$' && i + 1 < n && s[i + 1] == b'$' {
+            if let Some(close) = find_display_close(s, i + 2) {
+                let original = &md[i..close + 2];
+                let idx = stash.len();
+                stash.push(original.to_string());
+                out.push_str(&math_placeholder(idx));
+                // Track newlines consumed.
+                if md[i..close + 2].contains('\n') {
+                    at_line_start = s[close + 1] == b'\n';
+                } else {
+                    at_line_start = false;
+                }
+                i = close + 2;
+                continue;
+            }
+        }
+
+        // Inline math: $ ... $ (KaTeX-style, single line).
+        if b == b'$' && is_inline_math_open(s, i) {
+            if let Some(close) = find_inline_close(s, i + 1) {
+                let original = &md[i..close + 1];
+                let idx = stash.len();
+                stash.push(original.to_string());
+                out.push_str(&math_placeholder(idx));
+                i = close + 1;
+                at_line_start = false;
+                continue;
+            }
+        }
+
+        // Default: copy one byte. Safe because we only break at ASCII boundaries
+        // and UTF-8 continuation bytes are >= 0x80, which we just push through.
+        out.push(b as char);
+        at_line_start = b == b'\n';
+        i += 1;
+    }
+
+    (out, stash)
+}
+
+/// Restore math placeholders in rendered HTML.
+fn restore_math(html: &str, stash: &[String]) -> String {
+    if stash.is_empty() {
+        return html.to_string();
+    }
+    let mut out = html.to_string();
+    for (idx, original) in stash.iter().enumerate() {
+        out = out.replace(&math_placeholder(idx), original);
+    }
+    out
+}
+
+/// If `i` is at the start of a fenced code block opener, return
+/// `(byte_after_opener, fence_char, fence_len)`. Otherwise None.
+fn detect_fence_open(s: &[u8], i: usize) -> Option<(usize, u8, usize)> {
+    let n = s.len();
+    let mut j = i;
+    let mut spaces = 0;
+    while j < n && s[j] == b' ' && spaces < 4 {
+        j += 1;
+        spaces += 1;
+    }
+    if spaces >= 4 || j >= n {
+        return None;
+    }
+    let fc = s[j];
+    if fc != b'`' && fc != b'~' {
+        return None;
+    }
+    let start = j;
+    while j < n && s[j] == fc {
+        j += 1;
+    }
+    let len = j - start;
+    if len < 3 {
+        return None;
+    }
+    Some((j, fc, len))
+}
+
+/// True if `line` is a closing fence for an open fence of `fc`/`min_len`.
+fn is_close_fence(line: &[u8], fc: u8, min_len: usize) -> bool {
+    let mut i = 0;
+    let mut spaces = 0;
+    while i < line.len() && line[i] == b' ' && spaces < 4 {
+        i += 1;
+        spaces += 1;
+    }
+    if spaces >= 4 {
+        return false;
+    }
+    let start = i;
+    while i < line.len() && line[i] == fc {
+        i += 1;
+    }
+    if i - start < min_len {
+        return false;
+    }
+    while i < line.len() {
+        match line[i] {
+            b' ' | b'\t' | b'\r' | b'\n' => i += 1,
+            _ => return false,
+        }
+    }
+    true
+}
+
+fn line_end(s: &[u8], i: usize) -> usize {
+    s[i..]
+        .iter()
+        .position(|&c| c == b'\n')
+        .map(|p| i + p + 1)
+        .unwrap_or(s.len())
+}
+
+/// Find closing `$$` after `start`, honoring `\\` and `\$` escapes.
+fn find_display_close(s: &[u8], start: usize) -> Option<usize> {
+    let n = s.len();
+    let mut j = start;
+    while j + 1 < n {
+        if s[j] == b'\\' {
+            j += 2;
+            continue;
+        }
+        if s[j] == b'$' && s[j + 1] == b'$' {
+            return Some(j);
+        }
+        j += 1;
+    }
+    None
+}
+
+/// KaTeX-style inline math opener: `$` followed by a non-whitespace,
+/// non-`$` byte. Avoids triggering on prose like "$5 and $10".
+fn is_inline_math_open(s: &[u8], i: usize) -> bool {
+    if i + 1 >= s.len() {
+        return false;
+    }
+    let nx = s[i + 1];
+    if nx == b'$' {
+        return false;
+    }
+    !nx.is_ascii_whitespace()
+}
+
+/// Find closing `$` for an inline span starting at `start`. Same line only.
+/// Closing `$` must be preceded by non-whitespace and not followed by a digit
+/// (KaTeX convention to avoid swallowing prices like "$5").
+fn find_inline_close(s: &[u8], start: usize) -> Option<usize> {
+    let n = s.len();
+    let mut j = start;
+    while j < n && s[j] != b'\n' {
+        if s[j] == b'\\' && j + 1 < n {
+            j += 2;
+            continue;
+        }
+        if s[j] == b'$' {
+            let prev_ok = j > start && !s[j - 1].is_ascii_whitespace();
+            let next_ok = j + 1 >= n || !s[j + 1].is_ascii_digit();
+            if prev_ok && next_ok {
+                return Some(j);
+            }
+        }
+        j += 1;
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1169,5 +1436,112 @@ mod tests {
         let html = render_html("Test", &blocks, test_theme());
         assert!(html.contains("other.html"));
         assert!(!html.contains("other.md"));
+    }
+
+    // ── protect_math / restore_math ──
+
+    #[test]
+    fn protect_math_display_preserves_double_backslash() {
+        let src = r"text $$\begin{pmatrix}0 & 1 \\ 1 & 0\end{pmatrix}$$ more";
+        let (rewritten, stash) = protect_math(src);
+        assert_eq!(stash.len(), 1);
+        assert!(stash[0].contains(r"\\"), "stashed math lost row separator");
+        assert!(!rewritten.contains('$'), "delimiters should be removed");
+    }
+
+    #[test]
+    fn protect_math_inline_basic() {
+        let src = "the value $x = 1$ is set";
+        let (rewritten, stash) = protect_math(src);
+        assert_eq!(stash, vec!["$x = 1$".to_string()]);
+        assert!(!rewritten.contains('$'));
+    }
+
+    #[test]
+    fn protect_math_skips_whitespace_padded_dollars() {
+        // KaTeX rule: opening $ followed by whitespace is not math.
+        let src = "I have $ 5 dollars";
+        let (_, stash) = protect_math(src);
+        assert!(stash.is_empty());
+    }
+
+    #[test]
+    fn protect_math_skips_prices() {
+        // Closing $ followed by digit is not math.
+        let src = "costs $5 and $10";
+        let (_, stash) = protect_math(src);
+        assert!(stash.is_empty());
+    }
+
+    #[test]
+    fn protect_math_respects_escaped_dollar() {
+        let src = r"price is \$5 even";
+        let (rewritten, stash) = protect_math(src);
+        assert!(stash.is_empty());
+        assert!(rewritten.contains(r"\$5"));
+    }
+
+    #[test]
+    fn protect_math_skips_inside_fenced_code() {
+        let src = "```\n$$ a \\\\ b $$\n```\nafter";
+        let (rewritten, stash) = protect_math(src);
+        assert!(stash.is_empty(), "math inside code fence must not be stashed");
+        assert!(rewritten.contains("$$ a \\\\ b $$"));
+    }
+
+    #[test]
+    fn protect_math_skips_inside_inline_code() {
+        let src = "use `$$x$$` for display math";
+        let (_, stash) = protect_math(src);
+        assert!(stash.is_empty());
+    }
+
+    #[test]
+    fn protect_math_multiline_display() {
+        let src = "intro\n$$\nA = \\begin{pmatrix}\n1 & 2 \\\\\n3 & 4\n\\end{pmatrix}\n$$\noutro";
+        let (rewritten, stash) = protect_math(src);
+        assert_eq!(stash.len(), 1);
+        assert!(stash[0].contains("\\\\"));
+        assert!(rewritten.contains("intro\n"));
+        assert!(rewritten.contains("\noutro"));
+    }
+
+    #[test]
+    fn restore_math_round_trip() {
+        let src = r"$$a \\ b$$";
+        let (rewritten, stash) = protect_math(src);
+        let restored = restore_math(&rewritten, &stash);
+        assert_eq!(restored, src);
+    }
+
+    #[test]
+    fn render_html_preserves_matrix_row_separator() {
+        let blocks = vec![Rendered::Markdown(
+            r"$$\begin{pmatrix}0 & 1 \\ 1 & 0\end{pmatrix}$$".to_string(),
+        )];
+        let html = render_html("Test", &blocks, test_theme());
+        // The `\\` must reach the rendered HTML so KaTeX can split rows.
+        assert!(
+            html.contains(r"\\"),
+            "matrix row separator lost; KaTeX will collapse rows"
+        );
+    }
+
+    #[test]
+    fn render_html_callout_preserves_math_backslashes() {
+        let blocks = vec![Rendered::Callout {
+            kind: CalloutKind::Note,
+            content: r"see $$a \\ b$$".to_string(),
+        }];
+        let html = render_html("Test", &blocks, test_theme());
+        assert!(html.contains(r"\\"));
+    }
+
+    #[test]
+    fn protect_math_unclosed_display_left_alone() {
+        let src = "open $$ but no close";
+        let (rewritten, stash) = protect_math(src);
+        assert!(stash.is_empty());
+        assert_eq!(rewritten, src);
     }
 }

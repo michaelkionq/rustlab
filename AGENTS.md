@@ -662,6 +662,8 @@ rustlab-viewer --socket PATH    # custom socket path
 
 **Multi-plot blocks:** Each `savefig()` call inside a code block captures a separate `FigureState` snapshot (via `rustlab_plot::push_notebook_figure_snapshot`, hooked into `render_figure_file` when `PlotContext::Notebook` is active). If a block plots but never calls `savefig()`, a single final snapshot is taken. `Rendered::Code.figures` is a `Vec<FigureState>`.
 
+**Math protection (`render::protect_math` / `restore_math`):** CommonMark consumes `\\` → `\`, which would destroy LaTeX row separators inside `$$...$$` (e.g. matrix `\\` row breaks would collapse). Before calling `pulldown-cmark`, both the `Markdown` and `Callout` branches stash math spans (`$$...$$` and KaTeX-strict `$...$`) under Unicode private-use placeholders, then restore the originals after `push_html`. Authors write standard LaTeX (`\\`, `\$`, `\begin{pmatrix}…\end{pmatrix}`) — no double-escaping. Code fences and inline code spans are skipped, and `\$` escapes are honored.
+
 **Silent assignments:** Under `PlotContext::Notebook`, the `Evaluator` suppresses assignment echo (via `echo_enabled()`). Only bare expressions, `print()`, and `disp()` produce visible text output — matching Jupyter / MATLAB Live Script conventions. REPL and `rustlab run` behaviour is unchanged.
 
 **YAML frontmatter (`--- title: ... ---`):** Parsed by `parse::extract_frontmatter` → `Frontmatter { title, order }`. Known keys are `title` (overrides the `# H1` fallback in `extract_title`) and `order` / `weight` (signed integer; sorts entries on the directory index page, ascending, ties broken by filename). Unknown keys are ignored silently so future additions don't break existing files. Quoted values (single or double) are unwrapped.
