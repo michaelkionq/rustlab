@@ -172,7 +172,6 @@ Same early return for `Notebook` context.
 - `viewer on` / `viewer off` keeps working as-is in `Terminal` context
 - `figure("file.html")` keeps working (explicit HTML mode)
 - `savefig()`, `savebar()`, etc. keep working (they bypass the output routing)
-- `report start/save` keeps working
 - Per-figure output modes still exist (for multi-figure HTML/viewer mixing)
 - `FigureStore`, `FIGURE` thread-local, all series data — untouched
 
@@ -220,14 +219,6 @@ rustlab run --batch script.r
 
 Sets `PlotContext::Notebook` so scripts that `savefig()` to disk can run
 without any TUI interaction. Useful for CI and automated pipelines.
-
-### C. Collapse `report` into `viewer` concept
-
-The `report start/save` REPL flow and `figure("file.html")` are both
-"render to HTML" with slightly different collection models. They could
-potentially share infrastructure, but the use cases are different enough
-(interactive accumulation vs. explicit file targeting) that merging them
-may not simplify things in practice.
 
 ---
 

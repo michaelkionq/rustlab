@@ -6,6 +6,16 @@ pub mod render_latex;
 use rustlab_plot::theme::ThemeColors;
 use std::path::PathBuf;
 
+/// Cross-notebook navigation context passed to `render::render_html` when a
+/// notebook is rendered as part of a multi-notebook directory build. All
+/// fields are relative hrefs (e.g. `index.html`, `analysis.html`).
+#[derive(Debug, Clone, Default)]
+pub struct NotebookNav {
+    pub index_href: Option<String>,
+    pub prev: Option<(String, String)>,
+    pub next: Option<(String, String)>,
+}
+
 /// Render a single notebook file to the chosen format.
 pub fn cmd_render(input: PathBuf, output: Option<PathBuf>, format: Format, theme: &ThemeColors) {
     let source = match std::fs::read_to_string(&input) {
@@ -32,7 +42,7 @@ pub fn cmd_render(input: PathBuf, output: Option<PathBuf>, format: Format, theme
         PathBuf::from(format!("{}.{ext}", stem.to_string_lossy()))
     });
 
-    render_output(&out_path, &format, &title, &rendered, theme);
+    render_output(&out_path, &format, &title, &rendered, theme, None);
     print_summary(&input, &out_path, &rendered);
 }
 
@@ -79,9 +89,18 @@ pub fn cmd_render_dir(
     }
 
     let ext = format.extension();
-    // (order, title, filename) — stable sort by order asc, ties by filename asc.
-    let mut index_entries: Vec<(Option<i64>, String, String)> = Vec::new();
 
+    // Pass 1: read sources and collect metadata so we can sort before rendering.
+    // This lets us give each notebook its prev/next neighbour in the nav.
+    struct Pending {
+        md_path: PathBuf,
+        out_file: PathBuf,
+        title: String,
+        filename: String,
+        order: Option<i64>,
+        source: String,
+    }
+    let mut pending: Vec<Pending> = Vec::new();
     for md_path in &md_files {
         let source = match std::fs::read_to_string(md_path) {
             Ok(s) => s,
@@ -90,31 +109,65 @@ pub fn cmd_render_dir(
                 continue;
             }
         };
-
         let (fm, _) = parse::extract_frontmatter(&source);
         let title = extract_title(&source, md_path);
-        let stem = md_path.file_stem().unwrap_or_default().to_string_lossy();
-        let out_file = out_dir.join(format!("{stem}.{ext}"));
-
-        let _ = std::env::set_current_dir(&dir);
-
-        let blocks = parse::parse_notebook(&source);
-        let rendered = execute::execute_notebook(&blocks);
-
-        render_output(&out_file, &format, &title, &rendered, theme);
-        print_summary(md_path, &out_file, &rendered);
-
-        index_entries.push((fm.order, title, format!("{stem}.{ext}")));
+        let stem = md_path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let filename = format!("{stem}.{ext}");
+        let out_file = out_dir.join(&filename);
+        pending.push(Pending {
+            md_path: md_path.clone(),
+            out_file,
+            title,
+            filename,
+            order: fm.order,
+            source,
+        });
     }
 
-    // Entries without an explicit order sort after those that have one, in
-    // filename order. Among entries that share an order, filename breaks ties.
-    index_entries.sort_by(|a, b| match (a.0, b.0) {
-        (Some(x), Some(y)) => x.cmp(&y).then_with(|| a.2.cmp(&b.2)),
+    // Sort the same way the index used to: order asc (None last), ties by filename.
+    pending.sort_by(|a, b| match (a.order, b.order) {
+        (Some(x), Some(y)) => x.cmp(&y).then_with(|| a.filename.cmp(&b.filename)),
         (Some(_), None) => std::cmp::Ordering::Less,
         (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => a.2.cmp(&b.2),
+        (None, None) => a.filename.cmp(&b.filename),
     });
+
+    let emit_nav = matches!(format, Format::Html);
+    let n = pending.len();
+    for i in 0..n {
+        let nav = if emit_nav {
+            let prev = (i > 0).then(|| {
+                (
+                    pending[i - 1].title.clone(),
+                    pending[i - 1].filename.clone(),
+                )
+            });
+            let next = (i + 1 < n).then(|| {
+                (
+                    pending[i + 1].title.clone(),
+                    pending[i + 1].filename.clone(),
+                )
+            });
+            Some(NotebookNav {
+                index_href: Some("index.html".to_string()),
+                prev,
+                next,
+            })
+        } else {
+            None
+        };
+
+        let p = &pending[i];
+        let _ = std::env::set_current_dir(&dir);
+        let blocks = parse::parse_notebook(&p.source);
+        let rendered = execute::execute_notebook(&blocks);
+        render_output(&p.out_file, &format, &p.title, &rendered, theme, nav.as_ref());
+        print_summary(&p.md_path, &p.out_file, &rendered);
+    }
 
     if matches!(format, Format::Html) {
         // Resolve the index title: CLI flag > index.md title > dir name.
@@ -129,9 +182,9 @@ pub fn cmd_render_dir(
                 .to_string()
         });
 
-        let entries_simple: Vec<(String, String)> = index_entries
+        let entries_simple: Vec<(String, String)> = pending
             .iter()
-            .map(|(_, t, f)| (t.clone(), f.clone()))
+            .map(|p| (p.title.clone(), p.filename.clone()))
             .collect();
         let index_html =
             generate_index_html(&resolved_title, &entries_simple, theme, &index_body_html);
@@ -220,10 +273,11 @@ fn render_output(
     title: &str,
     rendered: &[execute::Rendered],
     theme: &ThemeColors,
+    nav: Option<&NotebookNav>,
 ) {
     match format {
         Format::Html => {
-            let html = render::render_html(title, rendered, theme);
+            let html = render::render_html(title, rendered, theme, nav);
             write_output(out_path, html.as_bytes());
         }
         Format::Latex => {

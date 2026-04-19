@@ -1,11 +1,21 @@
 use crate::execute::Rendered;
 use crate::parse::CalloutKind;
+use crate::NotebookNav;
 use pulldown_cmark::{html::push_html, Options, Parser};
 use rustlab_plot::render_figure_plotly_div;
 use rustlab_plot::ThemeColors;
 
 /// Render executed notebook blocks into a self-contained HTML string.
-pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> String {
+///
+/// `nav` is `Some` when the notebook is part of a multi-notebook directory
+/// render — it carries an "← Index" link for the sidebar plus prev/next
+/// footer links. `None` for single-file renders.
+pub fn render_html(
+    title: &str,
+    blocks: &[Rendered],
+    theme: &ThemeColors,
+    nav: Option<&NotebookNav>,
+) -> String {
     let mut nav_items = String::new();
     let mut body = String::new();
     let mut heading_idx = 0;
@@ -163,6 +173,48 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
         body.push_str("</div>\n");
     }
 
+    // Directory-mode sub-pages get a top breadcrumb bar instead of the fixed
+    // sidebar — less visual weight, more horizontal room for content.
+    // Single-file renders (`nav = None`) keep the sidebar with the in-page TOC.
+    let use_topbar = nav.is_some();
+    let body_class = if use_topbar { " class=\"topbar-layout\"" } else { "" };
+
+    let topbar_block = match nav {
+        Some(n) => {
+            let index_link = n
+                .index_href
+                .as_ref()
+                .map(|href| {
+                    format!(
+                        "<a href=\"{href}\">&larr; Index</a>",
+                        href = escape_html(href),
+                    )
+                })
+                .unwrap_or_default();
+            format!(
+                "<header class=\"topbar\">{index}<span class=\"sep\">/</span><span class=\"current\">{title}</span></header>\n",
+                index = index_link,
+                title = escape_html(title),
+            )
+        }
+        None => String::new(),
+    };
+
+    let sidebar_block = if use_topbar {
+        String::new()
+    } else {
+        format!(
+            "<button class=\"nav-toggle\" onclick=\"document.querySelector('nav.sidebar').classList.toggle('open')\" aria-label=\"Toggle navigation\">&#9776;</button>\n\
+             <nav class=\"sidebar\">\n  <div class=\"nav-title\">{title}</div>\n{nav_items}</nav>\n",
+            title = escape_html(title),
+            nav_items = nav_items,
+        )
+    };
+
+    let footer_nav = nav
+        .map(|n| build_footer_nav(n))
+        .unwrap_or_default();
+
     let c = theme;
     format!(
         r##"<!DOCTYPE html>
@@ -191,7 +243,7 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
     min-height: 100vh;
   }}
   /* ── Navigation sidebar ── */
-  nav {{
+  nav.sidebar {{
     position: fixed;
     top: 0;
     left: 0;
@@ -204,7 +256,7 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
     z-index: 100;
     transition: transform 0.25s ease;
   }}
-  nav .nav-title {{
+  nav.sidebar .nav-title {{
     font-size: 1.1rem;
     font-weight: 700;
     color: {accent_primary};
@@ -212,7 +264,7 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
     border-bottom: 1px solid {border};
     margin-bottom: 0.5rem;
   }}
-  nav a {{
+  nav.sidebar a {{
     display: block;
     padding: 0.4rem 1rem;
     color: {text_dim};
@@ -220,15 +272,15 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
     font-size: 0.9rem;
     transition: background 0.15s, color 0.15s;
   }}
-  nav a:hover {{
+  nav.sidebar a:hover {{
     background: {border};
     color: {text};
   }}
-  nav a.h2 {{
+  nav.sidebar a.h2 {{
     padding-left: 1.8rem;
     font-size: 0.85rem;
   }}
-  nav a.h3 {{
+  nav.sidebar a.h3 {{
     padding-left: 2.6rem;
     font-size: 0.8rem;
   }}
@@ -255,6 +307,45 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
     flex: 1;
     padding: 2rem 2.5rem;
     max-width: 960px;
+    min-width: 0;
+  }}
+  /* ── Directory-mode top bar (replaces sidebar for sub-pages) ── */
+  body.topbar-layout {{
+    display: block;
+  }}
+  body.topbar-layout main {{
+    margin: 0 auto;
+    padding: 2rem 2.5rem;
+    max-width: 960px;
+  }}
+  .topbar {{
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: {bg_secondary};
+    border-bottom: 1px solid {border};
+    padding: 0.6rem 1.2rem;
+    font-size: 0.85rem;
+    color: {text_dim};
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }}
+  .topbar a {{
+    color: {accent_secondary};
+    text-decoration: none;
+  }}
+  .topbar a:hover {{
+    text-decoration: underline;
+  }}
+  .topbar .sep {{
+    color: {text_dim};
+  }}
+  .topbar .current {{
+    color: {text};
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     min-width: 0;
   }}
   .prose {{
@@ -368,6 +459,48 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
     padding-top: 1rem;
     border-top: 1px solid {border};
   }}
+  .page-nav {{
+    display: flex;
+    align-items: stretch;
+    gap: 0.5rem;
+    margin-top: 2.5rem;
+    padding-top: 1.2rem;
+    border-top: 1px solid {border};
+  }}
+  .page-nav a {{
+    flex: 1 1 0;
+    padding: 0.7rem 1rem;
+    background: {bg_secondary};
+    border: 1px solid {border};
+    border-radius: 8px;
+    color: {accent_secondary};
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: background 0.15s, border-color 0.15s;
+    min-width: 0;
+  }}
+  .page-nav a:hover {{
+    background: {border};
+    border-color: {accent_secondary};
+  }}
+  .page-nav .label {{
+    display: block;
+    color: {text_dim};
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.2rem;
+  }}
+  .page-nav .title {{
+    display: block;
+    color: {text};
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }}
+  .page-nav .prev {{ text-align: left; }}
+  .page-nav .index {{ text-align: center; align-self: center; }}
+  .page-nav .next {{ text-align: right; }}
   /* ── Syntax highlighting ── */
   .syn-kw  {{ color: {syn_keyword}; }}
   .syn-fn  {{ color: {syn_function}; }}
@@ -440,10 +573,10 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
   }}
   /* ── Responsive: collapse sidebar on narrow screens ── */
   @media (max-width: 768px) {{
-    nav {{
+    nav.sidebar {{
       transform: translateX(-100%);
     }}
-    nav.open {{
+    nav.sidebar.open {{
       transform: translateX(0);
     }}
     .nav-toggle {{
@@ -456,21 +589,18 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
   }}
 </style>
 </head>
-<body>
-<button class="nav-toggle" onclick="document.querySelector('nav').classList.toggle('open')" aria-label="Toggle navigation">&#9776;</button>
-<nav>
-  <div class="nav-title">{title}</div>
-{nav}
-</nav>
-<main>
-{body}
-<footer>Generated by rustlab-notebook</footer>
+<body{body_class}>
+{topbar_block}{sidebar_block}<main>
+{body}{footer_nav}<footer>Generated by rustlab-notebook</footer>
 </main>
 </body>
 </html>
 "##,
         title = escape_html(title),
-        nav = nav_items,
+        body_class = body_class,
+        topbar_block = topbar_block,
+        sidebar_block = sidebar_block,
+        footer_nav = footer_nav,
         body = body,
         bg = c.bg,
         bg_secondary = c.bg_secondary,
@@ -494,6 +624,38 @@ pub fn render_html(title: &str, blocks: &[Rendered], theme: &ThemeColors) -> Str
         syn_comment = c.syn_comment,
         syn_operator = c.syn_operator,
     )
+}
+
+/// Build the `<nav class="page-nav">` footer shown at the bottom of a
+/// notebook when it's part of a directory render. Returns an empty string
+/// when nav has no prev/index/next — keeps single-file output unchanged.
+fn build_footer_nav(nav: &NotebookNav) -> String {
+    if nav.prev.is_none() && nav.next.is_none() && nav.index_href.is_none() {
+        return String::new();
+    }
+    let mut out = String::from("<nav class=\"page-nav\">\n");
+    if let Some((title, href)) = &nav.prev {
+        out.push_str(&format!(
+            "  <a class=\"prev\" href=\"{href}\"><span class=\"label\">&larr; Previous</span><span class=\"title\">{title}</span></a>\n",
+            href = escape_html(href),
+            title = escape_html(title),
+        ));
+    }
+    if let Some(href) = &nav.index_href {
+        out.push_str(&format!(
+            "  <a class=\"index\" href=\"{href}\"><span class=\"title\">Index</span></a>\n",
+            href = escape_html(href),
+        ));
+    }
+    if let Some((title, href)) = &nav.next {
+        out.push_str(&format!(
+            "  <a class=\"next\" href=\"{href}\"><span class=\"label\">Next &rarr;</span><span class=\"title\">{title}</span></a>\n",
+            href = escape_html(href),
+            title = escape_html(title),
+        ));
+    }
+    out.push_str("</nav>\n");
+    out
 }
 
 /// Scan HTML for <h1>–<h3> tags. For each heading found:
@@ -1266,7 +1428,7 @@ mod tests {
     #[test]
     fn render_html_basic_structure() {
         let blocks = vec![Rendered::Markdown("# Hello".to_string())];
-        let html = render_html("Test", &blocks, test_theme());
+        let html = render_html("Test", &blocks, test_theme(), None);
         assert!(html.contains("<!DOCTYPE html>"));
         assert!(html.contains("<title>Test</title>"));
         assert!(html.contains("class=\"prose\""));
@@ -1284,7 +1446,7 @@ mod tests {
             details: None,
             grid_cols: None,
         }];
-        let html = render_html("Test", &blocks, test_theme());
+        let html = render_html("Test", &blocks, test_theme(), None);
         assert!(html.contains("class=\"source\""));
         assert!(html.contains("class=\"output\""));
         assert!(html.contains("ans = 42"));
@@ -1301,7 +1463,7 @@ mod tests {
             details: None,
             grid_cols: None,
         }];
-        let html = render_html("Test", &blocks, test_theme());
+        let html = render_html("Test", &blocks, test_theme(), None);
         assert!(html.contains("class=\"error\""));
         assert!(html.contains("undefined variable"));
     }
@@ -1317,7 +1479,7 @@ mod tests {
             details: None,
             grid_cols: None,
         }];
-        let html = render_html("Test", &blocks, test_theme());
+        let html = render_html("Test", &blocks, test_theme(), None);
         // Source should not appear
         assert!(!html.contains("secret = 42"));
         assert!(!html.contains("class=\"source\""));
@@ -1336,7 +1498,7 @@ mod tests {
             details: None,
             grid_cols: None,
         }];
-        let html = render_html("Test", &blocks, test_theme());
+        let html = render_html("Test", &blocks, test_theme(), None);
         // Source shown, but no output div
         assert!(html.contains("class=\"source\""));
         assert!(!html.contains("class=\"output\""));
@@ -1344,26 +1506,26 @@ mod tests {
 
     #[test]
     fn render_html_katex_included() {
-        let html = render_html("Test", &[], test_theme());
+        let html = render_html("Test", &[], test_theme(), None);
         assert!(html.contains("katex"));
         assert!(html.contains("auto-render"));
     }
 
     #[test]
     fn render_html_plotly_included() {
-        let html = render_html("Test", &[], test_theme());
+        let html = render_html("Test", &[], test_theme(), None);
         assert!(html.contains("plotly"));
     }
 
     #[test]
     fn render_html_nav_toggle() {
-        let html = render_html("Test", &[], test_theme());
+        let html = render_html("Test", &[], test_theme(), None);
         assert!(html.contains("nav-toggle"));
     }
 
     #[test]
     fn render_html_title_escaped() {
-        let html = render_html("A <script> & \"test\"", &[], test_theme());
+        let html = render_html("A <script> & \"test\"", &[], test_theme(), None);
         assert!(html.contains("A &lt;script&gt; &amp; &quot;test&quot;"));
     }
 
@@ -1378,7 +1540,7 @@ mod tests {
             details: None,
             grid_cols: None,
         }];
-        let html = render_html("Test", &blocks, test_theme());
+        let html = render_html("Test", &blocks, test_theme(), None);
         assert!(html.contains("syn-kw"));
         assert!(html.contains("syn-fn"));
         assert!(html.contains("syn-num"));
@@ -1389,7 +1551,7 @@ mod tests {
         let blocks = vec![Rendered::Markdown(
             "# Section One\n\n## Sub Section".to_string(),
         )];
-        let html = render_html("Test", &blocks, test_theme());
+        let html = render_html("Test", &blocks, test_theme(), None);
         assert!(html.contains("heading-1"));
         assert!(html.contains("heading-2"));
         assert!(html.contains("Section One"));
@@ -1433,7 +1595,7 @@ mod tests {
         let blocks = vec![Rendered::Markdown(
             "See [other](other.md) for details".to_string(),
         )];
-        let html = render_html("Test", &blocks, test_theme());
+        let html = render_html("Test", &blocks, test_theme(), None);
         assert!(html.contains("other.html"));
         assert!(!html.contains("other.md"));
     }
@@ -1522,7 +1684,7 @@ mod tests {
         let blocks = vec![Rendered::Markdown(
             r"$$\begin{pmatrix}0 & 1 \\ 1 & 0\end{pmatrix}$$".to_string(),
         )];
-        let html = render_html("Test", &blocks, test_theme());
+        let html = render_html("Test", &blocks, test_theme(), None);
         // The `\\` must reach the rendered HTML so KaTeX can split rows.
         assert!(
             html.contains(r"\\"),
@@ -1536,7 +1698,7 @@ mod tests {
             kind: CalloutKind::Note,
             content: r"see $$a \\ b$$".to_string(),
         }];
-        let html = render_html("Test", &blocks, test_theme());
+        let html = render_html("Test", &blocks, test_theme(), None);
         assert!(html.contains(r"\\"));
     }
 
@@ -1546,5 +1708,107 @@ mod tests {
         let (rewritten, stash) = protect_math(src);
         assert!(stash.is_empty());
         assert_eq!(rewritten, src);
+    }
+
+    // ── Cross-notebook navigation (Option B) ──
+
+    #[test]
+    fn render_html_no_nav_for_single_file() {
+        let html = render_html("Test", &[], test_theme(), None);
+        // Single-file renders keep the sidebar layout, no topbar.
+        assert!(!html.contains("class=\"page-nav\""));
+        assert!(!html.contains("&larr; Index"));
+        assert!(!html.contains("class=\"topbar\""));
+        assert!(!html.contains("class=\"topbar-layout\""));
+        assert!(html.contains("<nav class=\"sidebar\">"));
+        assert!(html.contains("class=\"nav-title\""));
+    }
+
+    #[test]
+    fn render_html_topbar_breadcrumb_when_nav_provided() {
+        let nav = NotebookNav {
+            index_href: Some("index.html".to_string()),
+            prev: None,
+            next: None,
+        };
+        let html = render_html("Filter Analysis", &[], test_theme(), Some(&nav));
+        // Topbar present with breadcrumb.
+        assert!(html.contains("class=\"topbar-layout\""));
+        assert!(html.contains("class=\"topbar\""));
+        assert!(html.contains("href=\"index.html\""));
+        assert!(html.contains("&larr; Index"));
+        assert!(html.contains("class=\"sep\""));
+        assert!(html.contains("class=\"current\""));
+        assert!(html.contains("Filter Analysis"));
+        // Sidebar removed.
+        assert!(!html.contains("<nav class=\"sidebar\">"));
+        assert!(!html.contains("class=\"nav-title\""));
+        assert!(!html.contains("class=\"nav-toggle\""));
+    }
+
+    #[test]
+    fn render_html_topbar_escapes_current_title() {
+        let nav = NotebookNav {
+            index_href: Some("index.html".to_string()),
+            prev: None,
+            next: None,
+        };
+        let html = render_html("A <script> & \"x\"", &[], test_theme(), Some(&nav));
+        assert!(html.contains("A &lt;script&gt; &amp; &quot;x&quot;"));
+    }
+
+    #[test]
+    fn render_html_footer_nav_middle_page() {
+        let nav = NotebookNav {
+            index_href: Some("index.html".to_string()),
+            prev: Some(("Intro".to_string(), "intro.html".to_string())),
+            next: Some(("Analysis".to_string(), "analysis.html".to_string())),
+        };
+        let html = render_html("Test", &[], test_theme(), Some(&nav));
+        assert!(html.contains("class=\"page-nav\""));
+        assert!(html.contains("class=\"prev\""));
+        assert!(html.contains("href=\"intro.html\""));
+        assert!(html.contains("Intro"));
+        assert!(html.contains("class=\"index\""));
+        assert!(html.contains("class=\"next\""));
+        assert!(html.contains("href=\"analysis.html\""));
+        assert!(html.contains("Analysis"));
+    }
+
+    #[test]
+    fn render_html_footer_nav_first_page_no_prev() {
+        let nav = NotebookNav {
+            index_href: Some("index.html".to_string()),
+            prev: None,
+            next: Some(("Next One".to_string(), "next.html".to_string())),
+        };
+        let html = render_html("Test", &[], test_theme(), Some(&nav));
+        assert!(html.contains("class=\"page-nav\""));
+        assert!(!html.contains("class=\"prev\""));
+        assert!(html.contains("class=\"next\""));
+    }
+
+    #[test]
+    fn render_html_footer_nav_last_page_no_next() {
+        let nav = NotebookNav {
+            index_href: Some("index.html".to_string()),
+            prev: Some(("Earlier".to_string(), "earlier.html".to_string())),
+            next: None,
+        };
+        let html = render_html("Test", &[], test_theme(), Some(&nav));
+        assert!(html.contains("class=\"prev\""));
+        assert!(!html.contains("class=\"next\""));
+    }
+
+    #[test]
+    fn render_html_footer_nav_escapes_titles() {
+        let nav = NotebookNav {
+            index_href: Some("index.html".to_string()),
+            prev: Some(("A & <b>".to_string(), "p.html".to_string())),
+            next: None,
+        };
+        let html = render_html("Test", &[], test_theme(), Some(&nav));
+        assert!(html.contains("A &amp; &lt;b&gt;"));
+        assert!(!html.contains("<b>"));
     }
 }

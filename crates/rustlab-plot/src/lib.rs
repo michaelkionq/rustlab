@@ -4,7 +4,6 @@ pub mod figure;
 pub mod file;
 pub mod html;
 pub mod live;
-pub mod report;
 pub mod theme;
 #[cfg(feature = "viewer")]
 pub mod viewer_client;
@@ -29,10 +28,6 @@ pub use html::{
     sync_html_file,
 };
 pub use live::LiveFigure;
-pub use report::{
-    report_active, report_add, report_auto_capture, report_end, report_len, report_save,
-    report_start,
-};
 pub use theme::{Theme, ThemeColors};
 #[cfg(feature = "viewer")]
 pub use viewer_live::ViewerFigure;

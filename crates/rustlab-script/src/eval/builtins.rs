@@ -1975,14 +1975,12 @@ fn builtin_figure(args: Vec<Value>) -> Result<Value, ScriptError> {
         }
         // String arg → new HTML figure
         let path = args[0].to_str().map_err(|e| ScriptError::type_err(e))?;
-        rustlab_plot::report_auto_capture();
         let id = rustlab_plot::figure_new_html(&path);
         eprintln!("HTML figure active: {}", path);
         return Ok(Value::Scalar(id as f64));
     }
 
     // No args → new TUI/viewer figure
-    rustlab_plot::report_auto_capture();
     let id = rustlab_plot::figure_new();
     Ok(Value::Scalar(id as f64))
 }

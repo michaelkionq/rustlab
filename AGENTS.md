@@ -651,7 +651,7 @@ rustlab-viewer --socket PATH    # custom socket path
 **Purpose:** Library + binary crate. Renders Markdown notebooks with \`\`\`rustlab code blocks into self-contained HTML, LaTeX, or PDF.
 
 **Key files:**
-- `src/lib.rs` — public API: `cmd_render`, `cmd_render_dir` (accepts optional `index_title`), `Format`, `generate_index_html` (accepts an `index_body_html: &str`)
+- `src/lib.rs` — public API: `cmd_render`, `cmd_render_dir` (accepts optional `index_title`), `Format`, `NotebookNav`, `generate_index_html` (accepts an `index_body_html: &str`)
 - `src/main.rs` — thin CLI wrapper (`rustlab-notebook render`)
 - `src/parse.rs` — parse notebook markdown into `Block` enum (Markdown / Code)
 - `src/execute.rs` — execute code blocks through `Evaluator`, produce `Rendered` blocks
@@ -669,6 +669,8 @@ rustlab-viewer --socket PATH    # custom socket path
 **YAML frontmatter (`--- title: ... ---`):** Parsed by `parse::extract_frontmatter` → `Frontmatter { title, order }`. Known keys are `title` (overrides the `# H1` fallback in `extract_title`) and `order` / `weight` (signed integer; sorts entries on the directory index page, ascending, ties broken by filename). Unknown keys are ignored silently so future additions don't break existing files. Quoted values (single or double) are unwrapped.
 
 **Directory index page (`cmd_render_dir`):** Generates `index.html` listing every rendered notebook. Title precedence: `--title <STRING>` CLI flag > `index.md`'s H1/frontmatter title > parent directory name. When `index.md` is present, it is excluded from the notebook list (it IS the index) and its markdown body is rendered as plain HTML above the list — *without* executing any code fences (the index page is kept dependency-free; put executable content in regular notebooks and link to them from `index.md`). Entries are sorted by frontmatter `order` ascending, ties by filename; entries without `order` sort after those that have one.
+
+**Cross-notebook page navigation (`NotebookNav`):** In directory-mode HTML renders, each notebook receives a `NotebookNav { index_href, prev, next }` computed from the sorted entry list. `render::render_html` switches the page layout when `nav` is `Some`: the fixed sidebar (with per-page H1/H2/H3 TOC) is dropped, the `<body>` gets a `topbar-layout` class, and a sticky `<header class="topbar">` breadcrumb (`← Index / <title>`) is inserted at the top. A `Previous · Index · Next` footer bar is appended above the page footer. Single-file `cmd_render` passes `None` → standalone pages keep the sidebar + TOC layout unchanged. LaTeX/PDF renders ignore `NotebookNav`.
 
 **Accessible via:** `rustlab-notebook render ...` (standalone binary) or `rustlab notebook render ...` (main CLI subcommand). `--title` is directory-mode only; passing it with a single-file input prints a warning and is ignored.
 

@@ -140,13 +140,6 @@ rendering), but the contents are ignored until a later phase needs them.
 This reserves the frontmatter space for future use (config paths,
 parameters, output settings) without breaking existing notebooks.
 
-### Relationship to existing report system
-
-The REPL `report start/save` flow in `rustlab-cli` remains as-is — it's an
-interactive figure collector, a different workflow. `rustlab-notebook` is
-for document-driven batch rendering. They share `render_figure_plotly_div`
-from `rustlab-plot` but are otherwise independent.
-
 ---
 
 ## Phase 1 — Batch Render (one file in, one HTML out)

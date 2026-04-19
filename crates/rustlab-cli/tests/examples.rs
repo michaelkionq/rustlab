@@ -202,10 +202,6 @@ fn example_random() {
     run_example_ok("random");
 }
 #[test]
-fn example_report_demo() {
-    run_example_ok("report_demo");
-}
-#[test]
 fn example_toml_filter_chain() {
     run_example_ok("toml_filter_chain");
 }

@@ -248,6 +248,19 @@ See [Filter Design](filter_design.md) for details.
 
 becomes `<a href="filter_design.html">` in the HTML output.
 
+### Page navigation
+
+When rendering a directory, each notebook page drops the sidebar and gets
+two lightweight navigation aids instead:
+
+- A **sticky breadcrumb** at the top: `← Index / <Page Title>`.
+- A **Previous · Index · Next** bar at the bottom of the page, wired
+  to the adjacent notebooks in sort order. The first notebook has no
+  "Previous" link; the last has no "Next" link.
+
+Single-file renders (`rustlab notebook render file.md`) keep the classic
+sidebar layout with an in-page TOC — there's no sibling set to navigate.
+
 ## Template Interpolation
 
 Embed computed values in markdown prose using `${expr}` syntax:
