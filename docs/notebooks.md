@@ -95,6 +95,12 @@ booktabs:
 
 ## Directives
 
+Directives are a `rustlab-notebook` feature, not standard Markdown. They
+use HTML-comment syntax (`<!-- ... -->`) so the source `.md` file stays
+portable — any CommonMark viewer (GitHub, VS Code preview, etc.) treats
+them as invisible comments. Only `rustlab notebook render` interprets
+them as instructions.
+
 ### `<!-- hide -->`
 
 Place `<!-- hide -->` on the line immediately before a code block to
@@ -123,6 +129,107 @@ title("Spectrum")
 
 In the output, only the second block's source code is shown. The plot
 from the hidden block (if any) still appears.
+
+### `<!-- details: Title -->`
+
+Wraps a code block's output (text, errors, and plots) in a collapsible
+`<details>` disclosure widget with the given summary label. The source
+code remains visible above the widget. Useful for long console output
+or galleries of diagnostic plots that would otherwise dominate the page.
+
+````markdown
+<!-- details: Show sweep results -->
+```rustlab
+for k = 1:8
+    plot(freqz(fir_lowpass(32*k, 3000, 16000)))
+end
+```
+````
+
+### `<!-- grid: N -->`
+
+Arranges the block's plots into an `N`-column CSS grid instead of the
+default single-column stack. `N` must be a positive integer. Only affects
+layout of the plot zone — text output is unchanged.
+
+````markdown
+<!-- grid: 3 -->
+```rustlab
+figure; plot(x); title("Signal")
+figure; plot(abs(fft(x))); title("Spectrum")
+figure; plot(angle(fft(x))); title("Phase")
+```
+````
+
+### Stacking code-block directives
+
+`<!-- hide -->`, `<!-- details: ... -->`, and `<!-- grid: N -->` can all
+be stacked on consecutive lines immediately before a ```rustlab fence.
+Order within the stack does not matter.
+
+````markdown
+<!-- hide -->
+<!-- grid: 2 -->
+<!-- details: Gallery -->
+```rustlab
+figure; imagesc(A)
+figure; imagesc(B)
+```
+````
+
+### Callouts: `<!-- note -->`, `<!-- tip -->`, `<!-- warning -->`
+
+Place one of the three tags on its own line, then the callout body on
+the lines that follow. The callout ends at the first blank line, the
+next heading, or an explicit closing tag (`<!-- /note -->`, `<!-- /tip -->`,
+`<!-- /warning -->`). Markdown inside the body (including inline math)
+is rendered normally.
+
+```markdown
+<!-- note -->
+The window length must be a power of two for the radix-2 FFT path.
+
+<!-- tip -->
+Increase `nfft` to improve frequency resolution.
+<!-- /tip -->
+
+<!-- warning -->
+`freqz` returns frequencies in Hz only when `fs` is supplied.
+```
+
+In HTML output, each callout renders as a titled box coloured by kind
+(info / success / danger). In LaTeX/PDF output, callouts render as
+labelled paragraphs.
+
+### Exercises and solutions: `<!-- exercise -->`, `<!-- solution -->`
+
+`<!-- exercise -->` on its own line begins a numbered exercise block.
+Exercises are numbered automatically in document order (Exercise 1,
+Exercise 2, ...). An optional `<!-- solution -->` tag inside an exercise
+begins a collapsible "Show solution" section.
+
+Blocks auto-close on the next `<!-- exercise -->` or at end of document,
+so no explicit closing tag is required.
+
+````markdown
+<!-- exercise -->
+
+Design a 32-tap Hamming-window lowpass filter with cutoff at 2 kHz.
+
+<!-- solution -->
+
+```rustlab
+h = fir_lowpass(32, 2000, 16000, "hamming");
+plot(freqz(h, 512, 16000))
+```
+
+<!-- exercise -->
+
+Compare the main-lobe width against a rectangular window of equal length.
+````
+
+Solutions render as an HTML `<details>` widget (collapsed by default) so
+readers can attempt the exercise before revealing the answer.
 
 ## Output Formats
 
