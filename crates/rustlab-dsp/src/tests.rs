@@ -1233,3 +1233,178 @@ mod upfirdn_tests {
         assert_eq!(upfirdn(&Array1::zeros(0), &[1.0], 2, 3).unwrap().len(), 0);
     }
 }
+
+#[cfg(test)]
+mod vector_calc_tests {
+    use crate::vector_calc::{curl_2d, divergence_2d, from_complex_fn, from_real_fn, gradient_2d};
+    use num_complex::Complex;
+
+    fn close_re(a: num_complex::Complex<f64>, b: f64, tol: f64) -> bool {
+        (a.re - b).abs() < tol && a.im.abs() < tol
+    }
+
+    // Build a grid where row i corresponds to y = i*dy and column j to x = j*dx.
+    fn grid_xy(ny: usize, nx: usize, dx: f64, dy: f64) -> (Vec<f64>, Vec<f64>) {
+        let xs = (0..nx).map(|j| j as f64 * dx).collect();
+        let ys = (0..ny).map(|i| i as f64 * dy).collect();
+        (xs, ys)
+    }
+
+    #[test]
+    fn gradient_of_x2_plus_y2_is_2x_2y() {
+        // F(x, y) = x² + y² → ∇F = (2x, 2y). Quadratic → 2nd-order stencils
+        // are exact on a uniform grid, including at the boundaries.
+        let (ny, nx, dx, dy) = (5, 7, 0.1, 0.2);
+        let (xs, ys) = grid_xy(ny, nx, dx, dy);
+        let f = from_real_fn(ny, nx, |i, j| xs[j].powi(2) + ys[i].powi(2));
+
+        let (fx, fy) = gradient_2d(&f, dx, dy).unwrap();
+
+        for i in 0..ny {
+            for j in 0..nx {
+                assert!(
+                    close_re(fx[[i, j]], 2.0 * xs[j], 1e-9),
+                    "fx[{i},{j}] = {:?}, expected {}",
+                    fx[[i, j]],
+                    2.0 * xs[j]
+                );
+                assert!(
+                    close_re(fy[[i, j]], 2.0 * ys[i], 1e-9),
+                    "fy[{i},{j}] = {:?}, expected {}",
+                    fy[[i, j]],
+                    2.0 * ys[i]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn divergence_of_xy_is_two_everywhere() {
+        // F = (x, y) → ∇·F = 2.
+        let (ny, nx, dx, dy) = (6, 8, 0.25, 0.5);
+        let (xs, ys) = grid_xy(ny, nx, dx, dy);
+        let fx = from_real_fn(ny, nx, |_, j| xs[j]);
+        let fy = from_real_fn(ny, nx, |i, _| ys[i]);
+
+        let d = divergence_2d(&fx, &fy, dx, dy).unwrap();
+
+        for i in 0..ny {
+            for j in 0..nx {
+                assert!(
+                    close_re(d[[i, j]], 2.0, 1e-9),
+                    "div[{i},{j}] = {:?}, expected 2.0",
+                    d[[i, j]]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn curl_of_solid_rotation_is_two() {
+        // F = (-y, x) → ∇×F · ẑ = 2.
+        let (ny, nx, dx, dy) = (5, 5, 0.3, 0.3);
+        let (xs, ys) = grid_xy(ny, nx, dx, dy);
+        let fx = from_real_fn(ny, nx, |i, _| -ys[i]);
+        let fy = from_real_fn(ny, nx, |_, j| xs[j]);
+
+        let c = curl_2d(&fx, &fy, dx, dy).unwrap();
+
+        for i in 0..ny {
+            for j in 0..nx {
+                assert!(
+                    close_re(c[[i, j]], 2.0, 1e-9),
+                    "curl[{i},{j}] = {:?}, expected 2.0",
+                    c[[i, j]]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn curl_of_irrotational_field_is_zero() {
+        // F = (x, y) is irrotational → curl = 0.
+        let (ny, nx, dx, dy) = (4, 4, 0.5, 0.5);
+        let (xs, ys) = grid_xy(ny, nx, dx, dy);
+        let fx = from_real_fn(ny, nx, |_, j| xs[j]);
+        let fy = from_real_fn(ny, nx, |i, _| ys[i]);
+
+        let c = curl_2d(&fx, &fy, dx, dy).unwrap();
+
+        for i in 0..ny {
+            for j in 0..nx {
+                assert!(
+                    close_re(c[[i, j]], 0.0, 1e-9),
+                    "curl[{i},{j}] = {:?}, expected 0",
+                    c[[i, j]]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn complex_gradient_of_exp_ix() {
+        // F(x, y) = exp(i*x) → ∂F/∂x = i*exp(i*x), ∂F/∂y = 0.
+        // 2nd-order central differences have O(dx²) error → choose small dx.
+        let nx = 41;
+        let ny = 5;
+        let dx = 2.0 * std::f64::consts::PI / (nx as f64 - 1.0); // one period across grid
+        let dy = 0.1;
+        let xs: Vec<f64> = (0..nx).map(|j| j as f64 * dx).collect();
+        let f = from_complex_fn(ny, nx, |_, j| Complex::from_polar(1.0, xs[j]));
+
+        let (fx, fy) = gradient_2d(&f, dx, dy).unwrap();
+
+        // Check interior points only (boundary one-sided is also O(h²) but
+        // with a larger constant; tighten on interior).
+        let tol = 5e-3;
+        for i in 0..ny {
+            for j in 1..nx - 1 {
+                let expected = Complex::new(0.0, 1.0) * Complex::from_polar(1.0, xs[j]);
+                let err = (fx[[i, j]] - expected).norm();
+                assert!(err < tol, "fx[{i},{j}] err = {err}");
+                assert!(fy[[i, j]].norm() < tol, "fy[{i},{j}] = {:?}", fy[[i, j]]);
+            }
+        }
+    }
+
+    #[test]
+    fn boundary_is_second_order_for_quadratic() {
+        // Pure boundary check: a 1-D quadratic profile along x. The 2nd-order
+        // one-sided stencils are exact on quadratics, so the boundary value
+        // should match analytically.
+        let (ny, nx, dx, dy) = (3, 4, 0.5, 1.0);
+        let xs: Vec<f64> = (0..nx).map(|j| j as f64 * dx).collect();
+        let f = from_real_fn(ny, nx, |_, j| xs[j].powi(2));
+        let (fx, _) = gradient_2d(&f, dx, dy).unwrap();
+
+        for i in 0..ny {
+            assert!(close_re(fx[[i, 0]], 0.0, 1e-12), "left boundary");
+            assert!(
+                close_re(fx[[i, nx - 1]], 2.0 * xs[nx - 1], 1e-12),
+                "right boundary"
+            );
+        }
+    }
+
+    #[test]
+    fn shape_mismatch_errors() {
+        let a = from_real_fn(3, 3, |_, _| 0.0);
+        let b = from_real_fn(3, 4, |_, _| 0.0);
+        assert!(divergence_2d(&a, &b, 1.0, 1.0).is_err());
+        assert!(curl_2d(&a, &b, 1.0, 1.0).is_err());
+    }
+
+    #[test]
+    fn too_small_dimension_errors() {
+        // 2-row grid is too small for 2nd-order y-stencil.
+        let f = from_real_fn(2, 5, |_, _| 0.0);
+        assert!(gradient_2d(&f, 1.0, 1.0).is_err());
+    }
+
+    #[test]
+    fn nonpositive_step_errors() {
+        let f = from_real_fn(3, 3, |_, _| 0.0);
+        assert!(gradient_2d(&f, 0.0, 1.0).is_err());
+        assert!(gradient_2d(&f, 1.0, -1.0).is_err());
+    }
+}

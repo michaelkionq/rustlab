@@ -386,6 +386,13 @@ const HELP: &[HelpEntry] = &[
         detail: "logspace(a, b, n)  — n points from 10^a to 10^b (inclusive)\n  Equivalent to 10 .^ linspace(a, b, n)\n  logspace(0, 3, 4)  →  [1, 10, 100, 1000]" },
     HelpEntry { name: "meshgrid", brief: "Create 2-D coordinate matrices from two vectors",
         detail: "[X, Y] = meshgrid(x, y)\n  x — length-m vector (column values)\n  y — length-n vector (row values)\n  Returns Tuple [X, Y] where X and Y are n×m matrices.\n  X[i,j] = x[j]  (x repeats across rows)\n  Y[i,j] = y[i]  (y repeats across columns)\n\nExample:\n  [X, Y] = meshgrid(1:3, 1:2)\n  X  →  [1,2,3; 1,2,3]\n  Y  →  [1,1,1; 2,2,2]" },
+    // Vector calculus
+    HelpEntry { name: "gradient", brief: "Gradient of a scalar field on a uniform 2-D grid",
+        detail: "[Fx, Fy] = gradient(F)\n[Fx, Fy] = gradient(F, dx, dy)\n  F   — ny×nx scalar field (real or complex). Rows index y, columns index x.\n  dx, dy — grid spacing (default 1.0). Both must be > 0.\n  Returns Tuple [Fx, Fy] same shape as F.\n  Stencils: 2nd-order central interior, 2nd-order one-sided at boundaries.\n  Each axis must have length ≥ 3.\n\nExample:\n  [X, Y] = meshgrid(linspace(-1,1,21), linspace(-1,1,21))\n  F = X.^2 + Y.^2\n  [Fx, Fy] = gradient(F, 0.1, 0.1)" },
+    HelpEntry { name: "divergence", brief: "Divergence of a 2-D vector field  ∂Fx/∂x + ∂Fy/∂y",
+        detail: "D = divergence(Fx, Fy)\nD = divergence(Fx, Fy, dx, dy)\n  Fx, Fy — ny×nx components on the same grid (same shape).\n  dx, dy — grid spacing (default 1.0).\n  Returns scalar field D, same shape as Fx.\n  Same stencils and shape requirements as gradient.\n\nExample:\n  D = divergence(Fx, Fy, 0.1, 0.1)" },
+    HelpEntry { name: "curl", brief: "Scalar curl of a 2-D vector field  ∂Fy/∂x − ∂Fx/∂y",
+        detail: "Cz = curl(Fx, Fy)\nCz = curl(Fx, Fy, dx, dy)\n  Returns the z-component of ∇×F (a scalar field, same shape as Fx).\n  Same stencils and shape requirements as gradient.\n\nExample:\n  Cz = curl(Fx, Fy, 0.1, 0.1)" },
     // DSP (additional)
     HelpEntry { name: "filtfilt", brief: "Zero-phase forward-backward filter",
         detail: "filtfilt(b, a, x)\n  b — numerator coefficients (FIR: filter taps)\n  a — denominator coefficients (FIR: use [1])\n  x — real input signal vector\n\nApplies the filter forward then backward so phase distortion cancels exactly.\nEffective filter order is doubled; no startup transient.\n\nExample (FIR lowpass):\n  h = fir_lowpass(63, 2000, 44100, \"hann\")\n  y = filtfilt(h, [1], x)" },
@@ -799,8 +806,7 @@ fn print_help_list() {
             &[
                 "zeros", "ones", "linspace", "logspace", "rand", "randn", "randi", "min", "max",
                 "sum", "prod", "cumsum", "argmin", "argmax", "sort", "trapz", "mean", "median",
-                "std", "hist", "len", "length", "numel", "size", "ndims", "meshgrid", "all",
-                "any",
+                "std", "hist", "len", "length", "numel", "size", "ndims", "meshgrid", "all", "any",
             ],
         ),
         (
@@ -829,6 +835,7 @@ fn print_help_list() {
                 "svd", "laguerre", "legendre", "factor", "roots",
             ],
         ),
+        ("Vector Calculus", &["gradient", "divergence", "curl"]),
         (
             "DSP",
             &[

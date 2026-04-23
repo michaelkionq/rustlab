@@ -179,6 +179,32 @@ Create 2D grid matrices from two vectors. Returns a tuple `[X, Y]` where X repli
 ```
 - Useful for evaluating functions over a 2D grid: `R = sqrt(X .^ 2 + Y .^ 2)`.
 
+### `gradient(F)` / `gradient(F, dx, dy)`
+2-D gradient of a scalar field on a uniform grid. `F` is an `ny×nx` matrix where rows index `y` and columns index `x`. Returns a tuple `[Fx, Fy]` of the same shape.
+```
+[X, Y] = meshgrid(linspace(-1, 1, 21), linspace(-1, 1, 21));
+F = X .^ 2 + Y .^ 2;
+[Fx, Fy] = gradient(F, 0.1, 0.1);    % Fx ≈ 2X, Fy ≈ 2Y
+```
+- 2nd-order central differences in the interior; 2nd-order one-sided differences at boundaries (NumPy convention).
+- `dx`, `dy` default to 1.0 if omitted; both must be positive.
+- Each axis must have length ≥ 3.
+- Complex inputs are supported (frequency-domain EM fields, etc.).
+
+### `divergence(Fx, Fy)` / `divergence(Fx, Fy, dx, dy)`
+2-D divergence `∂Fx/∂x + ∂Fy/∂y`. `Fx` and `Fy` must share shape; output has the same shape.
+```
+D = divergence(Fx, Fy, 0.1, 0.1);
+```
+- Same stencils, defaults, and shape requirements as `gradient`.
+
+### `curl(Fx, Fy)` / `curl(Fx, Fy, dx, dy)`
+Z-component of `∇×F` for a 2-D vector field: `∂Fy/∂x − ∂Fx/∂y`. Returns a scalar field with the same shape as `Fx`.
+```
+Cz = curl(Fx, Fy, 0.1, 0.1);
+```
+- Same stencils, defaults, and shape requirements as `gradient`.
+
 ---
 
 ## Statistics
@@ -918,15 +944,17 @@ Returns an n×n identity matrix.
 eye(3)   # → 3×3 identity
 ```
 
-### `reshape(A, m, n)`
-Reshape a vector or matrix into an m×n matrix using column-major order (standard for matrix languages).
+### `reshape(A, m, n)` / `reshape(A, m, n, p)`
+Reshape a vector, matrix, or rank-3 tensor using column-major order (standard for matrix languages).
 ```
 reshape([1,2,3,4,5,6], 2, 3)   # → 2×3 matrix, columns filled first
 reshape(M, 1, numel(M))         # flatten any matrix to a row vector
 reshape(v, len(v), 1)           # column vector → n×1 matrix
+reshape(1:24, 2, 3, 4)          # → 2×3×4 Tensor3 (column-major walk)
 ```
-- Total elements must be preserved: `numel(A)` must equal `m * n`.
-- If `m == 1` or `n == 1`, returns a vector instead of a matrix.
+- Total elements must be preserved: `numel(A)` must equal `m * n` (or `m * n * p`).
+- If `m == 1` or `n == 1` (and no `p`), returns a vector instead of a matrix.
+- The 4-argument form returns a `Tensor3`. See [Rank-3 Tensors](#rank-3-tensors).
 
 ### `repmat(A, m, n)`
 Tile matrix `A` m times vertically and n times horizontally.
@@ -1023,6 +1051,120 @@ Singular value decomposition via Jacobi eigendecomposition of A'A. Returns a tup
 # A ≈ U * diag(S) * V'
 ```
 - Currently operates on real parts only; a warning is printed if imaginary parts are discarded.
+
+---
+
+## Rank-3 Tensors
+
+A `Tensor3` is a complex 3-dimensional array of shape `(m, n, p)` — `m` rows, `n` columns, `p` pages. Elements use 1-based indexing `A(i, j, k)`. Slicing with `A(:, :, k)` extracts page `k` as a regular Matrix (the trailing singleton is dropped).
+
+**Conventions and limitations:**
+- All Tensor3 storage is complex (`C64`); real values are stored with imaginary part 0.
+- No broadcasting between `Matrix` and `Tensor3` — operations between them error.
+- `*` and `/` between two `Tensor3`s also error; use `.*` and `./` for element-wise.
+- `reshape` walks data column-major (matches MATLAB / Octave), so `reshape(1:24, 2, 3, 4)` fills the first column of page 1 first.
+- I/O via `save`/`load` to `.npy` preserves the rank-3 shape natively.
+
+### `zeros3(m, n, p)` / `zeros3([m, n, p])`
+Create an m×n×p tensor of complex zeros. The bracket form accepts the output of `size()`.
+```
+A = zeros3(2, 3, 4)
+size(A)            # → [2, 3, 4]
+ndims(A)           # → 3
+numel(A)           # → 24
+```
+
+### `ones3(m, n, p)`
+Create an m×n×p tensor of complex ones.
+
+### `rand3(m, n, p)`
+Create an m×n×p tensor with samples drawn uniformly from `[0, 1)`.
+
+### `randn3(m, n, p)`
+Create an m×n×p tensor with samples drawn from the standard normal `N(0, 1)`.
+
+### Indexing and assignment
+```
+T = reshape(1:24, 2, 3, 4)
+
+# Single element — 1-based on every axis
+T(1, 1, 1)            # → 1
+T(2, 3, 4)            # → 24
+
+# Page slice — trailing singleton dropped, returns Matrix(2, 3)
+page2 = T(:, :, 2)
+
+# Slabs along the page axis
+row1 = T(1, :, :)     # Matrix(3, 4)
+col2 = T(:, 2, :)     # Matrix(2, 4)
+
+# Range slice keeps rank-3 if the result has more than one non-singleton dim
+chunk = T(:, :, 1:2)  # Tensor3(2, 3, 2)
+
+# Assignment mirrors indexing
+U = zeros3(2, 2, 3)
+U(:, :, 2) = [1, 2; 3, 4]    # page write
+U(1, 1, 1) = 99               # element write
+```
+
+### Arithmetic
+```
+E = T * 2                    # scalar broadcast
+F = T + 10                   # scalar broadcast
+G = T .^ 2                   # element-wise
+
+H = ones3(size(T)) + T        # element-wise (same shape)
+J = ones3(size(T)) .* T       # element-wise multiply
+```
+- `T1 * T2` errors — use `.*` for element-wise.
+- `Matrix + Tensor3` errors — there is no broadcasting between the two ranks.
+
+### `permute(A, [d1, d2, d3])`
+Reorder the axes of a Tensor3. `[d1, d2, d3]` must be a permutation of `[1, 2, 3]`.
+```
+T = reshape(1:24, 2, 3, 4)
+P = permute(T, [2, 1, 3])    # swap rows ↔ cols
+size(P)                       # → [3, 2, 4]
+```
+
+### `squeeze(A)`
+Drop singleton dimensions from a Tensor3. The result's rank depends on how many singletons were removed:
+```
+squeeze(reshape(1:6, 2, 3, 1))    # → Matrix(2, 3)
+squeeze(reshape(1:6, 1, 2, 3))    # → Matrix(2, 3)
+squeeze(reshape(1:5, 1, 1, 5))    # → Vector(5)
+squeeze(reshape([1], 1, 1, 1))    # → Scalar
+```
+Non-Tensor3 inputs pass through unchanged.
+
+### `cat(3, A, B, ...)`
+Concatenate matrices along the page axis to build a Tensor3 (or grow an existing one). `cat(1, ...)` and `cat(2, ...)` exist for vertical/horizontal matrix concatenation; only `dim == 3` produces a Tensor3.
+```
+M1 = [1, 2; 3, 4]
+M2 = [5, 6; 7, 8]
+stacked = cat(3, M1, M2)          # Tensor3(2, 2, 2)
+stacked(:, :, 1)                   # → [1, 2; 3, 4]
+stacked(:, :, 2)                   # → [5, 6; 7, 8]
+
+# Append another page to an existing Tensor3
+more = cat(3, stacked, [9, 10; 11, 12])
+size(more)                          # → [2, 2, 3]
+```
+
+### `size(A)` / `size(A, dim)` / `ndims(A)` / `numel(A)`
+- `size(A)` returns a 3-element vector for Tensor3, `[rows, cols]` for Matrix.
+- `size(A, 3)` is valid only for Tensor3.
+- `ndims(A)` returns `3` for Tensor3, `2` otherwise (MATLAB convention — no `ndims == 1`).
+- `numel(A)` returns `m * n * p` for Tensor3.
+
+### I/O
+```
+save("/tmp/T.npy", T)              # NPY preserves the rank-3 shape
+T2 = load("/tmp/T.npy")
+ndims(T2)                           # → 3
+```
+
+See `examples/tensor3/tensor3.r` for a full runnable demo.
 
 ---
 

@@ -105,12 +105,49 @@ Run a script: `rustlab run script.r` — Interactive REPL: `rustlab`
 | `size(v)` | `[rows, cols]` as a Vector |
 | `numel(v)` | Total element count |
 | `diag(v)` | Diagonal matrix from vector; or extract diagonal |
-| `reshape(M, r, c)` | Reshape to r×c |
+| `reshape(M, r, c)` / `reshape(M, r, c, p)` | Reshape to r×c (Matrix) or r×c×p (Tensor3); column-major walk |
 | `repmat(M, r, c)` | Tile M r×c times |
 | `transpose(M)` | Non-conjugate transpose |
 | `horzcat(A, B, ...)` | Horizontal concatenation (also `[A, B]`) |
 | `vertcat(A, B, ...)` | Vertical concatenation (also `[A; B]`) |
 | `meshgrid(x, y)` | Returns `[X, Y]` matrices for 2D grids |
+| `[Fx,Fy] = gradient(F[, dx, dy])` | 2-D gradient (rows index y, cols index x); 2nd-order interior + boundary |
+| `divergence(Fx, Fy[, dx, dy])` | 2-D divergence ∂Fx/∂x + ∂Fy/∂y |
+| `curl(Fx, Fy[, dx, dy])` | 2-D scalar curl ∂Fy/∂x − ∂Fx/∂y (z-component of ∇×F) |
+
+---
+
+## Tensor3 (rank-3)
+
+A `Tensor3` is a complex `(m, n, p)` array — `m` rows, `n` columns, `p` pages. 1-based indexing on every axis. No broadcasting between Matrix and Tensor3, and no `*`/`/` between two Tensor3s — use `.*` / `./`.
+
+| Function | Description |
+|---|---|
+| `zeros3(m, n, p)` / `zeros3([m,n,p])` | Rank-3 complex zero tensor; bracket form accepts `size()` output |
+| `ones3(m, n, p)` | Rank-3 complex ones tensor |
+| `rand3(m, n, p)` | Tensor3 of U[0, 1) samples |
+| `randn3(m, n, p)` | Tensor3 of N(0, 1) samples |
+| `reshape(A, m, n, p)` | Reshape Vector / Matrix / Tensor3 → Tensor3 (column-major) |
+| `cat(3, A, B, ...)` | Concatenate matrices along the page axis (`cat(1,...)` rows, `cat(2,...)` cols) |
+| `permute(A, [d1, d2, d3])` | Reorder axes; `[d1, d2, d3]` is a permutation of `[1, 2, 3]` |
+| `squeeze(A)` | Drop singleton dims → Matrix / Vector / Scalar; non-Tensor3 inputs pass through |
+| `size(A)` / `size(A, 3)` | `[m, n, p]`; `size(A, 3)` is valid only for Tensor3 |
+| `ndims(A)` | `3` for Tensor3, `2` otherwise (MATLAB convention) |
+| `A(:, :, k)` | Page slice — drops trailing singleton, returns Matrix(m, n) |
+| `save("T.npy", A)` / `load(...)` | NPY preserves rank-3 shape natively |
+
+**Page slice + write:**
+```r
+T = reshape(1:24, 2, 3, 4)
+page = T(:, :, 2)              # Matrix(2, 3)
+U = zeros3(2, 2, 3)
+U(:, :, 2) = [1, 2; 3, 4]      # page assignment
+```
+
+**Stack matrices into pages:**
+```r
+stacked = cat(3, [1,2;3,4], [5,6;7,8])    # Tensor3(2, 2, 2)
+```
 
 ---
 

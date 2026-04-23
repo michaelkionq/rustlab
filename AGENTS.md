@@ -535,6 +535,7 @@ rustlab run examples/lowpass.r   # must exit 0 with a plot
 - `src/fir/design.rs` — `FirFilter` struct + `fir_lowpass`, `fir_highpass`, `fir_bandpass` (windowed-sinc method). `FirFilter` implements `Filter`.
 - `src/iir/butterworth.rs` — `IirFilter { b: Vec<f64>, a: Vec<f64> }` + `butterworth_lowpass`, `butterworth_highpass` (bilinear transform, cascade of biquad sections). `IirFilter` implements `Filter`.
 - `src/convolution.rs` — `convolve(x, h)` (direct O(nm)), `overlap_add(x, h, block_size)` (FFT-based)
+- `src/vector_calc.rs` — `gradient_2d(F, dx, dy)`, `divergence_2d(Fx, Fy, dx, dy)`, `curl_2d(Fx, Fy, dx, dy)`. 2nd-order central interior + 2nd-order one-sided boundaries. Operates on `CMatrix` (complex throughout); rows index y, columns index x.
 - `src/error.rs` — `DspError` (wraps `CoreError`)
 
 ---
@@ -854,6 +855,9 @@ primary     = NUMBER | STRING | IDENT
 | `min` | `min(v)` / `min(a, b)` | Minimum of vector or two scalars |
 | `max` | `max(v)` / `max(a, b)` | Maximum of vector or two scalars |
 | `surf` | `surf(Z)` / `surf(X, Y, Z)` / `surf(X, Y, Z, cmap)` | 3D surface plot; viewer renders interactive rotate/zoom, HTML emits Plotly 3D, SVG/PNG draws a static isometric wireframe, terminal falls back to a heatmap |
+| `gradient` | `[Fx, Fy] = gradient(F)` / `gradient(F, dx, dy)` | 2-D gradient of a scalar field on a uniform grid; rows index y, columns index x. 2nd-order central interior, 2nd-order one-sided boundaries. Each axis must have length ≥ 3. Complex inputs supported. |
+| `divergence` | `divergence(Fx, Fy)` / `divergence(Fx, Fy, dx, dy)` | 2-D divergence ∂Fx/∂x + ∂Fy/∂y; Fx and Fy must share shape. Same stencils as `gradient`. |
+| `curl` | `curl(Fx, Fy)` / `curl(Fx, Fy, dx, dy)` | Z-component of ∇×F (2-D scalar curl ∂Fy/∂x − ∂Fx/∂y). Same stencils as `gradient`. |
 
 Window names: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`
 

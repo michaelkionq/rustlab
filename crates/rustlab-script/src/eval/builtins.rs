@@ -9,10 +9,10 @@ use rustlab_core::{OverflowMode, RoundMode};
 use rustlab_dsp::convolution::convolve;
 use rustlab_dsp::fixed::{qadd as fixed_qadd, qconv as fixed_qconv, qmul as fixed_qmul};
 use rustlab_dsp::{
-    butterworth_highpass, butterworth_lowpass, fft, fftfreq, fftshift, fir_bandpass,
-    fir_bandpass_kaiser, fir_highpass, fir_highpass_kaiser, fir_lowpass, fir_lowpass_kaiser,
-    fir_notch, firpm, firpmq, freqz, ifft, quantize_scalar, snr_db, upfirdn, IirFilter, QFmtSpec,
-    WindowFunction,
+    butterworth_highpass, butterworth_lowpass, curl_2d, divergence_2d, fft, fftfreq, fftshift,
+    fir_bandpass, fir_bandpass_kaiser, fir_highpass, fir_highpass_kaiser, fir_lowpass,
+    fir_lowpass_kaiser, fir_notch, firpm, firpmq, freqz, gradient_2d, ifft, quantize_scalar,
+    snr_db, upfirdn, IirFilter, QFmtSpec, WindowFunction,
 };
 use rustlab_plot::{
     compute_histogram, histogram_matrix, imagesc_terminal, plot_db, plot_histogram, push_xy_bar,
@@ -96,6 +96,10 @@ impl BuiltinRegistry {
         r.register("sign", builtin_sign);
         r.register("mod", builtin_mod);
         r.register("meshgrid", builtin_meshgrid);
+        // Vector calculus
+        r.register("gradient", builtin_gradient);
+        r.register("divergence", builtin_divergence);
+        r.register("curl", builtin_curl);
         // Array construction
         r.register("zeros", builtin_zeros);
         r.register("ones", builtin_ones);
@@ -790,6 +794,57 @@ fn builtin_meshgrid(args: Vec<Value>) -> Result<Value, ScriptError> {
         Value::Matrix(x_mat),
         Value::Matrix(y_mat),
     ]))
+}
+
+// ─── Vector calculus on uniform 2-D grids ────────────────────────────────────
+
+fn unpack_dxdy(args: &[Value], name: &str, start: usize) -> Result<(f64, f64), ScriptError> {
+    if args.len() <= start {
+        return Ok((1.0, 1.0));
+    }
+    if args.len() == start + 2 {
+        let dx = args[start]
+            .to_scalar()
+            .map_err(|e| ScriptError::type_err(format!("{name}: dx: {e}")))?;
+        let dy = args[start + 1]
+            .to_scalar()
+            .map_err(|e| ScriptError::type_err(format!("{name}: dy: {e}")))?;
+        Ok((dx, dy))
+    } else {
+        Err(ScriptError::type_err(format!(
+            "{name}: expected dx and dy together (or neither), got {} extra args",
+            args.len() - start
+        )))
+    }
+}
+
+/// `[Fx, Fy] = gradient(F)` or `gradient(F, dx, dy)`.
+fn builtin_gradient(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args_range("gradient", &args, 1, 3)?;
+    let f = to_cmatrix_arg(&args[0], "gradient", "F")?;
+    let (dx, dy) = unpack_dxdy(&args, "gradient", 1)?;
+    let (fx, fy) = gradient_2d(&f, dx, dy)?;
+    Ok(Value::Tuple(vec![Value::Matrix(fx), Value::Matrix(fy)]))
+}
+
+/// `D = divergence(Fx, Fy)` or `divergence(Fx, Fy, dx, dy)`.
+fn builtin_divergence(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args_range("divergence", &args, 2, 4)?;
+    let fx = to_cmatrix_arg(&args[0], "divergence", "Fx")?;
+    let fy = to_cmatrix_arg(&args[1], "divergence", "Fy")?;
+    let (dx, dy) = unpack_dxdy(&args, "divergence", 2)?;
+    let d = divergence_2d(&fx, &fy, dx, dy)?;
+    Ok(Value::Matrix(d))
+}
+
+/// `Cz = curl(Fx, Fy)` or `curl(Fx, Fy, dx, dy)` — z-component of ∇×F.
+fn builtin_curl(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args_range("curl", &args, 2, 4)?;
+    let fx = to_cmatrix_arg(&args[0], "curl", "Fx")?;
+    let fy = to_cmatrix_arg(&args[1], "curl", "Fy")?;
+    let (dx, dy) = unpack_dxdy(&args, "curl", 2)?;
+    let c = curl_2d(&fx, &fy, dx, dy)?;
+    Ok(Value::Matrix(c))
 }
 
 // ─── Array construction ────────────────────────────────────────────────────
@@ -2407,8 +2462,7 @@ fn builtin_surf(args: Vec<Value>) -> Result<Value, ScriptError> {
         .map(|r| (0..ncols).map(|c| z_mat[[r, c]].norm()).collect())
         .collect();
 
-    surf_terminal(z_rows, x, y, "", &colormap)
-        .map_err(|e| ScriptError::runtime(e.to_string()))?;
+    surf_terminal(z_rows, x, y, "", &colormap).map_err(|e| ScriptError::runtime(e.to_string()))?;
     sync_figure_outputs();
     Ok(Value::None)
 }
@@ -3302,9 +3356,7 @@ fn builtin_permute(args: Vec<Value>) -> Result<Value, ScriptError> {
         }
     };
     let order: Vec<usize> = match &args[1] {
-        Value::Vector(v) if v.len() == 3 => {
-            v.iter().map(|c| c.re.round() as usize).collect()
-        }
+        Value::Vector(v) if v.len() == 3 => v.iter().map(|c| c.re.round() as usize).collect(),
         other => {
             return Err(ScriptError::type_err(format!(
                 "permute: order must be a 3-element vector, got {}",

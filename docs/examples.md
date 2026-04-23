@@ -750,3 +750,154 @@ end
 ./examples/audio/spectrum_monitor.sh
 ./examples/audio/spectrum_monitor.sh --test   # no hardware needed
 ```
+
+---
+
+## `examples/vector_calc.r`
+
+**Full script:**
+
+```
+# Vector calculus on uniform 2-D grids
+# Demonstrates: gradient(F), divergence(Fx, Fy), curl(Fx, Fy)
+#
+# Grid convention: F(i, j) ↔ position (x = (j-1)*dx, y = (i-1)*dy).
+# Rows index y, columns index x — matches MATLAB / NumPy.
+# Trailing `;` suppresses implicit echo for assignments.
+
+dx = 0.1;
+dy = 0.1;
+xs = -1:dx:1;
+ys = -1:dy:1;
+[X, Y] = meshgrid(xs, ys);
+
+# 1. gradient: F = x² + y² → ∇F = (2x, 2y)
+F = X .^ 2 + Y .^ 2;
+[Fx, Fy] = gradient(F, dx, dy);
+print(Fx(11, 11))      # ≈ 0
+print(Fy(21, 21))      # ≈ 2 (boundary)
+
+# 2. divergence: F = (x, y) → ∇·F = 2 everywhere
+D = divergence(X, Y, dx, dy);
+print(D(11, 11))       # ≈ 2
+
+# 3. curl: F = (-y, x) → ∇×F · ẑ = 2
+Cz = curl(-Y, X, dx, dy);
+print(Cz(11, 11))      # ≈ 2
+
+# 4. Laplacian via composition: ∇²V = ∇·(∇V); for V = x² + y²  → 4
+[Vx, Vy] = gradient(F, dx, dy);
+laplV = divergence(Vx, Vy, dx, dy);
+print(laplV(11, 11))   # ≈ 4
+
+# 5. Complex inputs: F = exp(j*x) → ∂F/∂x = j*exp(j*x)
+Fc = exp(j * X);
+[Fxc, Fyc] = gradient(Fc, dx, dy);
+print(Fxc(11, 11))     # ≈ 0 + j
+```
+
+**Step-by-step explanation:**
+
+1. **`meshgrid(xs, ys)`** returns two 21×21 matrices. Row index `i` corresponds to `y = ys(i)`, column index `j` to `x = xs(j)`. All vector-calc builtins follow the same convention.
+
+2. **`gradient(F, dx, dy)`** returns a tuple `[Fx, Fy]` of the same shape as `F`. Interior points use 2nd-order central differences; boundary points use 2nd-order one-sided stencils so the output keeps the input shape (NumPy convention). Quadratics like `x² + y²` are reproduced exactly even at the boundary.
+
+3. **`divergence(Fx, Fy, dx, dy)`** computes `∂Fx/∂x + ∂Fy/∂y`. For the radial field `F = (x, y)` this is `1 + 1 = 2` everywhere.
+
+4. **`curl(Fx, Fy, dx, dy)`** returns the z-component of `∇×F` as a scalar field: `∂Fy/∂x − ∂Fx/∂y`. The solid-rotation field `(-y, x)` has constant curl `2`. The radial field `(x, y)` is irrotational (curl `0`).
+
+5. **Composition** — calling `divergence(gradient(V))` gives the Laplacian `∇²V`. For `V = x² + y²` the analytic answer is `4` and the numerical result matches.
+
+6. **Complex inputs are first-class.** All three builtins operate on the complex matrix type that the script engine uses internally, so frequency-domain fields like `exp(j·x)` work without conversion. The numerical derivative of `exp(j·x)` at `x = 0` is `j` (with O(dx²) discretization error).
+
+7. **`dx` and `dy` default to 1.0** if omitted: `gradient(F)` is shorthand for `gradient(F, 1.0, 1.0)`. Same for `divergence(Fx, Fy)` and `curl(Fx, Fy)`.
+
+8. **Each axis must have length ≥ 3** so the 2nd-order one-sided boundary stencil has enough samples. A clear error is raised otherwise.
+
+**Run it:**
+
+```sh
+rustlab run examples/vector_calc.r
+```
+
+---
+
+## `examples/tensor3/tensor3.r`
+
+**Full script:**
+
+```
+# ── Construction ─────────────────────────────────────────────────
+A = zeros3(2, 3, 4);
+B = ones3(2, 3, 4);
+C = rand3(2, 3, 4);
+D = randn3(2, 3, 4);
+
+# Build a known tensor with column-major walk: T(:, 1, 1) = [1; 2], etc.
+T = reshape(1:24, 2, 3, 4);
+
+# ── Indexing ─────────────────────────────────────────────────────
+print(T(1, 1, 1))               # → 1
+print(T(2, 3, 4))               # → 24
+
+page2 = T(:, :, 2);             # Matrix(2, 3) — trailing singleton dropped
+row1  = T(1, :, :);             # Matrix(3, 4)
+chunk = T(:, :, 1:2);           # Tensor3(2, 3, 2) — range slice keeps rank
+
+# ── Page assignment ──────────────────────────────────────────────
+U = zeros3(2, 2, 3);
+U(:, :, 2) = [1, 2; 3, 4];
+U(1, 1, 1) = 99;
+
+# ── Arithmetic ───────────────────────────────────────────────────
+E = T * 2;                      # scalar broadcast
+H = B + T;                      # element-wise (same shape)
+J = B .* T;                     # element-wise multiply
+# T1 * T2 errors — use .* for element-wise
+# Matrix + Tensor3 also errors — no broadcasting between ranks
+
+# ── Reshape / permute / squeeze ──────────────────────────────────
+flat = reshape(T, 24, 1);       # Vector of length 24 (column-major walk)
+back = reshape(flat, 2, 3, 4);  # equals T
+
+P = permute(T, [2, 1, 3]);      # swap rows ↔ cols
+print(size(P))                   # → [3, 2, 4]
+
+M1 = squeeze(reshape(1:6, 2, 3, 1));   # → Matrix(2, 3)
+V1 = squeeze(reshape(1:5, 1, 1, 5));   # → Vector(5)
+
+# ── cat along page axis ──────────────────────────────────────────
+stacked = cat(3, [1, 2; 3, 4], [5, 6; 7, 8]);   # Tensor3(2, 2, 2)
+more    = cat(3, stacked, [9, 10; 11, 12]);     # Tensor3(2, 2, 3)
+
+# ── I/O round-trip ───────────────────────────────────────────────
+save("/tmp/rustlab_demo_tensor3.npy", T);
+T_loaded = load("/tmp/rustlab_demo_tensor3.npy");
+print(ndims(T_loaded))           # → 3
+```
+
+**Step-by-step explanation:**
+
+1. **Constructors.** `zeros3 / ones3 / rand3 / randn3` mirror their Matrix counterparts. The bracket form `zeros3([m, n, p])` accepts the output of `size()` directly, which is handy when copying the shape of another tensor.
+
+2. **`reshape(1:24, 2, 3, 4)`** uses a **column-major** walk (the MATLAB convention): `T(:, 1, 1) = [1; 2]`, `T(:, 2, 1) = [3; 4]`, etc. The 4-argument `reshape` accepts vectors, matrices, or tensors as input and produces a Tensor3 when the last argument is supplied.
+
+3. **Indexing is 1-based** on every axis, including the page axis. Slicing a single trailing axis with `:` keeps the page dimension if you pass a range (`T(:, :, 1:2)` → Tensor3(2, 3, 2)) but drops it for a singleton index (`T(:, :, 2)` → Matrix(2, 3)). Slicing internal singletons keeps them — `T(1, :, :)` returns a Matrix(3, 4) because the row axis collapses, while the page axis is fully retained.
+
+4. **Page assignment** — `U(:, :, 2) = [1, 2; 3, 4]` writes a whole 2×2 page. Element assignment works the same as for matrices.
+
+5. **No broadcasting between Matrix and Tensor3.** Adding or multiplying a Matrix into a Tensor3 raises an error. Likewise, `*` and `/` between two Tensor3s are not defined — use `.*` and `./` for element-wise. Scalar broadcasting (`T * 2`, `T + 10`, `T .^ 2`) is fine.
+
+6. **`permute(A, [d1, d2, d3])`** rearranges the axes; the order must be a permutation of `[1, 2, 3]`. `permute(T, [2, 1, 3])` swaps the row and column axes.
+
+7. **`squeeze(A)`** drops any singleton dimensions and returns a result of the appropriate rank: a singleton-page tensor becomes a Matrix; a tensor with two singletons becomes a Vector; an all-singleton tensor becomes a Scalar. Non-Tensor3 inputs pass through unchanged.
+
+8. **`cat(3, A, B, ...)`** stacks matrices (or tensors) along the page axis. The first argument selects the dimension: `cat(1, ...)` is vertical concatenation (rows), `cat(2, ...)` is horizontal (columns), and `cat(3, ...)` is the page-axis form that produces Tensor3.
+
+9. **NPY I/O preserves the rank-3 shape.** `save("...npy", T)` and `load(...)` round-trip the tensor without reshaping; this is the main reason to use `.npy` over `.csv` or `.toml` for multi-dimensional arrays.
+
+**Run it:**
+
+```sh
+rustlab run examples/tensor3/tensor3.r
+```

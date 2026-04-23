@@ -5,6 +5,7 @@ pub mod fir;
 pub mod fixed;
 pub mod iir;
 pub mod upfirdn;
+pub mod vector_calc;
 pub mod window;
 
 #[cfg(test)]
@@ -20,4 +21,5 @@ pub use fir::pm::{firpm, firpmq};
 pub use fixed::{qadd, qconv, qmul, quantize_scalar, quantize_vec, snr_db, QFmtSpec};
 pub use iir::butterworth::{butterworth_highpass, butterworth_lowpass, IirFilter};
 pub use upfirdn::upfirdn;
+pub use vector_calc::{curl_2d, divergence_2d, gradient_2d};
 pub use window::WindowFunction;
