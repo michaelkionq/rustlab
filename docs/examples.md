@@ -762,7 +762,7 @@ end
 # Demonstrates: gradient(F), divergence(Fx, Fy), curl(Fx, Fy)
 #
 # Grid convention: F(i, j) ↔ position (x = (j-1)*dx, y = (i-1)*dy).
-# Rows index y, columns index x — matches MATLAB / NumPy.
+# Rows index y, columns index x — matches Octave / NumPy.
 # Trailing `;` suppresses implicit echo for assignments.
 
 dx = 0.1;
@@ -880,7 +880,7 @@ print(ndims(T_loaded))           # → 3
 
 1. **Constructors.** `zeros3 / ones3 / rand3 / randn3` mirror their Matrix counterparts. The bracket form `zeros3([m, n, p])` accepts the output of `size()` directly, which is handy when copying the shape of another tensor.
 
-2. **`reshape(1:24, 2, 3, 4)`** uses a **column-major** walk (the MATLAB convention): `T(:, 1, 1) = [1; 2]`, `T(:, 2, 1) = [3; 4]`, etc. The 4-argument `reshape` accepts vectors, matrices, or tensors as input and produces a Tensor3 when the last argument is supplied.
+2. **`reshape(1:24, 2, 3, 4)`** uses a **column-major** walk (the Octave convention): `T(:, 1, 1) = [1; 2]`, `T(:, 2, 1) = [3; 4]`, etc. The 4-argument `reshape` accepts vectors, matrices, or tensors as input and produces a Tensor3 when the last argument is supplied.
 
 3. **Indexing is 1-based** on every axis, including the page axis. Slicing a single trailing axis with `:` keeps the page dimension if you pass a range (`T(:, :, 1:2)` → Tensor3(2, 3, 2)) but drops it for a singleton index (`T(:, :, 2)` → Matrix(2, 3)). Slicing internal singletons keeps them — `T(1, :, :)` returns a Matrix(3, 4) because the row axis collapses, while the page axis is fully retained.
 
@@ -900,4 +900,70 @@ print(ndims(T_loaded))           # → 3
 
 ```sh
 rustlab run examples/tensor3/tensor3.r
+```
+
+---
+
+## `examples/contour.r`
+
+**Full script:**
+
+```
+[X, Y] = meshgrid(linspace(-2, 2, 41), linspace(-2, 2, 41));
+Z = X .^ 2 + Y .^ 2;
+
+# 1. Default line contours (10 auto-spaced round-number levels)
+figure();
+contour(X, Y, Z);
+savefig("/tmp/rustlab_contour_lines.svg");
+savefig("/tmp/rustlab_contour_lines.html");
+
+# 2. Explicit levels + line colour
+figure();
+contour(X, Y, Z, [0.5, 1, 2, 4], "k");
+savefig("/tmp/rustlab_contour_explicit.svg");
+
+# 3. Filled contours
+figure();
+contourf(X, Y, Z, 12);
+savefig("/tmp/rustlab_contour_fill.html");
+
+# 4. Overlay heatmap + contours under hold on (canonical EM diagram)
+figure();
+hold on;
+imagesc(Z);
+contour(X, Y, Z, 8, "k");
+hold off;
+savefig("/tmp/rustlab_contour_overlay.html");
+```
+
+**Step-by-step explanation:**
+
+1. **`meshgrid(linspace(-2, 2, 41), linspace(-2, 2, 41))`** builds 41×41 coordinate matrices spanning `[-2, 2] × [-2, 2]`. Row index `i` corresponds to `y = Y(i, 1)`, column index `j` to `x = X(1, j)` — same convention as `gradient` and `imagesc`.
+
+2. **`Z = X .^ 2 + Y .^ 2`** is a radial paraboloid. Its level sets `{(x, y) : Z(x, y) = c}` are concentric circles of radius `sqrt(c)`, so the contour plot should show clean nested rings — easy to eyeball for correctness.
+
+3. **`contour(X, Y, Z)`** draws line contours at 10 auto-spaced round-number levels (here roughly `0.5, 1.0, 1.5, …`). Default colour is black. Algorithm: marching squares per level, with NaN cells skipped and saddle points resolved by the cell-centre value.
+
+4. **`contour(X, Y, Z, [0.5, 1, 2, 4], "k")`** uses an explicit level vector and a single-letter colour code (`"k"` = black, `"r"` = red, …). Trailing modifiers can appear in any order — `contour(X, Y, Z, "title", 12)` is equivalent to `contour(X, Y, Z, 12, "title")`.
+
+5. **`contourf(X, Y, Z, 12)`** draws filled contours with 12 colour bands. The HTML backend uses Plotly's exact polygon-fill renderer; the SVG backend uses a per-cell discrete-band approximation (each grid cell painted with the colour of its centre-value's band). For publication-quality fills use `.html` output.
+
+6. **`hold on; imagesc(Z); contour(X, Y, Z, 8, "k"); hold off;`** is the canonical EM equipotentials-on-field-magnitude pattern. Under `hold on`, contour calls **append** to the subplot's contour list rather than replacing it; the heatmap state is independent and unaffected. When both are present, the chart bounds come from the contour's `(X, Y)` and the heatmap rectangles auto-rescale to fit, so the overlay aligns visually.
+
+7. **Per-backend output.** Open the saved files:
+
+   - `.html` files render exact Plotly contour traces — interactive, with hover and zoom.
+   - `.svg` files contain marching-squares line segments (line contours) or per-cell colour rectangles (filled contours).
+   - `.png` files are rasterised versions of the same SVG content.
+   - The terminal does **not** render contour overlays — the script issues a one-time warning instead. Use `savefig` to view.
+
+8. **One contour layer per call.** With `hold on`, multiple `contour` / `contourf` calls stack on the same subplot (and on top of any heatmap). With `hold off` (default), each call clears the subplot's contour list before adding the new one.
+
+**Run it:**
+
+```sh
+rustlab run examples/contour.r
+# Then open the generated files in /tmp/, e.g.:
+open /tmp/rustlab_contour_overlay.html
 ```

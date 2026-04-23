@@ -117,6 +117,31 @@ pub struct SurfaceData {
     pub colorscale: String,
 }
 
+/// Contour overlay data for a subplot (produced by `contour` / `contourf`).
+///
+/// Stored additively in `SubplotState::contours` so multiple `contour` calls
+/// under `hold on` can stack on top of a heatmap or each other.
+#[derive(Debug, Clone)]
+pub struct ContourData {
+    /// Row-major scalar field, `z[row][col]`. Same convention as `HeatmapData`.
+    pub z: Vec<Vec<f64>>,
+    /// X-axis coordinates, length = ncols.
+    pub x: Vec<f64>,
+    /// Y-axis coordinates, length = nrows.
+    pub y: Vec<f64>,
+    /// Explicit level values (sorted ascending) used by both line and filled
+    /// contour rendering.
+    pub levels: Vec<f64>,
+    /// `true` for `contourf` (filled bands), `false` for `contour` (lines).
+    pub filled: bool,
+    /// Line color for line contours. `None` falls back to black.
+    /// Ignored when `filled` is `true`.
+    pub line_color: Option<SeriesColor>,
+    /// Colorscale for filled contours (rustlab convention: "viridis", "jet",
+    /// "hot", "gray"). Ignored when `filled` is `false`.
+    pub colorscale: String,
+}
+
 /// State for a single subplot panel.
 #[derive(Debug, Clone)]
 pub struct SubplotState {
@@ -133,6 +158,8 @@ pub struct SubplotState {
     pub heatmap: Option<HeatmapData>,
     /// Optional 3D surface data (takes precedence over heatmap and series when present).
     pub surface: Option<SurfaceData>,
+    /// Contour overlays (line and filled). Rendered above the heatmap.
+    pub contours: Vec<ContourData>,
 }
 impl SubplotState {
     pub fn new() -> Self {
@@ -147,6 +174,7 @@ impl SubplotState {
             x_labels: None,
             heatmap: None,
             surface: None,
+            contours: Vec::new(),
         }
     }
 }

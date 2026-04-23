@@ -2,7 +2,7 @@
 # Demonstrates: gradient(F), divergence(Fx, Fy), curl(Fx, Fy)
 #
 # Grid convention: F(i, j) ↔ position (x = (j-1)*dx, y = (i-1)*dy).
-# Rows index y, columns index x — matches MATLAB / NumPy.
+# Rows index y, columns index x — matches Octave / NumPy.
 # Trailing `;` suppresses implicit echo for assignments.
 
 # ── Build a uniform grid ─────────────────────────────────────────

@@ -73,9 +73,16 @@ looking at 2-D kernels, spectrogram slices, or covariance matrices:
 
 ```rustlab
 W = outer(window("hann", 32), window("hann", 32));
-surf(W, W, W, "viridis")     % separable 2-D Hann
+surf(W)                      % 1-arg form: axes default to 1..ncols, 1..nrows
 title("Separable 2-D Hann window")
 ```
+
+The 1-arg `surf(Z)` form is the right call here: `outer(hann, hann)` starts
+its first row and column with zeros (because `hann[0] = 0`), so passing
+`W` as the X, Y, *and* Z arguments — `surf(W, W, W)` — would extract those
+zero-valued first row/column as the coordinate axes and collapse the
+surface to a single point. When the matrix itself *is* the data and you
+just want index axes, use `surf(Z)`.
 
 ## Why meshgrid matters
 
@@ -89,5 +96,5 @@ the full grid:
 | `atan2(y, x)`     | `atan2(Y, X)`       |
 | `exp(-x^2) * cos(y)` | `exp(-X.^2) .* cos(Y)` |
 
-Under the hood this is the same vectorisation that makes MATLAB and NumPy
+Under the hood this is the same vectorisation that makes Octave and NumPy
 fast for array workloads — and it's how `surf` expects its arguments.

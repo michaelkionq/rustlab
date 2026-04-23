@@ -1,4 +1,5 @@
 pub mod ascii;
+pub mod contour;
 pub mod error;
 pub mod figure;
 pub mod file;
@@ -18,9 +19,9 @@ pub use error::PlotError;
 pub use figure::{
     clear_notebook_figures, colormap_rgb, current_figure_id, current_figure_output, figure_new,
     figure_new_html, figure_switch, plot_context, push_notebook_figure_snapshot,
-    set_current_figure_output, set_plot_context, take_notebook_figures, FigureOutput, FigureState,
-    HeatmapData, LineStyle, PlotContext, PlotKind, Series, SeriesColor, SubplotState, SurfaceData,
-    FIGURE,
+    set_current_figure_output, set_plot_context, take_notebook_figures, ContourData, FigureOutput,
+    FigureState, HeatmapData, LineStyle, PlotContext, PlotKind, Series, SeriesColor, SubplotState,
+    SurfaceData, FIGURE,
 };
 pub use file::{render_figure_file, render_figure_state_to_file};
 pub use html::{

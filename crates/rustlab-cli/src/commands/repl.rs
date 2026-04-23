@@ -97,7 +97,7 @@ const HELP: &[HelpEntry] = &[
     HelpEntry { name: "size",     brief: "Dimensions as a 2- or 3-element vector",
         detail: "size(x)        — [rows, cols] for matrices/vectors, [m, n, p] for tensor3\nsize(x, dim)   — size along dimension 1, 2, or 3 (3 requires tensor3)" },
     HelpEntry { name: "ndims",    brief: "Number of dimensions (2 or 3)",
-        detail: "ndims(x)  — returns 3 for tensor3, 2 for everything else (MATLAB convention)" },
+        detail: "ndims(x)  — returns 3 for tensor3, 2 for everything else (Octave convention)" },
     // Matrix
     HelpEntry { name: "eye",       brief: "Identity matrix",
         detail: "eye(n)  — returns an n×n identity matrix" },
@@ -108,7 +108,7 @@ const HELP: &[HelpEntry] = &[
     HelpEntry { name: "trace",     brief: "Sum of the main diagonal",
         detail: "trace(M)  — returns the sum of diagonal elements" },
     HelpEntry { name: "reshape",   brief: "Reshape a vector, matrix, or tensor3",
-        detail: "reshape(A, m, n)     — returns an m×n matrix (or length-n vector when m=1 or n=1)\nreshape(A, m, n, p)  — returns an m×n×p tensor3\n  Total elements must be preserved. Walk order is column-major (MATLAB convention)." },
+        detail: "reshape(A, m, n)     — returns an m×n matrix (or length-n vector when m=1 or n=1)\nreshape(A, m, n, p)  — returns an m×n×p tensor3\n  Total elements must be preserved. Walk order is column-major (Octave convention)." },
     HelpEntry { name: "repmat",    brief: "Tile a matrix",
         detail: "repmat(A, m, n)  — tiles matrix A m times vertically, n times horizontally" },
     HelpEntry { name: "horzcat",   brief: "Horizontal concatenation  (also: [A B])",
@@ -241,6 +241,10 @@ const HELP: &[HelpEntry] = &[
         detail: "imagesc(M)\nimagesc(M, colormap)\n  colormap: \"viridis\" (default), \"jet\", \"hot\", \"gray\"\n  Press any key to close." },
     HelpEntry { name: "surf",     brief: "3D surface plot of a Z matrix",
         detail: "surf(Z)              — plot Z with x=1..cols, y=1..rows\nsurf(X, Y, Z)        — X, Y may be vectors or meshgrid matrices\nsurf(X, Y, Z, cmap)  — with colormap \"viridis\"|\"jet\"|\"hot\"|\"gray\"\n\nTerminal:  renders as a heatmap of Z.\nViewer:    interactive 3D surface — left-drag rotate, scroll zoom,\n           shift+scroll scale Z, right-drag pan, R resets.\nHTML:      Plotly 3D surface (draggable in browser).\nSVG/PNG:   static isometric wireframe.\n\nExample:\n  [X, Y] = meshgrid(linspace(-3, 3, 40), linspace(-3, 3, 40));\n  Z = sin(X.^2 + Y.^2); surf(X, Y, Z);" },
+    HelpEntry { name: "contour",  brief: "Line contour plot of a 2-D scalar field",
+        detail: "contour(Z)\ncontour(X, Y, Z)\ncontour(X, Y, Z, nlevels)\ncontour(X, Y, Z, levels)         — explicit level vector\ncontour(X, Y, Z, [..], \"k\")     — single line colour (k/r/g/b/c/m/y/w)\ncontour(X, Y, Z, \"title\")\n\n  X, Y may be 1-D vectors or meshgrid matrices.\n  Default is 10 auto-spaced round-number levels.\n  Honours hold on so contour can overlay imagesc heatmaps and other contour layers.\n\n  Terminal: not rendered (issues a one-time warning) — use savefig to view.\n  HTML:     Plotly contour trace (exact).\n  SVG/PNG:  marching-squares line segments.\n\nExample:\n  [X, Y] = meshgrid(linspace(-2, 2, 41), linspace(-2, 2, 41));\n  Z = X .^ 2 + Y .^ 2;\n  contour(X, Y, Z);  savefig(\"contour.svg\");" },
+    HelpEntry { name: "contourf", brief: "Filled contour plot of a 2-D scalar field",
+        detail: "contourf(Z)\ncontourf(X, Y, Z)\ncontourf(X, Y, Z, nlevels)\ncontourf(X, Y, Z, levels)         — explicit level vector\ncontourf(X, Y, Z, \"title\")\n\n  Default is 10 auto-spaced round-number levels.\n  Colormap follows the heatmap convention (currently always viridis).\n  Honours hold on for overlay with imagesc / contour.\n\n  HTML:     Plotly contour trace with coloring='fill' (exact polygon fill).\n  SVG/PNG:  per-cell discrete-band approximation (exact polygon fill is\n            HTML-only in v1).\n  Terminal: not rendered.\n\nExample:\n  contourf(X, Y, Z, 12);  savefig(\"fill.html\");" },
     // Figure controls
     HelpEntry { name: "figure",   brief: "Create/switch figures (returns numeric handle)",
         detail: "fig = figure()              — new figure, returns handle (numeric ID)\nfig = figure(\"file.html\")   — new figure in HTML output mode\nfigure(N)                   — switch to figure N (creates if needed)\n\nMultiple figures can coexist. Each figure has its own plot data,\nlabels, and output mode (TUI, HTML, or viewer).\n\nExamples:\n  fig1 = figure()\n  plot(sin(linspace(0,10,100)))\n  fig2 = figure(\"temp.html\")\n  plot(cos(linspace(0,10,100)))\n  figure(fig1)  % switch back to fig1" },
@@ -902,8 +906,8 @@ fn print_help_list() {
         (
             "Plotting",
             &[
-                "plot", "stem", "bar", "scatter", "hline", "yline", "plotdb", "imagesc", "savefig",
-                "hist",
+                "plot", "stem", "bar", "scatter", "hline", "yline", "plotdb", "imagesc", "surf",
+                "contour", "contourf", "savefig", "hist",
             ],
         ),
         (

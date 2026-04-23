@@ -13,7 +13,7 @@ C = rand3(2, 3, 4)
 D = randn3(2, 3, 4)
 
 # Build a known tensor with encoded values A(i, j, k) = 100*i + 10*j + k
-T = reshape(1:24, 2, 3, 4)    # column-major walk (MATLAB convention)
+T = reshape(1:24, 2, 3, 4)    # column-major walk (Octave convention)
 
 # ── Indexing ─────────────────────────────────────────────────────
 # Single element

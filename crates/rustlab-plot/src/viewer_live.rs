@@ -155,6 +155,10 @@ struct ViewerConn {
     fig_id: u32,
     /// Last-sent subplot layout (rows, cols) — avoid resending FigureOpen.
     layout: (usize, usize),
+    /// Last-sent figure-level title; empty unless promoted from a single-
+    /// subplot's `title(...)`. Re-sending FigureOpen with a new title is
+    /// what gets the user's title onto the viewer's window title bar.
+    last_figure_title: String,
 }
 
 thread_local! {
@@ -196,6 +200,7 @@ fn connect_viewer_impl(client: Option<ViewerClient>) -> Result<bool, PlotError> 
             client,
             fig_id,
             layout: (0, 0), // forces FigureOpen on first sync
+            last_figure_title: String::new(),
         })
     });
     Ok(true)
@@ -222,6 +227,7 @@ pub fn viewer_new_figure() {
         if let Some(ref mut conn) = *guard {
             conn.fig_id = next_fig_id();
             conn.layout = (0, 0); // forces FigureOpen on next sync
+            conn.last_figure_title = String::new();
         }
     });
 }
@@ -242,6 +248,7 @@ pub fn set_viewer_fig_id(id: u32) {
         if let Some(ref mut conn) = *c.borrow_mut() {
             conn.fig_id = id;
             conn.layout = (0, 0);
+            conn.last_figure_title = String::new();
         }
     });
 }
@@ -284,6 +291,23 @@ pub fn sync_viewer() {
     }
 }
 
+/// Compute the figure-level (window) title from the FigureState. If the
+/// figure has exactly one subplot, promote that subplot's title — most
+/// scripts use a single panel so this matches the user's intuition that
+/// `title("Foo")` after a single `surf(...)` ought to label the figure
+/// "Foo". Multi-subplot figures keep an empty figure title and rely on
+/// per-panel headings, since no single subplot's title is canonical.
+fn compute_figure_title(fig: &FigureState) -> String {
+    if fig.subplot_rows == 1 && fig.subplot_cols == 1 {
+        fig.subplots
+            .first()
+            .map(|s| s.title.clone())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    }
+}
+
 /// Serialize a full FigureState to the viewer via protocol messages.
 fn send_figure_state(conn: &mut ViewerConn, fig: &FigureState) -> Result<(), PlotError> {
     let rows = fig.subplot_rows;
@@ -291,15 +315,20 @@ fn send_figure_state(conn: &mut ViewerConn, fig: &FigureState) -> Result<(), Plo
     let n_panels = rows * cols;
     let fig_id = conn.fig_id;
 
-    // Only send FigureOpen when layout changes (or on first sync)
-    if conn.layout != (rows, cols) {
+    // Send FigureOpen on the first sync, when the layout changes, OR when
+    // the promoted figure-level title changes. The viewer treats a repeat
+    // FigureOpen on an existing fig_id with the same layout as a title
+    // update (preserving panel data); a layout change still resets panels.
+    let figure_title = compute_figure_title(fig);
+    if conn.layout != (rows, cols) || conn.last_figure_title != figure_title {
         conn.client.send(&ViewerMsg::FigureOpen {
             id: fig_id,
             rows: rows as u16,
             cols: cols as u16,
-            title: String::new(),
+            title: figure_title.clone(),
         })?;
         conn.layout = (rows, cols);
+        conn.last_figure_title = figure_title;
     }
 
     for (idx, panel) in fig.subplots.iter().enumerate().take(n_panels) {
@@ -487,8 +516,37 @@ mod tests {
         assert!(matches!(kind_to_wire(&PlotKind::Stem), WirePlotKind::Stem));
         assert!(matches!(kind_to_wire(&PlotKind::Bar), WirePlotKind::Bar));
         assert!(matches!(
-            kind_to_wire(&PlotKind::Scatter),
+            kind_to_wire(&PlotKind::Scatter,),
             WirePlotKind::Scatter
         ));
+    }
+
+    #[test]
+    fn compute_figure_title_promotes_single_subplot_title() {
+        // The canonical surf.r pattern: figure(); surf(...); title("Foo")
+        // ends up as a 1×1 figure with subplot 0 holding "Foo".
+        let mut fig = FigureState::new();
+        fig.current_mut().title = "Gaussian: exp(-(x^2 + y^2) / 2)".to_string();
+        assert_eq!(
+            compute_figure_title(&fig),
+            "Gaussian: exp(-(x^2 + y^2) / 2)"
+        );
+    }
+
+    #[test]
+    fn compute_figure_title_empty_for_unset_subplot() {
+        let fig = FigureState::new();
+        assert_eq!(compute_figure_title(&fig), "");
+    }
+
+    #[test]
+    fn compute_figure_title_empty_for_multi_subplot_layout() {
+        // 2×2 with a title on subplot 0 — no single subplot title is canonical
+        // for the whole figure, so the figure title stays empty and the
+        // viewer's window-title fallback ("Figure {counter}") takes over.
+        let mut fig = FigureState::new();
+        fig.set_subplot(2, 2, 1);
+        fig.current_mut().title = "Top-left only".to_string();
+        assert_eq!(compute_figure_title(&fig), "");
     }
 }

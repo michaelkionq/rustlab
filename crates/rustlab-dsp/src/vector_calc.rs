@@ -1,7 +1,7 @@
 //! Vector-calculus operators on uniform 2-D and 3-D grids.
 //!
 //! 2-D grid convention: `F(i, j)` corresponds to position `(x = j*dx, y = i*dy)` —
-//! rows index `y`, columns index `x`. Same as MATLAB / NumPy.
+//! rows index `y`, columns index `x`. Same as Octave / NumPy.
 //!
 //! 3-D grid convention extends the 2-D one with the page axis as `z`:
 //! `F(i, j, k)` ↔ `(x = j*dx, y = i*dy, z = k*dz)`. Axis 0 = y (rows),

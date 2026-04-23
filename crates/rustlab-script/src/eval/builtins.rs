@@ -155,6 +155,8 @@ impl BuiltinRegistry {
         r.register("yline", builtin_hline); // common alias
         r.register("imagesc", builtin_imagesc);
         r.register("surf", builtin_surf);
+        r.register("contour", builtin_contour);
+        r.register("contourf", builtin_contourf);
         // Import / export
         r.register("save", builtin_save);
         r.register("load", builtin_load);
@@ -1594,7 +1596,7 @@ fn builtin_size(args: Vec<Value>) -> Result<Value, ScriptError> {
     }
 }
 
-/// ndims(A) — number of dimensions. Scalars/vectors/matrices report 2 (MATLAB
+/// ndims(A) — number of dimensions. Scalars/vectors/matrices report 2 (Octave
 /// convention: even a scalar has ndims=2, conceptually 1×1). Tensor3 reports 3.
 fn builtin_ndims(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args("ndims", &args, 1)?;
@@ -2478,6 +2480,243 @@ fn builtin_imagesc(args: Vec<Value>) -> Result<Value, ScriptError> {
     Ok(Value::None)
 }
 
+// ─── Contour plots ───────────────────────────────────────────────────────────
+
+/// Convert a Value::Matrix scalar field to `Vec<Vec<f64>>` of magnitudes.
+fn z_matrix_to_rows(m: &CMatrix) -> Vec<Vec<f64>> {
+    let (nrows, ncols) = (m.nrows(), m.ncols());
+    (0..nrows)
+        .map(|r| (0..ncols).map(|c| m[[r, c]].norm()).collect())
+        .collect()
+}
+
+/// Parse the trailing `(modifier_or_color | "title")` arguments shared by
+/// `contour` and `contourf`. Returns `(levels, title, color)` where exactly
+/// one of `levels` or `nlevels` may be provided. `color` is only meaningful
+/// for line contours; `contourf` ignores it.
+fn parse_contour_modifiers(
+    name: &str,
+    rest: &[Value],
+) -> Result<
+    (
+        Option<usize>,    // explicit nlevels (scalar)
+        Option<Vec<f64>>, // explicit levels (vector)
+        Option<String>,   // title
+        Option<rustlab_plot::SeriesColor>,
+    ),
+    ScriptError,
+> {
+    let mut nlevels = None;
+    let mut levels = None;
+    let mut title = None;
+    let mut color = None;
+
+    for v in rest {
+        match v {
+            Value::Scalar(n) => {
+                if nlevels.is_some() || levels.is_some() {
+                    return Err(ScriptError::type_err(format!(
+                        "{name}: nlevels / levels specified more than once"
+                    )));
+                }
+                let n_int = n.round() as i64;
+                if n_int < 1 {
+                    return Err(ScriptError::type_err(format!(
+                        "{name}: nlevels must be >= 1, got {n}"
+                    )));
+                }
+                nlevels = Some(n_int as usize);
+            }
+            Value::Vector(vec) => {
+                if nlevels.is_some() || levels.is_some() {
+                    return Err(ScriptError::type_err(format!(
+                        "{name}: nlevels / levels specified more than once"
+                    )));
+                }
+                let mut lv: Vec<f64> = vec.iter().map(|c| c.re).collect();
+                lv.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                levels = Some(lv);
+            }
+            Value::Str(s) => {
+                if let Some(c) = rustlab_plot::SeriesColor::parse(s) {
+                    if color.is_some() {
+                        return Err(ScriptError::type_err(format!(
+                            "{name}: colour specified more than once"
+                        )));
+                    }
+                    color = Some(c);
+                } else {
+                    if title.is_some() {
+                        return Err(ScriptError::type_err(format!(
+                            "{name}: title specified more than once"
+                        )));
+                    }
+                    title = Some(s.clone());
+                }
+            }
+            other => {
+                return Err(ScriptError::type_err(format!(
+                    "{name}: unexpected modifier of type {}",
+                    other.type_name()
+                )));
+            }
+        }
+    }
+    Ok((nlevels, levels, title, color))
+}
+
+/// Extract the `(X, Y, Z)` triple from the first 1 or 3 arguments. The
+/// remaining arguments (if any) are returned as a modifier slice.
+fn parse_xyz<'a>(
+    name: &str,
+    args: &'a [Value],
+) -> Result<(Vec<f64>, Vec<f64>, CMatrix, &'a [Value]), ScriptError> {
+    if args.is_empty() {
+        return Err(ScriptError::type_err(format!(
+            "{name}: expected at least one argument (Z)"
+        )));
+    }
+    // First, see whether args[0..3] is an (X, Y, Z) triple. We require
+    // args[0] and args[1] to NOT be matrices that represent Z (they should
+    // be vectors or meshgrid matrices) and args[2] to be a Matrix.
+    if args.len() >= 3 {
+        if let Value::Matrix(m) = &args[2] {
+            let z = m.clone();
+            let x = axis_from_value(&args[0], name, "X", z.ncols(), false)?;
+            let y = axis_from_value(&args[1], name, "Y", z.nrows(), true)?;
+            return Ok((x, y, z, &args[3..]));
+        }
+    }
+    // Fall back to the 1-arg form: args[0] is Z, X and Y default to indices.
+    match &args[0] {
+        Value::Matrix(m) => {
+            let z = m.clone();
+            let (nrows, ncols) = (z.nrows(), z.ncols());
+            let x: Vec<f64> = (0..ncols).map(|i| (i + 1) as f64).collect();
+            let y: Vec<f64> = (0..nrows).map(|i| (i + 1) as f64).collect();
+            Ok((x, y, z, &args[1..]))
+        }
+        other => Err(ScriptError::type_err(format!(
+            "{}: expected a matrix Z, got {}",
+            name,
+            other.type_name()
+        ))),
+    }
+}
+
+fn warn_terminal_contour_once() {
+    use std::sync::Once;
+    static WARN: Once = Once::new();
+    WARN.call_once(|| {
+        eprintln!(
+            "rustlab: contour/contourf are not rendered to the terminal — \
+             use savefig(\"plot.svg\" or \"plot.html\") to view them."
+        );
+    });
+}
+
+fn push_contour_state(
+    name: &str,
+    x: Vec<f64>,
+    y: Vec<f64>,
+    z_rows: Vec<Vec<f64>>,
+    nlevels: Option<usize>,
+    levels: Option<Vec<f64>>,
+    title: Option<String>,
+    filled: bool,
+    line_color: Option<rustlab_plot::SeriesColor>,
+    colorscale: String,
+) -> Result<(), ScriptError> {
+    if z_rows.is_empty() || z_rows[0].is_empty() {
+        return Err(ScriptError::type_err(format!("{name}: Z is empty")));
+    }
+    if z_rows.len() < 2 || z_rows[0].len() < 2 {
+        return Err(ScriptError::type_err(format!(
+            "{name}: Z must be at least 2x2"
+        )));
+    }
+    let resolved_levels = if let Some(lv) = levels {
+        if lv.is_empty() {
+            return Err(ScriptError::type_err(format!(
+                "{name}: explicit levels vector must be non-empty"
+            )));
+        }
+        lv
+    } else {
+        let n = nlevels.unwrap_or(10);
+        rustlab_plot::contour::auto_levels(&z_rows, n)
+    };
+
+    rustlab_plot::FIGURE.with(|fig| {
+        let mut fig = fig.borrow_mut();
+        if !fig.hold {
+            // Replace mode: clear any prior contours on this subplot. Leave
+            // the heatmap and series alone (same convention as imagesc).
+            fig.current_mut().contours.clear();
+        }
+        if let Some(t) = &title {
+            fig.current_mut().title = t.clone();
+        }
+        fig.current_mut().contours.push(rustlab_plot::ContourData {
+            z: z_rows,
+            x,
+            y,
+            levels: resolved_levels,
+            filled,
+            line_color,
+            colorscale,
+        });
+    });
+
+    if rustlab_plot::plot_context() == rustlab_plot::PlotContext::Terminal {
+        warn_terminal_contour_once();
+    }
+    sync_figure_outputs();
+    Ok(())
+}
+
+/// `contour(Z [, ...])` or `contour(X, Y, Z [, ...])` — line contour plot.
+fn builtin_contour(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args_range("contour", &args, 1, 5)?;
+    let (x, y, z_mat, rest) = parse_xyz("contour", &args)?;
+    let (nlevels, levels, title, color) = parse_contour_modifiers("contour", rest)?;
+    let z_rows = z_matrix_to_rows(&z_mat);
+    push_contour_state(
+        "contour",
+        x,
+        y,
+        z_rows,
+        nlevels,
+        levels,
+        title,
+        false,
+        color,
+        "viridis".to_string(),
+    )?;
+    Ok(Value::None)
+}
+
+/// `contourf(Z [, ...])` or `contourf(X, Y, Z [, ...])` — filled contour plot.
+fn builtin_contourf(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args_range("contourf", &args, 1, 5)?;
+    let (x, y, z_mat, rest) = parse_xyz("contourf", &args)?;
+    let (nlevels, levels, title, _color) = parse_contour_modifiers("contourf", rest)?;
+    let z_rows = z_matrix_to_rows(&z_mat);
+    // For contourf the optional string is reused as a colormap name when
+    // not consumed as title or colour.
+    let mut colorscale = "viridis".to_string();
+    // If the user supplied a string that didn't match a colour or title,
+    // parse_contour_modifiers will have classified it as a title. We accept
+    // that — to override the colormap users can pass the next layer (e.g.
+    // explicit imagesc styling).
+    // (Discoverable pattern: contourf(X, Y, Z, 12) for 12 bands.)
+    let _ = &mut colorscale;
+    push_contour_state(
+        "contourf", x, y, z_rows, nlevels, levels, title, true, None, colorscale,
+    )?;
+    Ok(Value::None)
+}
+
 /// `surf(Z)` / `surf(X, Y, Z)` / `surf(X, Y, Z, "colormap")` — 3D surface plot.
 ///
 /// Z is an nrows×ncols matrix. X and Y may be either:
@@ -3197,7 +3436,7 @@ fn builtin_reshape(args: Vec<Value>) -> Result<Value, ScriptError> {
     } else {
         None
     };
-    // Flatten source in column-major order (MATLAB/Octave convention).
+    // Flatten source in column-major order (Octave convention).
     let flat: Vec<C64> = match &args[0] {
         Value::Vector(v) => v.iter().copied().collect(),
         Value::Matrix(mat) => (0..mat.ncols())

@@ -544,6 +544,8 @@ rustlab run examples/lowpass.r   # must exit 0 with a plot
 
 **Purpose:** Terminal charts, HTML export, and optional viewer client. Depends on `rustlab-core` only (viewer feature adds `rustlab-proto`).
 
+**Contour subsystem (`src/contour.rs`):** Pure-functional helpers — `marching_squares(z, x, y, level)` returns line segments per level; `auto_levels(z, n)` picks Wilkinson-style round-number values from `{1, 2, 2.5, 5} × 10^k`; `band_index(value, levels)` classifies a value into a band for `contourf`'s per-cell SVG fill. Used by `builtin_contour` / `builtin_contourf`. Storage lives in `SubplotState.contours: Vec<ContourData>` so multiple contour layers can stack on a heatmap under `hold on`.
+
 **Key files:**
 - `src/ascii.rs` — `plot_real`, `plot_complex`, `stem_real`, and the shared `draw_subplots(f, subplots, rows, cols)` helper used by both `render_figure_terminal` and `LiveFigure::redraw`.
 - `src/live.rs` — `LiveFigure` struct implementing the `LivePlot` trait: `new(rows, cols)`, `update_panel(idx, x, y)`, `set_panel_labels(idx, title, xlabel, ylabel)`, `redraw()`. `Drop` impl restores the terminal.
@@ -665,7 +667,7 @@ rustlab-viewer --socket PATH    # custom socket path
 
 **Math protection (`render::protect_math` / `restore_math`):** CommonMark consumes `\\` → `\`, which would destroy LaTeX row separators inside `$$...$$` (e.g. matrix `\\` row breaks would collapse). Before calling `pulldown-cmark`, both the `Markdown` and `Callout` branches stash math spans (`$$...$$` and KaTeX-strict `$...$`) under Unicode private-use placeholders, then restore the originals after `push_html`. Authors write standard LaTeX (`\\`, `\$`, `\begin{pmatrix}…\end{pmatrix}`) — no double-escaping. Code fences and inline code spans are skipped, and `\$` escapes are honored.
 
-**Silent assignments:** Under `PlotContext::Notebook`, the `Evaluator` suppresses assignment echo (via `echo_enabled()`). Only bare expressions, `print()`, and `disp()` produce visible text output — matching Jupyter / MATLAB Live Script conventions. REPL and `rustlab run` behaviour is unchanged.
+**Silent assignments:** Under `PlotContext::Notebook`, the `Evaluator` suppresses assignment echo (via `echo_enabled()`). Only bare expressions, `print()`, and `disp()` produce visible text output — matching Jupyter notebook conventions. REPL and `rustlab run` behaviour is unchanged.
 
 **YAML frontmatter (`--- title: ... ---`):** Parsed by `parse::extract_frontmatter` → `Frontmatter { title, order }`. Known keys are `title` (overrides the `# H1` fallback in `extract_title`) and `order` / `weight` (signed integer; sorts entries on the directory index page, ascending, ties broken by filename). Unknown keys are ignored silently so future additions don't break existing files. Quoted values (single or double) are unwrapped.
 
@@ -786,7 +788,7 @@ primary     = NUMBER | STRING | IDENT
 | `length` | `length(v)` | Alias for `len` |
 | `numel` | `numel(x)` | Total elements (rows×cols for matrices, m·n·p for tensor3) |
 | `size` | `size(x)` / `size(x, dim)` | `[rows, cols]` or `[m, n, p]` (tensor3) as a Vector; `size(x, 3)` valid only for tensor3 |
-| `ndims` | `ndims(x)` | 3 for tensor3, 2 otherwise (MATLAB convention) |
+| `ndims` | `ndims(x)` | 3 for tensor3, 2 otherwise (Octave convention) |
 | `zeros3` | `zeros3(m, n, p)` / `zeros3([m, n, p])` | Rank-3 complex zero tensor |
 | `ones3` | `ones3(m, n, p)` | Rank-3 complex ones tensor |
 | `rand3` | `rand3(m, n, p)` | Rank-3 tensor, U[0, 1) samples |
@@ -855,6 +857,8 @@ primary     = NUMBER | STRING | IDENT
 | `min` | `min(v)` / `min(a, b)` | Minimum of vector or two scalars |
 | `max` | `max(v)` / `max(a, b)` | Maximum of vector or two scalars |
 | `surf` | `surf(Z)` / `surf(X, Y, Z)` / `surf(X, Y, Z, cmap)` | 3D surface plot; viewer renders interactive rotate/zoom, HTML emits Plotly 3D, SVG/PNG draws a static isometric wireframe, terminal falls back to a heatmap |
+| `contour` | `contour(Z)` / `contour(X, Y, Z [, nlevels|levels [, "color" or "title"]])` | Line contours via marching squares. Default 10 auto-spaced round-number levels. Honours `hold on` for overlay on `imagesc`. Color spec: single-letter (k/r/g/b/c/m/y/w) or full name. Terminal: not rendered (one-time warning). HTML: Plotly contour trace. SVG/PNG: line segments. |
+| `contourf` | `contourf(Z)` / `contourf(X, Y, Z [, nlevels|levels [, "title"]])` | Filled contours. Same level handling as `contour`. HTML: Plotly contour with `coloring="fill"` (exact). SVG/PNG: per-cell discrete-band approximation (exact polygon fill is HTML-only in v1). Colormap: viridis. |
 | `gradient` | `[Fx, Fy] = gradient(F)` / `gradient(F, dx, dy)` | 2-D gradient of a scalar field on a uniform grid; rows index y, columns index x. 2nd-order central interior, 2nd-order one-sided boundaries. Each axis must have length ≥ 3. Complex inputs supported. |
 | `divergence` | `divergence(Fx, Fy)` / `divergence(Fx, Fy, dx, dy)` | 2-D divergence ∂Fx/∂x + ∂Fy/∂y; Fx and Fy must share shape. Same stencils as `gradient`. |
 | `curl` | `curl(Fx, Fy)` / `curl(Fx, Fy, dx, dy)` | Z-component of ∇×F (2-D scalar curl ∂Fy/∂x − ∂Fx/∂y). Same stencils as `gradient`. |

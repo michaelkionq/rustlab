@@ -177,7 +177,11 @@ pub fn render_html(
     // sidebar — less visual weight, more horizontal room for content.
     // Single-file renders (`nav = None`) keep the sidebar with the in-page TOC.
     let use_topbar = nav.is_some();
-    let body_class = if use_topbar { " class=\"topbar-layout\"" } else { "" };
+    let body_class = if use_topbar {
+        " class=\"topbar-layout\""
+    } else {
+        ""
+    };
 
     let topbar_block = match nav {
         Some(n) => {
@@ -211,9 +215,7 @@ pub fn render_html(
         )
     };
 
-    let footer_nav = nav
-        .map(|n| build_footer_nav(n))
-        .unwrap_or_default();
+    let footer_nav = nav.map(|n| build_footer_nav(n)).unwrap_or_default();
 
     let c = theme;
     format!(
@@ -1026,9 +1028,15 @@ fn protect_math(md: &str) -> (String, Vec<String>) {
             }
         }
 
-        // Default: copy one byte. Safe because we only break at ASCII boundaries
-        // and UTF-8 continuation bytes are >= 0x80, which we just push through.
-        out.push(b as char);
+        // Default: copy one byte verbatim. We only branch on ASCII delimiters
+        // ($, `, \), so bytes >= 0x80 are UTF-8 continuation bytes from the
+        // source — they must be appended raw, not via `b as char` (which would
+        // reinterpret each byte as a Latin-1 code point and mojibake any
+        // non-ASCII text). Writing the raw byte preserves the source's UTF-8
+        // encoding; the final buffer is valid UTF-8 because `md` is.
+        unsafe {
+            out.as_mut_vec().push(b);
+        }
         at_line_start = b == b'\n';
         i += 1;
     }

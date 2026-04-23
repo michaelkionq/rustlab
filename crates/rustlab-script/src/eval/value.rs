@@ -648,7 +648,7 @@ impl Value {
         }
 
         // Determine result shape by dropping *trailing* singleton dimensions
-        // (MATLAB-style: A(:, :, k) → Matrix, A(:, j, :) → Matrix, A(i, :, :) → Matrix,
+        // (Octave-style: A(:, :, k) → Matrix, A(:, j, :) → Matrix, A(i, :, :) → Matrix,
         //  A(1, 1, :) → Vector (row×col collapse), A(:, :, :) → Tensor3 already handled).
         // General rule: build a (nr × nc × np) buffer, then squeeze trailing singletons
         // OR inner singletons to return the lowest-rank type that fits.

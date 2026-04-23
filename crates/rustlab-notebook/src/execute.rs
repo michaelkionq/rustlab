@@ -79,7 +79,10 @@ pub fn execute_notebook(blocks: &[Block]) -> Vec<Rendered> {
                     FIGURE.with(|fig| {
                         let f = fig.borrow();
                         if f.subplots.iter().any(|s| {
-                            !s.series.is_empty() || s.heatmap.is_some() || s.surface.is_some()
+                            !s.series.is_empty()
+                                || s.heatmap.is_some()
+                                || s.surface.is_some()
+                                || !s.contours.is_empty()
                         }) {
                             figures.push(f.clone());
                         }

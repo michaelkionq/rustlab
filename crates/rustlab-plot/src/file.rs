@@ -1,30 +1,14 @@
+use crate::contour::{band_index, marching_squares};
 use crate::error::PlotError;
 use crate::figure::{
-    colormap_rgb, plot_context, push_notebook_figure_snapshot, FigureState, LineStyle, PlotContext,
-    PlotKind, SubplotState, SurfaceData, FIGURE,
+    colormap_rgb, plot_context, push_notebook_figure_snapshot, ContourData, FigureState, LineStyle,
+    PlotContext, PlotKind, SeriesColor, SubplotState, SurfaceData, FIGURE,
 };
 use plotters::prelude::*;
 
 const MARGIN: u32 = 20;
 const X_LABEL_AREA: u32 = 50;
 const Y_LABEL_AREA: u32 = 70;
-
-/// Format a float compactly (no %g in Rust).
-fn fmt_g(v: f64) -> String {
-    if v == 0.0 {
-        return "0".to_string();
-    }
-    let abs = v.abs();
-    if abs < 0.001 || abs >= 10000.0 {
-        format!("{:.2e}", v)
-    } else if abs >= 100.0 {
-        format!("{:.0}", v)
-    } else if abs >= 10.0 {
-        format!("{:.1}", v)
-    } else {
-        format!("{:.2}", v)
-    }
-}
 
 // ─── Main render entry points ───────────────────────────────────────────────
 
@@ -88,37 +72,10 @@ where
             render_surface_to_backend(panel.clone(), sf, &caption)?;
             continue;
         }
-        // Heatmap rendering takes precedence
-        if let Some(hm) = &sp.heatmap {
-            let nrows = hm.z.len();
-            let ncols = if nrows > 0 { hm.z[0].len() } else { 0 };
-            if nrows > 0 && ncols > 0 {
-                let vals: Vec<f64> = hm.z.iter().flat_map(|row| row.iter().copied()).collect();
-                let min_v = vals.iter().copied().fold(f64::INFINITY, f64::min);
-                let max_v = vals.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-                let range = (max_v - min_v).max(1e-12);
-                let caption = if sp.title.is_empty() {
-                    format!("{} [{}, {}]", hm.colorscale, fmt_g(min_v), fmt_g(max_v))
-                } else {
-                    format!(
-                        "{} — {} [{}, {}]",
-                        sp.title,
-                        hm.colorscale,
-                        fmt_g(min_v),
-                        fmt_g(max_v)
-                    )
-                };
-                render_imagesc_to_backend(
-                    panel.clone(),
-                    nrows,
-                    ncols,
-                    &vals,
-                    min_v,
-                    range,
-                    &hm.colorscale,
-                    &caption,
-                )?;
-            }
+        // Heatmap and/or contour rendering — they share a chart so they
+        // overlay correctly under hold on.
+        if sp.heatmap.is_some() || !sp.contours.is_empty() {
+            render_heatmap_and_contours_to_backend(panel.clone(), sp)?;
             continue;
         }
         if sp.series.is_empty() {
@@ -552,8 +509,11 @@ where
     ];
     let axis_color = RGBColor(160, 160, 160);
     for (a, b) in edges {
-        root.draw(&PathElement::new(vec![pc[a], pc[b]], axis_color.stroke_width(1)))
-            .map_err(err)?;
+        root.draw(&PathElement::new(
+            vec![pc[a], pc[b]],
+            axis_color.stroke_width(1),
+        ))
+        .map_err(err)?;
     }
 
     // Build quads with their centroid depth for sorting.
@@ -601,14 +561,19 @@ where
             .map_err(err)?;
         let mut ring = q.pts.to_vec();
         ring.push(q.pts[0]);
-        root.draw(&PathElement::new(ring, edge_style)).map_err(err)?;
+        root.draw(&PathElement::new(ring, edge_style))
+            .map_err(err)?;
     }
 
     // Axis tick labels (min/max on X and Y, min/max on Z).
     let tick_font = ("sans-serif", 11u32).into_font();
     let label = |corner: &(i32, i32), s: String| -> Result<(), PlotError> {
-        root.draw(&Text::new(s, (corner.0 + 4, corner.1 + 2), tick_font.clone()))
-            .map_err(err)?;
+        root.draw(&Text::new(
+            s,
+            (corner.0 + 4, corner.1 + 2),
+            tick_font.clone(),
+        ))
+        .map_err(err)?;
         Ok(())
     };
     label(&pc[0], format!("x={:.3}", x_min))?;
@@ -620,15 +585,31 @@ where
     Ok(())
 }
 
-fn render_imagesc_to_backend<DB>(
+fn series_color_to_rgb(c: &SeriesColor) -> RGBColor {
+    match c {
+        SeriesColor::Blue => RGBColor(31, 119, 180),
+        SeriesColor::Red => RGBColor(214, 39, 40),
+        SeriesColor::Green => RGBColor(44, 160, 44),
+        SeriesColor::Cyan => RGBColor(23, 190, 207),
+        SeriesColor::Magenta => RGBColor(148, 103, 189),
+        SeriesColor::Yellow => RGBColor(188, 189, 34),
+        SeriesColor::Black => RGBColor(0, 0, 0),
+        SeriesColor::White => RGBColor(255, 255, 255),
+        SeriesColor::Rgb(r, g, b) => RGBColor(*r, *g, *b),
+    }
+}
+
+/// Render a heatmap and/or contour overlays into a single shared chart so
+/// that under `hold on` an `imagesc` heatmap and a `contour` overlay align
+/// in the same coordinate frame.
+///
+/// Coordinate selection:
+/// - If at least one contour is present, the chart bounds come from the
+///   first contour's `(x, y)` vectors and any heatmap is rescaled to fit.
+/// - Otherwise, the heatmap uses its native integer cell coordinates.
+fn render_heatmap_and_contours_to_backend<DB>(
     root: DrawingArea<DB, plotters::coord::Shift>,
-    nrows: usize,
-    ncols: usize,
-    vals: &[f64],
-    min_v: f64,
-    range: f64,
-    colormap: &str,
-    caption: &str,
+    sp: &SubplotState,
 ) -> Result<(), PlotError>
 where
     DB: DrawingBackend,
@@ -637,34 +618,175 @@ where
     let err = |e: DrawingAreaErrorKind<DB::ErrorType>| PlotError::FileOutput(e.to_string());
     root.fill(&WHITE).map_err(err)?;
 
+    // Decide chart bounds.
+    let (x_lo, x_hi, y_lo, y_hi) = if let Some(cd) = sp.contours.first() {
+        let (xmin, xmax) = bounds(&cd.x);
+        let (ymin, ymax) = bounds(&cd.y);
+        (xmin, xmax, ymin, ymax)
+    } else if let Some(hm) = &sp.heatmap {
+        let nrows = hm.z.len();
+        let ncols = if nrows > 0 { hm.z[0].len() } else { 0 };
+        (0.0, ncols as f64, 0.0, nrows as f64)
+    } else {
+        return Ok(());
+    };
+
+    let caption = sp.title.clone();
     let mut chart = ChartBuilder::on(&root)
-        .caption(caption, ("sans-serif", 16u32).into_font())
+        .caption(caption, ("sans-serif", 18u32).into_font())
         .margin(MARGIN)
         .x_label_area_size(X_LABEL_AREA)
         .y_label_area_size(Y_LABEL_AREA)
-        .build_cartesian_2d(0.0..(ncols as f64), 0.0..(nrows as f64))
+        .build_cartesian_2d(x_lo..x_hi, y_lo..y_hi)
         .map_err(err)?;
 
     chart.configure_mesh().disable_mesh().draw().map_err(err)?;
 
-    for r in 0..nrows {
-        for c in 0..ncols {
-            let v = vals[r * ncols + c];
-            let t = (v - min_v) / range;
-            let (rr, gg, bb) = colormap_rgb(t, colormap);
+    // Draw heatmap, rescaled into the chart bounds.
+    if let Some(hm) = &sp.heatmap {
+        let nrows = hm.z.len();
+        let ncols = if nrows > 0 { hm.z[0].len() } else { 0 };
+        if nrows > 0 && ncols > 0 {
+            let vals: Vec<f64> = hm.z.iter().flat_map(|row| row.iter().copied()).collect();
+            let min_v = vals.iter().copied().fold(f64::INFINITY, f64::min);
+            let max_v = vals.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let range = (max_v - min_v).max(1e-12);
+            let cell_w = (x_hi - x_lo) / ncols as f64;
+            let cell_h = (y_hi - y_lo) / nrows as f64;
+            for r in 0..nrows {
+                for c in 0..ncols {
+                    let v = vals[r * ncols + c];
+                    let t = (v - min_v) / range;
+                    let (rr, gg, bb) = colormap_rgb(t, &hm.colorscale);
+                    let color = RGBColor(rr, gg, bb);
+                    let x0 = x_lo + c as f64 * cell_w;
+                    // Flip y so row 0 sits at the top of the chart.
+                    let y0 = y_hi - (r as f64 + 1.0) * cell_h;
+                    chart
+                        .draw_series(std::iter::once(Rectangle::new(
+                            [(x0, y0), (x0 + cell_w, y0 + cell_h)],
+                            color.filled(),
+                        )))
+                        .map_err(err)?;
+                }
+            }
+        }
+    }
+
+    // Draw contour overlays. Filled contours render as per-cell coloured
+    // rectangles based on band classification (a discrete-band approximation
+    // of the proper polygon fill); HTML output uses Plotly's exact contour
+    // trace for the same data.
+    for cd in &sp.contours {
+        if cd.z.is_empty() || cd.x.len() < 2 || cd.y.len() < 2 {
+            continue;
+        }
+        if cd.filled {
+            render_contour_filled(&mut chart, cd)?;
+        } else {
+            render_contour_lines(&mut chart, cd)?;
+        }
+    }
+
+    root.present().map_err(err)?;
+    Ok(())
+}
+
+fn bounds(xs: &[f64]) -> (f64, f64) {
+    let mut lo = f64::INFINITY;
+    let mut hi = f64::NEG_INFINITY;
+    for &v in xs {
+        if v.is_finite() {
+            if v < lo {
+                lo = v;
+            }
+            if v > hi {
+                hi = v;
+            }
+        }
+    }
+    if !lo.is_finite() || !hi.is_finite() || (hi - lo).abs() < 1e-12 {
+        return (0.0, xs.len() as f64);
+    }
+    (lo, hi)
+}
+
+fn render_contour_lines<DB>(
+    chart: &mut ChartContext<
+        DB,
+        Cartesian2d<plotters::coord::types::RangedCoordf64, plotters::coord::types::RangedCoordf64>,
+    >,
+    cd: &ContourData,
+) -> Result<(), PlotError>
+where
+    DB: DrawingBackend,
+    DB::ErrorType: std::error::Error + Send + Sync + 'static,
+{
+    let err = |e: DrawingAreaErrorKind<DB::ErrorType>| PlotError::FileOutput(e.to_string());
+    let color = series_color_to_rgb(cd.line_color.as_ref().unwrap_or(&SeriesColor::Black));
+    let style = ShapeStyle {
+        color: color.to_rgba(),
+        filled: false,
+        stroke_width: 1,
+    };
+    for &lv in &cd.levels {
+        let segs = marching_squares(&cd.z, &cd.x, &cd.y, lv);
+        for s in segs {
+            chart
+                .draw_series(std::iter::once(PathElement::new(vec![s.p0, s.p1], style)))
+                .map_err(err)?;
+        }
+    }
+    Ok(())
+}
+
+fn render_contour_filled<DB>(
+    chart: &mut ChartContext<
+        DB,
+        Cartesian2d<plotters::coord::types::RangedCoordf64, plotters::coord::types::RangedCoordf64>,
+    >,
+    cd: &ContourData,
+) -> Result<(), PlotError>
+where
+    DB: DrawingBackend,
+    DB::ErrorType: std::error::Error + Send + Sync + 'static,
+{
+    let err = |e: DrawingAreaErrorKind<DB::ErrorType>| PlotError::FileOutput(e.to_string());
+    if cd.levels.is_empty() {
+        return Ok(());
+    }
+    let nrows = cd.z.len();
+    let ncols = if nrows > 0 { cd.z[0].len() } else { 0 };
+    if nrows < 2 || ncols < 2 {
+        return Ok(());
+    }
+    // Per-cell band fill: classify the cell-centre value, map to a colormap
+    // sample at the centre of that band's [0, 1] slot. Discrete-band
+    // approximation of true polygon fill — exact polygon fill is the HTML
+    // backend's responsibility.
+    let nbands = cd.levels.len() + 1;
+    for r in 0..nrows - 1 {
+        for c in 0..ncols - 1 {
+            let centre = 0.25 * (cd.z[r][c] + cd.z[r][c + 1] + cd.z[r + 1][c] + cd.z[r + 1][c + 1]);
+            if !centre.is_finite() {
+                continue;
+            }
+            let bi = band_index(centre, &cd.levels);
+            let t = (bi as f64 + 0.5) / nbands as f64;
+            let (rr, gg, bb) = colormap_rgb(t, &cd.colorscale);
             let color = RGBColor(rr, gg, bb);
-            let x0 = c as f64;
-            let y0 = (nrows - 1 - r) as f64; // flip y so row 0 is at top
+            let x0 = cd.x[c];
+            let x1 = cd.x[c + 1];
+            let y0 = cd.y[r];
+            let y1 = cd.y[r + 1];
             chart
                 .draw_series(std::iter::once(Rectangle::new(
-                    [(x0, y0), (x0 + 1.0, y0 + 1.0)],
+                    [(x0.min(x1), y0.min(y1)), (x0.max(x1), y0.max(y1))],
                     color.filled(),
                 )))
                 .map_err(err)?;
         }
     }
-
-    root.present().map_err(err)?;
     Ok(())
 }
 
@@ -857,6 +979,115 @@ mod tests {
         assert!(
             content.contains("<svg"),
             "heatmap SVG should contain '<svg' tag"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    fn radial_z(n: usize) -> (Vec<Vec<f64>>, Vec<f64>, Vec<f64>) {
+        let xs: Vec<f64> = (0..n)
+            .map(|i| -1.0 + 2.0 * i as f64 / (n as f64 - 1.0))
+            .collect();
+        let ys = xs.clone();
+        let z: Vec<Vec<f64>> = (0..n)
+            .map(|r| (0..n).map(|c| xs[c] * xs[c] + ys[r] * ys[r]).collect())
+            .collect();
+        (z, xs, ys)
+    }
+
+    #[test]
+    fn line_contour_renders_to_svg_with_paths() {
+        let path = tmp_path("_contour_lines.svg");
+        let (z, x, y) = radial_z(31);
+        FIGURE.with(|fig| {
+            let mut fig = fig.borrow_mut();
+            fig.reset();
+            let sp = fig.current_mut();
+            sp.contours.push(crate::figure::ContourData {
+                z,
+                x,
+                y,
+                levels: vec![0.1, 0.4, 0.9],
+                filled: false,
+                line_color: Some(crate::figure::SeriesColor::Black),
+                colorscale: "viridis".to_string(),
+            });
+        });
+        render_figure_file(&path).expect("line contour SVG should render");
+        let content = std::fs::read_to_string(&path).expect("read SVG");
+        assert!(content.contains("<svg"));
+        // Marching-squares emits one <polyline> element per segment.
+        let seg_count = content.matches("<polyline").count();
+        assert!(
+            seg_count > 30,
+            "expected many polyline segments for 3 levels, got {seg_count}"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn filled_contour_renders_to_svg_with_rectangles() {
+        let path = tmp_path("_contour_filled.svg");
+        let (z, x, y) = radial_z(11);
+        FIGURE.with(|fig| {
+            let mut fig = fig.borrow_mut();
+            fig.reset();
+            let sp = fig.current_mut();
+            sp.contours.push(crate::figure::ContourData {
+                z,
+                x,
+                y,
+                levels: vec![0.25, 0.5, 0.75, 1.0, 1.25],
+                filled: true,
+                line_color: None,
+                colorscale: "viridis".to_string(),
+            });
+        });
+        render_figure_file(&path).expect("filled contour SVG should render");
+        let content = std::fs::read_to_string(&path).expect("read SVG");
+        assert!(content.contains("<svg"));
+        // Per-cell band fill emits many filled <rect> elements.
+        let rect_count = content.matches("<rect").count();
+        assert!(
+            rect_count >= (10 * 10) - 5,
+            "expected ~100 cell rectangles, got {rect_count}"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn heatmap_with_contour_overlay_both_render() {
+        // Heatmap and a single contour overlay on the same subplot.
+        let path = tmp_path("_contour_overlay.svg");
+        let (z, x, y) = radial_z(11);
+        FIGURE.with(|fig| {
+            let mut fig = fig.borrow_mut();
+            fig.reset();
+            let sp = fig.current_mut();
+            sp.heatmap = Some(crate::figure::HeatmapData {
+                z: z.clone(),
+                colorscale: "viridis".to_string(),
+            });
+            sp.contours.push(crate::figure::ContourData {
+                z,
+                x,
+                y,
+                levels: vec![0.5, 1.0],
+                filled: false,
+                line_color: Some(crate::figure::SeriesColor::Black),
+                colorscale: "viridis".to_string(),
+            });
+        });
+        render_figure_file(&path).expect("overlay render");
+        let content = std::fs::read_to_string(&path).expect("read SVG");
+        assert!(content.contains("<svg"));
+        // Polyline segments (contour) AND many rectangles (heatmap cells).
+        assert!(
+            content.matches("<polyline").count() > 5,
+            "contour segments missing"
+        );
+        assert!(
+            content.matches("<rect").count() > 50,
+            "heatmap cells missing"
         );
         let _ = std::fs::remove_file(&path);
     }

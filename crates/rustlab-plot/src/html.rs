@@ -257,6 +257,65 @@ yaxis{ax}: {{ domain: [{y0:.4}, {y1:.4}], title: {{ text: "{ylabel}" }}{yrange},
             ));
         }
 
+        // Contour overlays (rendered above heatmap, below series).
+        for cd in &panel.contours {
+            let z_rows: Vec<String> = cd.z.iter().map(|row| json_f64_array(row)).collect();
+            let z_json = format!("[{}]", z_rows.join(","));
+            let x_json = json_f64_array(&cd.x);
+            let y_json = json_f64_array(&cd.y);
+            // Choose start/end/size from the levels vector. For uniform
+            // levels (the common case from auto_levels) Plotly draws them
+            // exactly; for non-uniform user-supplied levels Plotly will draw
+            // uniformly between start and end.
+            let (start, end, size) = if cd.levels.is_empty() {
+                (0.0, 0.0, 1.0)
+            } else if cd.levels.len() == 1 {
+                (cd.levels[0], cd.levels[0], 1.0)
+            } else {
+                let s = cd.levels[0];
+                let e = cd.levels[cd.levels.len() - 1];
+                let step = (e - s) / (cd.levels.len() as f64 - 1.0);
+                (s, e, step.max(f64::MIN_POSITIVE))
+            };
+            if cd.filled {
+                let plotly_cmap = match cd.colorscale.as_str() {
+                    "jet" => "Jet",
+                    "hot" => "Hot",
+                    "gray" => "Greys",
+                    _ => "Viridis",
+                };
+                traces.push_str(&format!(
+                    r#"{{ z: {z}, x: {x}, y: {y}, type: "contour", contours: {{ coloring: "fill", start: {s}, end: {e}, size: {step} }}, colorscale: "{cmap}", showscale: true, xaxis: "{xa}", yaxis: "{ya}" }},
+"#,
+                    z = z_json,
+                    x = x_json,
+                    y = y_json,
+                    s = start,
+                    e = end,
+                    step = size,
+                    cmap = plotly_cmap,
+                    xa = xaxis_ref,
+                    ya = yaxis_ref,
+                ));
+            } else {
+                let line_color =
+                    color_to_css(cd.line_color.as_ref().unwrap_or(&SeriesColor::Black));
+                traces.push_str(&format!(
+                    r#"{{ z: {z}, x: {x}, y: {y}, type: "contour", contours: {{ coloring: "none", showlines: true, start: {s}, end: {e}, size: {step} }}, line: {{ color: "{color}", width: 1.5 }}, showscale: false, hoverinfo: "skip", xaxis: "{xa}", yaxis: "{ya}" }},
+"#,
+                    z = z_json,
+                    x = x_json,
+                    y = y_json,
+                    s = start,
+                    e = end,
+                    step = size,
+                    color = line_color,
+                    xa = xaxis_ref,
+                    ya = yaxis_ref,
+                ));
+            }
+        }
+
         // Traces for each series
         for series in &panel.series {
             let color_str = color_to_css(&series.color);
@@ -453,7 +512,7 @@ fn format_range(lim: (Option<f64>, Option<f64>)) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::figure::{FigureState, PlotKind, Series};
+    use crate::figure::{ContourData, FigureState, HeatmapData, PlotKind, Series};
     use crate::{LineStyle, SeriesColor, Theme};
 
     #[test]
@@ -501,5 +560,80 @@ mod tests {
             "bar trace x should be the label strings; got:\n{}",
             div
         );
+    }
+
+    #[test]
+    fn line_contour_emits_plotly_contour_trace() {
+        let mut fig = FigureState::new();
+        let z = vec![
+            vec![0.0, 0.5, 1.0],
+            vec![0.5, 1.0, 1.5],
+            vec![1.0, 1.5, 2.0],
+        ];
+        fig.current_mut().contours.push(ContourData {
+            z,
+            x: vec![0.0, 1.0, 2.0],
+            y: vec![0.0, 1.0, 2.0],
+            levels: vec![0.5, 1.0, 1.5],
+            filled: false,
+            line_color: Some(SeriesColor::Black),
+            colorscale: "viridis".to_string(),
+        });
+        let div = render_figure_plotly_div(&fig, "plot", Theme::default().colors());
+        assert!(
+            div.contains(r#"type: "contour""#),
+            "expected a contour trace; got:\n{div}"
+        );
+        assert!(
+            div.contains(r#"showlines: true"#),
+            "line contour must request showlines"
+        );
+        assert!(
+            div.contains(r#"coloring: "none""#),
+            "line contour must use coloring:'none' so line.color is honoured"
+        );
+    }
+
+    #[test]
+    fn filled_contour_emits_fill_coloring() {
+        let mut fig = FigureState::new();
+        let z = vec![vec![0.0, 1.0], vec![2.0, 3.0]];
+        fig.current_mut().contours.push(ContourData {
+            z,
+            x: vec![0.0, 1.0],
+            y: vec![0.0, 1.0],
+            levels: vec![0.5, 1.5, 2.5],
+            filled: true,
+            line_color: None,
+            colorscale: "viridis".to_string(),
+        });
+        let div = render_figure_plotly_div(&fig, "plot", Theme::default().colors());
+        assert!(
+            div.contains(r#"coloring: "fill""#),
+            "filled contour must set coloring:'fill'; got:\n{div}"
+        );
+        assert!(div.contains(r#"colorscale: "Viridis""#));
+    }
+
+    #[test]
+    fn heatmap_with_contour_emits_both_traces() {
+        let mut fig = FigureState::new();
+        let z = vec![vec![0.0, 1.0], vec![2.0, 3.0]];
+        fig.current_mut().heatmap = Some(HeatmapData {
+            z: z.clone(),
+            colorscale: "viridis".to_string(),
+        });
+        fig.current_mut().contours.push(ContourData {
+            z,
+            x: vec![0.0, 1.0],
+            y: vec![0.0, 1.0],
+            levels: vec![0.5, 1.5],
+            filled: false,
+            line_color: Some(SeriesColor::Black),
+            colorscale: "viridis".to_string(),
+        });
+        let div = render_figure_plotly_div(&fig, "plot", Theme::default().colors());
+        assert!(div.contains(r#"type: "heatmap""#), "heatmap missing");
+        assert!(div.contains(r#"type: "contour""#), "contour missing");
     }
 }

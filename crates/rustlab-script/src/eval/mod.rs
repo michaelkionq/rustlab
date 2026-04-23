@@ -158,7 +158,7 @@ impl Evaluator {
     ///
     /// Echo is suppressed inside user-defined functions and in notebook
     /// rendering mode — notebooks show only `print()` / `disp()` and bare
-    /// expressions, matching Jupyter / MATLAB Live Script conventions.
+    /// expressions, matching Jupyter notebook conventions.
     #[inline]
     fn echo_enabled(&self) -> bool {
         !self.in_function && rustlab_plot::plot_context() != rustlab_plot::PlotContext::Notebook

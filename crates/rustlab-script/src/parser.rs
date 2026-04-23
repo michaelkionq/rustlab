@@ -1093,7 +1093,7 @@ impl Parser {
     // unary = ('-' | '!') unary | factor
     //
     // Unary minus/not sits BELOW power (`^`, `.^`) so `-x.^2` parses as
-    // `-(x.^2)` — matching MATLAB/Octave precedence. The RHS of `^`/`.^`
+    // `-(x.^2)` — matching Octave precedence. The RHS of `^`/`.^`
     // also goes through unary so `2^-3` still parses as `2^(-3)`.
     fn parse_unary(&mut self) -> Result<Expr, ScriptError> {
         match self.peek_token() {

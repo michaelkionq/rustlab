@@ -1094,7 +1094,7 @@ A `Tensor3` is a complex 3-dimensional array of shape `(m, n, p)` — `m` rows, 
 - All Tensor3 storage is complex (`C64`); real values are stored with imaginary part 0.
 - No broadcasting between `Matrix` and `Tensor3` — operations between them error.
 - `*` and `/` between two `Tensor3`s also error; use `.*` and `./` for element-wise.
-- `reshape` walks data column-major (matches MATLAB / Octave), so `reshape(1:24, 2, 3, 4)` fills the first column of page 1 first.
+- `reshape` walks data column-major (matches Octave), so `reshape(1:24, 2, 3, 4)` fills the first column of page 1 first.
 - I/O via `save`/`load` to `.npy` preserves the rank-3 shape natively.
 
 ### `zeros3(m, n, p)` / `zeros3([m, n, p])`
@@ -1186,7 +1186,7 @@ size(more)                          # → [2, 2, 3]
 ### `size(A)` / `size(A, dim)` / `ndims(A)` / `numel(A)`
 - `size(A)` returns a 3-element vector for Tensor3, `[rows, cols]` for Matrix.
 - `size(A, 3)` is valid only for Tensor3.
-- `ndims(A)` returns `3` for Tensor3, `2` otherwise (MATLAB convention — no `ndims == 1`).
+- `ndims(A)` returns `3` for Tensor3, `2` otherwise (Octave convention — no `ndims == 1`).
 - `numel(A)` returns `m * n * p` for Tensor3.
 
 ### I/O
@@ -1529,6 +1529,59 @@ surf(X, Y, Z);            % X, Y from meshgrid
 surf(X, Y, Z, "jet");     % with colormap
 surf(Z);                  % x = 1..cols, y = 1..rows
 ```
+
+### `contour(Z)` / `contour(X, Y, Z)` / `contour(X, Y, Z, ...)`
+
+Line contours of a 2-D scalar field. `Z` is an `ny × nx` matrix; `X` and `Y` may be 1-D vectors of length `nx` and `ny`, or 2-D `meshgrid` matrices. The 1-arg form `contour(Z)` defaults `X = 1..ncols`, `Y = 1..nrows`.
+
+Optional trailing arguments (any order, each at most once):
+
+- **Scalar** — `nlevels`, the number of auto-spaced round-number contour levels (default 10).
+- **Vector** — explicit list of level values (sorted internally).
+- **String** — single-letter colour code (`"k"`, `"r"`, `"g"`, `"b"`, `"c"`, `"m"`, `"y"`, `"w"`) for line colour; otherwise interpreted as the subplot title.
+
+Algorithm: marching squares (NaN cells skipped; saddle points resolved by the cell-centre value). Auto-level placement picks step size from `{1, 2, 2.5, 5} × 10^k` so labels read cleanly. Each axis must have length ≥ 2.
+
+```
+[X, Y] = meshgrid(linspace(-2, 2, 41), linspace(-2, 2, 41));
+Z = X .^ 2 + Y .^ 2;
+contour(X, Y, Z);                  % 10 auto levels, black lines
+contour(X, Y, Z, 20, "k");         % 20 levels, explicit colour
+contour(X, Y, Z, [0.5, 1, 2]);     % explicit levels
+contour(X, Y, Z, "Equipotentials"); % set the subplot title
+```
+
+`hold on` lets you overlay contours on `imagesc` heatmaps and on each other:
+
+```
+hold on;
+imagesc(Z);
+contour(X, Y, Z, 8, "k");          % black contours over the heatmap
+hold off;
+```
+
+Per-backend behaviour:
+
+- **Terminal** — not rendered (a one-time warning is printed). Use `savefig("...svg")` or `savefig("...html")` to view.
+- **HTML** (`savefig("...html")`) — Plotly contour trace per `ContourData`. Exact level lines.
+- **SVG / PNG** — marching-squares line segments via plotters' `PathElement`.
+- **Notebook** — captured as a figure snapshot; output follows the renderer's HTML / SVG path.
+
+### `contourf(Z)` / `contourf(X, Y, Z)` / `contourf(X, Y, Z, ...)`
+
+Filled contours of a 2-D scalar field. Same argument forms as `contour` (the colour-string slot is unused for filled contours; the colormap is `viridis` in v1).
+
+```
+contourf(X, Y, Z);
+contourf(X, Y, Z, 12);             % 12 colour bands
+contourf(X, Y, Z, [0, 1, 2, 4]);   % explicit bands
+```
+
+Per-backend behaviour:
+
+- **HTML** — Plotly contour with `coloring="fill"` — exact polygon fill between adjacent levels.
+- **SVG / PNG** — per-cell discrete-band approximation (each cell painted with the colour for its centre-value's band). Looks like a coarse colourmap; v1 limitation. Exact polygon fill is HTML-only.
+- **Terminal** — not rendered.
 
 ---
 

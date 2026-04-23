@@ -355,7 +355,7 @@ mod parser_tests {
 
     #[test]
     fn unary_minus_binds_weaker_than_elem_pow() {
-        // -x .^ 2 must parse as -(x .^ 2), matching MATLAB/Octave precedence.
+        // -x .^ 2 must parse as -(x .^ 2), matching Octave precedence.
         match first_expr("-x .^ 2") {
             Expr::UnaryMinus(inner) => match inner.as_ref() {
                 Expr::BinOp {
@@ -381,7 +381,7 @@ mod parser_tests {
 
     #[test]
     fn unary_minus_allowed_on_rhs_of_pow() {
-        // 2 ^ -3 must still parse (MATLAB accepts it as 2 ^ (-3) = 0.125).
+        // 2 ^ -3 must still parse (Octave accepts it as 2 ^ (-3) = 0.125).
         match first_expr("2 ^ -3") {
             Expr::BinOp {
                 op: BinOp::Pow,

@@ -189,7 +189,7 @@ later phases assume works.
 **Semantics:**
 - Marching squares for each level.
 - Line contours default to black; filled default to colormap.
-- Auto level-placement picks round-number levels (MATLAB-like).
+- Auto level-placement picks round-number levels (Octave-compatible).
 - Label placement is v2 — do not ship in first cut.
 
 **Backends:**
@@ -233,7 +233,7 @@ examples).
 
 **Semantics:**
 - Quiver auto-scale: longest arrow ≤ nearest-neighbour cell distance
-  (MATLAB convention).
+  (Octave convention).
 - NaN in U or V → skip that cell.
 - Optional `quiver(..., C)` with scalar colour field — **defer to v2**
   unless trivial.
@@ -245,7 +245,7 @@ examples).
   traces (matches `plotly.figure_factory.create_quiver`).
 - Plotters: draw line + small triangular polygon directly.
 - Seed grid for streamplot: default density ≈ 1 seed per unit area, like
-  MATLAB.
+  Octave.
 - For integration: implement RK4 inline (small, 20-ish lines).
 
 **Files likely touched:**

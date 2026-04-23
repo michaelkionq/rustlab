@@ -90,22 +90,22 @@ writing code. Many of them are one-word answers but each commits us to
 non-trivial semantics.
 
 1. **Indexing return-type rule.** When the user writes `A(:, :, k)`, does the
-   result come back as `Matrix` (MATLAB-style — drop trailing singleton
+   result come back as `Matrix` (Octave-style — drop trailing singleton
    dimension) or as `Tensor3` with shape `(m, n, 1)` (NumPy-style)?
    **Recommended: Matrix.** It makes `imagesc(A(:, :, k))` work trivially.
 2. **Broadcasting rule.** For `Matrix + Tensor3`, is the matrix broadcast
    along the 3rd dimension (NumPy) or is it an error requiring explicit
-   `repmat`/`cat` (MATLAB)? **Recommended: error initially**, broadcasting
+   `repmat`/`cat` (Octave)? **Recommended: error initially**, broadcasting
    as a follow-up once a lesson actually needs it.
 3. **Matrix-multiply semantics.** `Tensor3 * Matrix` and `Tensor3 * Tensor3`
-   with `*` operator — error (MATLAB's position; introduces `pagemtimes` for
+   with `*` operator — error (Octave's position; introduces `pagemtimes` for
    the batched case) or define it? **Recommended: error.**
 4. **`reshape` variadic extension.** `reshape(A, m, n)` is arity-3 today
    (`check_args("reshape", &args, 3)` at `builtins.rs:2922`). Promoting to
    `reshape(A, m, n, p, ...)` — is that OK as an additive API change?
    **Recommended: yes**, switch to `check_args_range("reshape", &args, 3,
    N)` with whatever `N` covers up to rank-4 for future-proofing.
-5. **Storage order.** ndarray defaults to C-order (row-major). MATLAB is
+5. **Storage order.** ndarray defaults to C-order (row-major). Octave is
    column-major. `CMatrix = Array2<C64>` is already row-major in the
    Rust-side storage but rustlab presents column-major-indexed semantics
    (`reshape` is column-major — `builtins.rs:2920,2928,2954`). Keep the same
@@ -266,7 +266,7 @@ will actually consume Tensor3 in practice.
 - `Matrix ± Tensor3` → **error** (per Phase 0 decision #2), clear message
   suggesting `repmat` or explicit iteration.
 - `*` / `\` / `/` with Tensor3 operands → **error** (per Phase 0 decision
-  #3), message mentions MATLAB's `pagemtimes` as a future direction.
+  #3), message mentions Octave's `pagemtimes` as a future direction.
 - `.^` element-wise power with scalar exponent → supported.
 - `.^` element-wise power with Tensor3 exponent → supported (element-wise).
 
@@ -296,7 +296,7 @@ catches accidental regressions in unrelated paths).
   Implementation: accept 3..=4 arity, switch on arity for rank. If Phase 0
   #4 says no, gate behind a new name `reshape3`.
 - `permute(A, [order])` — new. `order` is a 3-element permutation of
-  `[1, 2, 3]`. Returns a new `Tensor3` with axes reordered. MATLAB-standard.
+  `[1, 2, 3]`. Returns a new `Tensor3` with axes reordered. Octave-standard.
 - `squeeze(A)` — drop singleton dims. `Tensor3(m, 1, p)` → `Matrix(m, p)`,
   etc. Returns whatever lower-rank variant is appropriate.
 - `cat(dim, A, B, ...)` — extend to `dim=3`. For `dim=3`, inputs may be
@@ -419,7 +419,7 @@ workaround.
 - **`pagemtimes`-style batched matrix multiply.** Nice-to-have; gate behind
   a separate request when a lesson demands it.
 - **Parser literal syntax for rank-3.** No `[[[...]]]` or similar. Users
-  build tensors via `zeros3` / `cat(3, ...)` / `reshape`. Matches MATLAB.
+  build tensors via `zeros3` / `cat(3, ...)` / `reshape`. Matches Octave.
 
 ---
 

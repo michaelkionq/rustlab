@@ -52,7 +52,7 @@ type error: stem: cannot plot Matrix(8x1)
 1. **Default suppression:** In notebook mode, suppress assignment echo unless the statement is a bare expression (no `=`). Only `print()` and bare expressions produce visible text output.
 2. **Truncation:** If suppression isn't feasible, truncate large matrix output to e.g. 3 lines with a `... (100x100 matrix)` summary, matching REPL behavior.
 
-Option 1 is strongly preferred — it matches Jupyter/MATLAB Live Script behavior where assignments are silent by default.
+Option 1 is strongly preferred — it matches Jupyter notebook behavior where assignments are silent by default.
 
 ---
 
@@ -67,7 +67,7 @@ Option 1 is strongly preferred — it matches Jupyter/MATLAB Live Script behavio
 [1×5]  54.598150  2.718282  1.000000  2.718282  54.598150
 ```
 
-**Expected (MATLAB/Octave behavior):** `.^` should bind tighter than unary minus:
+**Expected (Octave behavior):** `.^` should bind tighter than unary minus:
 
 ```
 exp(-x .^ 2)   →  exp(-(x .^ 2))  →  [0.0183, 0.3679, 1.0, 0.3679, 0.0183]

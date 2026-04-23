@@ -33,8 +33,24 @@ impl ViewerApp {
                     cols,
                     title,
                 } => {
-                    self.figures
-                        .insert(id, FigureWindow::new(rows as usize, cols as usize, title));
+                    // Upsert: a repeat FigureOpen for an existing figure
+                    // updates the title (and reshapes panels if the layout
+                    // genuinely changed) but preserves panel data. This lets
+                    // the client re-send FigureOpen later when the script
+                    // calls `title("...")` after `figure(); surf(...)` —
+                    // without wiping out the panel that just rendered.
+                    let rows = rows as usize;
+                    let cols = cols as usize;
+                    match self.figures.get_mut(&id) {
+                        Some(fig) if fig.rows == rows && fig.cols == cols => {
+                            fig.title = title;
+                            fig.dirty = true;
+                        }
+                        _ => {
+                            self.figures
+                                .insert(id, FigureWindow::new(rows, cols, title));
+                        }
+                    }
                 }
                 ViewerMsg::PanelUpdate {
                     fig_id,
@@ -172,9 +188,8 @@ impl eframe::App for ViewerApp {
         if self.figures.len() == 1 {
             let (&id, fig) = self.figures.iter_mut().next().unwrap();
             egui::CentralPanel::default().show(ctx, |ui| {
-                if !fig.title.is_empty() {
-                    ui.heading(&fig.title);
-                }
+                let heading = display_figure_title(id, &fig.title);
+                ui.heading(&heading);
                 fig.render(ui, id);
             });
         } else {
@@ -182,11 +197,7 @@ impl eframe::App for ViewerApp {
             let ids: Vec<u32> = self.figures.keys().copied().collect();
             for id in ids {
                 let fig = self.figures.get_mut(&id).unwrap();
-                let title = if fig.title.is_empty() {
-                    format!("Figure {}", id)
-                } else {
-                    fig.title.clone()
-                };
+                let title = display_figure_title(id, &fig.title);
                 egui::Window::new(&title)
                     .id(egui::Id::new(format!("fig_{}", id)))
                     .resizable(true)
@@ -195,5 +206,49 @@ impl eframe::App for ViewerApp {
                     });
             }
         }
+    }
+}
+
+/// Build the user-facing title for a figure window.
+///
+/// Figure IDs on the wire encode the client's PID in the upper 16 bits
+/// (`(pid << 16) | counter`) so multiple rustlab processes connected to one
+/// viewer don't collide. That raw number shouldn't ever show up in the UI —
+/// we only surface the counter portion.
+pub(crate) fn display_figure_title(id: u32, user_title: &str) -> String {
+    if !user_title.is_empty() {
+        return user_title.to_string();
+    }
+    let counter = id & 0xFFFF;
+    format!("Figure {}", counter)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_title_takes_precedence() {
+        let id = (12345u32 << 16) | 7;
+        assert_eq!(display_figure_title(id, "Gaussian"), "Gaussian");
+    }
+
+    #[test]
+    fn fallback_strips_pid_prefix() {
+        // 50000 << 16 | 1 = 3276800001 — the kind of "random number" users saw.
+        let id = (50000u32 << 16) | 1;
+        assert_eq!(display_figure_title(id, ""), "Figure 1");
+    }
+
+    #[test]
+    fn fallback_uses_counter_only_for_higher_counts() {
+        let id = (777u32 << 16) | 42;
+        assert_eq!(display_figure_title(id, ""), "Figure 42");
+    }
+
+    #[test]
+    fn fallback_without_pid_is_still_counter() {
+        // Tests run with no PID encoding still work (counter = id).
+        assert_eq!(display_figure_title(3, ""), "Figure 3");
     }
 }
