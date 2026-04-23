@@ -21,5 +21,5 @@ pub use fir::pm::{firpm, firpmq};
 pub use fixed::{qadd, qconv, qmul, quantize_scalar, quantize_vec, snr_db, QFmtSpec};
 pub use iir::butterworth::{butterworth_highpass, butterworth_lowpass, IirFilter};
 pub use upfirdn::upfirdn;
-pub use vector_calc::{curl_2d, divergence_2d, gradient_2d};
+pub use vector_calc::{curl_2d, curl_3d, divergence_2d, divergence_3d, gradient_2d, gradient_3d};
 pub use window::WindowFunction;

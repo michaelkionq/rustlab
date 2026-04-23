@@ -9,10 +9,10 @@ use rustlab_core::{OverflowMode, RoundMode};
 use rustlab_dsp::convolution::convolve;
 use rustlab_dsp::fixed::{qadd as fixed_qadd, qconv as fixed_qconv, qmul as fixed_qmul};
 use rustlab_dsp::{
-    butterworth_highpass, butterworth_lowpass, curl_2d, divergence_2d, fft, fftfreq, fftshift,
-    fir_bandpass, fir_bandpass_kaiser, fir_highpass, fir_highpass_kaiser, fir_lowpass,
-    fir_lowpass_kaiser, fir_notch, firpm, firpmq, freqz, gradient_2d, ifft, quantize_scalar,
-    snr_db, upfirdn, IirFilter, QFmtSpec, WindowFunction,
+    butterworth_highpass, butterworth_lowpass, curl_2d, curl_3d, divergence_2d, divergence_3d, fft,
+    fftfreq, fftshift, fir_bandpass, fir_bandpass_kaiser, fir_highpass, fir_highpass_kaiser,
+    fir_lowpass, fir_lowpass_kaiser, fir_notch, firpm, firpmq, freqz, gradient_2d, gradient_3d,
+    ifft, quantize_scalar, snr_db, upfirdn, IirFilter, QFmtSpec, WindowFunction,
 };
 use rustlab_plot::{
     compute_histogram, histogram_matrix, imagesc_terminal, plot_db, plot_histogram, push_xy_bar,
@@ -100,6 +100,9 @@ impl BuiltinRegistry {
         r.register("gradient", builtin_gradient);
         r.register("divergence", builtin_divergence);
         r.register("curl", builtin_curl);
+        r.register("gradient3", builtin_gradient3);
+        r.register("divergence3", builtin_divergence3);
+        r.register("curl3", builtin_curl3);
         // Array construction
         r.register("zeros", builtin_zeros);
         r.register("ones", builtin_ones);
@@ -845,6 +848,86 @@ fn builtin_curl(args: Vec<Value>) -> Result<Value, ScriptError> {
     let (dx, dy) = unpack_dxdy(&args, "curl", 2)?;
     let c = curl_2d(&fx, &fy, dx, dy)?;
     Ok(Value::Matrix(c))
+}
+
+// ─── Vector calculus on uniform 3-D grids ────────────────────────────────────
+
+fn unpack_dxdydz(args: &[Value], name: &str, start: usize) -> Result<(f64, f64, f64), ScriptError> {
+    if args.len() <= start {
+        return Ok((1.0, 1.0, 1.0));
+    }
+    if args.len() == start + 3 {
+        let dx = args[start]
+            .to_scalar()
+            .map_err(|e| ScriptError::type_err(format!("{name}: dx: {e}")))?;
+        let dy = args[start + 1]
+            .to_scalar()
+            .map_err(|e| ScriptError::type_err(format!("{name}: dy: {e}")))?;
+        let dz = args[start + 2]
+            .to_scalar()
+            .map_err(|e| ScriptError::type_err(format!("{name}: dz: {e}")))?;
+        Ok((dx, dy, dz))
+    } else {
+        Err(ScriptError::type_err(format!(
+            "{name}: expected dx, dy and dz together (or none), got {} extra args",
+            args.len() - start
+        )))
+    }
+}
+
+fn to_ctensor3_arg(
+    val: &Value,
+    fn_name: &str,
+    arg_name: &str,
+) -> Result<rustlab_core::CTensor3, ScriptError> {
+    match val {
+        Value::Tensor3(t) => Ok(t.clone()),
+        other => Err(ScriptError::type_err(format!(
+            "{}: {} must be a tensor3, got {}",
+            fn_name,
+            arg_name,
+            other.type_name()
+        ))),
+    }
+}
+
+/// `[Fx, Fy, Fz] = gradient3(F)` or `gradient3(F, dx, dy, dz)`.
+fn builtin_gradient3(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args_range("gradient3", &args, 1, 4)?;
+    let f = to_ctensor3_arg(&args[0], "gradient3", "F")?;
+    let (dx, dy, dz) = unpack_dxdydz(&args, "gradient3", 1)?;
+    let (fx, fy, fz) = gradient_3d(&f, dx, dy, dz)?;
+    Ok(Value::Tuple(vec![
+        Value::Tensor3(fx),
+        Value::Tensor3(fy),
+        Value::Tensor3(fz),
+    ]))
+}
+
+/// `D = divergence3(Fx, Fy, Fz)` or `divergence3(Fx, Fy, Fz, dx, dy, dz)`.
+fn builtin_divergence3(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args_range("divergence3", &args, 3, 6)?;
+    let fx = to_ctensor3_arg(&args[0], "divergence3", "Fx")?;
+    let fy = to_ctensor3_arg(&args[1], "divergence3", "Fy")?;
+    let fz = to_ctensor3_arg(&args[2], "divergence3", "Fz")?;
+    let (dx, dy, dz) = unpack_dxdydz(&args, "divergence3", 3)?;
+    let d = divergence_3d(&fx, &fy, &fz, dx, dy, dz)?;
+    Ok(Value::Tensor3(d))
+}
+
+/// `[Cx, Cy, Cz] = curl3(Fx, Fy, Fz)` or `curl3(Fx, Fy, Fz, dx, dy, dz)`.
+fn builtin_curl3(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args_range("curl3", &args, 3, 6)?;
+    let fx = to_ctensor3_arg(&args[0], "curl3", "Fx")?;
+    let fy = to_ctensor3_arg(&args[1], "curl3", "Fy")?;
+    let fz = to_ctensor3_arg(&args[2], "curl3", "Fz")?;
+    let (dx, dy, dz) = unpack_dxdydz(&args, "curl3", 3)?;
+    let (cx, cy, cz) = curl_3d(&fx, &fy, &fz, dx, dy, dz)?;
+    Ok(Value::Tuple(vec![
+        Value::Tensor3(cx),
+        Value::Tensor3(cy),
+        Value::Tensor3(cz),
+    ]))
 }
 
 // ─── Array construction ────────────────────────────────────────────────────

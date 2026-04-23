@@ -393,6 +393,12 @@ const HELP: &[HelpEntry] = &[
         detail: "D = divergence(Fx, Fy)\nD = divergence(Fx, Fy, dx, dy)\n  Fx, Fy — ny×nx components on the same grid (same shape).\n  dx, dy — grid spacing (default 1.0).\n  Returns scalar field D, same shape as Fx.\n  Same stencils and shape requirements as gradient.\n\nExample:\n  D = divergence(Fx, Fy, 0.1, 0.1)" },
     HelpEntry { name: "curl", brief: "Scalar curl of a 2-D vector field  ∂Fy/∂x − ∂Fx/∂y",
         detail: "Cz = curl(Fx, Fy)\nCz = curl(Fx, Fy, dx, dy)\n  Returns the z-component of ∇×F (a scalar field, same shape as Fx).\n  Same stencils and shape requirements as gradient.\n\nExample:\n  Cz = curl(Fx, Fy, 0.1, 0.1)" },
+    HelpEntry { name: "gradient3", brief: "Gradient of a scalar field on a uniform 3-D grid",
+        detail: "[Fx, Fy, Fz] = gradient3(F)\n[Fx, Fy, Fz] = gradient3(F, dx, dy, dz)\n  F — m×n×p Tensor3 (real or complex).\n    Axis 0 = y (rows), axis 1 = x (cols), axis 2 = z (pages).\n  dx, dy, dz — grid spacing (default 1.0). All must be > 0.\n  Returns Tuple [Fx, Fy, Fz], each a Tensor3 of the same shape as F.\n  Stencils: 2nd-order central interior, 2nd-order one-sided at boundaries.\n  Each axis must have length ≥ 3.\n\nExample:\n  T = reshape(1:60, 3, 4, 5)\n  [Fx, Fy, Fz] = gradient3(T, 0.1, 0.1, 0.1)" },
+    HelpEntry { name: "divergence3", brief: "3-D divergence  ∂Fx/∂x + ∂Fy/∂y + ∂Fz/∂z",
+        detail: "D = divergence3(Fx, Fy, Fz)\nD = divergence3(Fx, Fy, Fz, dx, dy, dz)\n  Fx, Fy, Fz — Tensor3 components of the same shape.\n  Returns a Tensor3 scalar field, same shape as Fx.\n  Same stencils and shape requirements as gradient3." },
+    HelpEntry { name: "curl3", brief: "3-D curl  ∇×F  → (Cx, Cy, Cz)",
+        detail: "[Cx, Cy, Cz] = curl3(Fx, Fy, Fz)\n[Cx, Cy, Cz] = curl3(Fx, Fy, Fz, dx, dy, dz)\n  Returns Tuple [Cx, Cy, Cz] with each component a Tensor3 of the same shape as Fx.\n    Cx = ∂Fz/∂y − ∂Fy/∂z\n    Cy = ∂Fx/∂z − ∂Fz/∂x\n    Cz = ∂Fy/∂x − ∂Fx/∂y\n  Same stencils and shape requirements as gradient3." },
     // DSP (additional)
     HelpEntry { name: "filtfilt", brief: "Zero-phase forward-backward filter",
         detail: "filtfilt(b, a, x)\n  b — numerator coefficients (FIR: filter taps)\n  a — denominator coefficients (FIR: use [1])\n  x — real input signal vector\n\nApplies the filter forward then backward so phase distortion cancels exactly.\nEffective filter order is doubled; no startup transient.\n\nExample (FIR lowpass):\n  h = fir_lowpass(63, 2000, 44100, \"hann\")\n  y = filtfilt(h, [1], x)" },
@@ -835,7 +841,17 @@ fn print_help_list() {
                 "svd", "laguerre", "legendre", "factor", "roots",
             ],
         ),
-        ("Vector Calculus", &["gradient", "divergence", "curl"]),
+        (
+            "Vector Calculus",
+            &[
+                "gradient",
+                "divergence",
+                "curl",
+                "gradient3",
+                "divergence3",
+                "curl3",
+            ],
+        ),
         (
             "DSP",
             &[

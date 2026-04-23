@@ -1408,3 +1408,198 @@ mod vector_calc_tests {
         assert!(gradient_2d(&f, 1.0, -1.0).is_err());
     }
 }
+
+#[cfg(test)]
+mod vector_calc_3d_tests {
+    use crate::vector_calc::{curl_3d, divergence_3d, from_real_fn_3d, gradient_3d};
+
+    fn close_re(a: num_complex::Complex<f64>, b: f64, tol: f64) -> bool {
+        (a.re - b).abs() < tol && a.im.abs() < tol
+    }
+
+    // Build coordinate triples for a uniform grid where:
+    //   row    i ↔ y = i*dy
+    //   col    j ↔ x = j*dx
+    //   page   k ↔ z = k*dz
+    fn coords(
+        m: usize,
+        n: usize,
+        p: usize,
+        dx: f64,
+        dy: f64,
+        dz: f64,
+    ) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+        let xs = (0..n).map(|j| j as f64 * dx).collect();
+        let ys = (0..m).map(|i| i as f64 * dy).collect();
+        let zs = (0..p).map(|k| k as f64 * dz).collect();
+        (xs, ys, zs)
+    }
+
+    #[test]
+    fn gradient3_of_x2_y2_z2_is_2x_2y_2z() {
+        // F = x² + y² + z²  →  ∇F = (2x, 2y, 2z). Quadratic → exact even at boundaries.
+        let (m, n, p) = (4, 5, 6);
+        let (dx, dy, dz) = (0.1, 0.2, 0.3);
+        let (xs, ys, zs) = coords(m, n, p, dx, dy, dz);
+        let f = from_real_fn_3d(m, n, p, |i, j, k| {
+            xs[j].powi(2) + ys[i].powi(2) + zs[k].powi(2)
+        });
+
+        let (fx, fy, fz) = gradient_3d(&f, dx, dy, dz).unwrap();
+
+        for i in 0..m {
+            for j in 0..n {
+                for k in 0..p {
+                    assert!(
+                        close_re(fx[[i, j, k]], 2.0 * xs[j], 1e-9),
+                        "fx[{i},{j},{k}]"
+                    );
+                    assert!(
+                        close_re(fy[[i, j, k]], 2.0 * ys[i], 1e-9),
+                        "fy[{i},{j},{k}]"
+                    );
+                    assert!(
+                        close_re(fz[[i, j, k]], 2.0 * zs[k], 1e-9),
+                        "fz[{i},{j},{k}]"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn divergence3_of_xyz_is_three_everywhere() {
+        // F = (x, y, z)  →  ∇·F = 3.
+        let (m, n, p) = (4, 4, 4);
+        let (dx, dy, dz) = (0.5, 0.25, 0.1);
+        let (xs, ys, zs) = coords(m, n, p, dx, dy, dz);
+        let fx = from_real_fn_3d(m, n, p, |_, j, _| xs[j]);
+        let fy = from_real_fn_3d(m, n, p, |i, _, _| ys[i]);
+        let fz = from_real_fn_3d(m, n, p, |_, _, k| zs[k]);
+
+        let d = divergence_3d(&fx, &fy, &fz, dx, dy, dz).unwrap();
+
+        for i in 0..m {
+            for j in 0..n {
+                for k in 0..p {
+                    assert!(close_re(d[[i, j, k]], 3.0, 1e-9), "div[{i},{j},{k}]");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn curl3_of_solid_rotation_is_2_zhat() {
+        // F = (-y, x, 0)  →  ∇×F = (0, 0, 2).
+        let (m, n, p) = (3, 3, 3);
+        let (dx, dy, dz) = (0.3, 0.3, 0.3);
+        let (xs, ys, _zs) = coords(m, n, p, dx, dy, dz);
+        let fx = from_real_fn_3d(m, n, p, |i, _, _| -ys[i]);
+        let fy = from_real_fn_3d(m, n, p, |_, j, _| xs[j]);
+        let fz = from_real_fn_3d(m, n, p, |_, _, _| 0.0);
+
+        let (cx, cy, cz) = curl_3d(&fx, &fy, &fz, dx, dy, dz).unwrap();
+
+        for i in 0..m {
+            for j in 0..n {
+                for k in 0..p {
+                    assert!(close_re(cx[[i, j, k]], 0.0, 1e-9), "cx[{i},{j},{k}]");
+                    assert!(close_re(cy[[i, j, k]], 0.0, 1e-9), "cy[{i},{j},{k}]");
+                    assert!(close_re(cz[[i, j, k]], 2.0, 1e-9), "cz[{i},{j},{k}]");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn curl3_of_irrotational_field_is_zero() {
+        // F = (x, y, z)  →  ∇×F = (0, 0, 0).
+        let (m, n, p) = (3, 3, 3);
+        let (dx, dy, dz) = (0.5, 0.5, 0.5);
+        let (xs, ys, zs) = coords(m, n, p, dx, dy, dz);
+        let fx = from_real_fn_3d(m, n, p, |_, j, _| xs[j]);
+        let fy = from_real_fn_3d(m, n, p, |i, _, _| ys[i]);
+        let fz = from_real_fn_3d(m, n, p, |_, _, k| zs[k]);
+
+        let (cx, cy, cz) = curl_3d(&fx, &fy, &fz, dx, dy, dz).unwrap();
+
+        for i in 0..m {
+            for j in 0..n {
+                for k in 0..p {
+                    assert!(close_re(cx[[i, j, k]], 0.0, 1e-9));
+                    assert!(close_re(cy[[i, j, k]], 0.0, 1e-9));
+                    assert!(close_re(cz[[i, j, k]], 0.0, 1e-9));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn curl3_of_axis_helix() {
+        // F = (-y, x, z)  →  ∇×F = (0, 0, 2). Adds a non-zero z-component to
+        // the solid-rotation field; curl should be unaffected.
+        let (m, n, p) = (3, 3, 3);
+        let (dx, dy, dz) = (0.4, 0.4, 0.4);
+        let (xs, ys, zs) = coords(m, n, p, dx, dy, dz);
+        let fx = from_real_fn_3d(m, n, p, |i, _, _| -ys[i]);
+        let fy = from_real_fn_3d(m, n, p, |_, j, _| xs[j]);
+        let fz = from_real_fn_3d(m, n, p, |_, _, k| zs[k]);
+
+        let (cx, cy, cz) = curl_3d(&fx, &fy, &fz, dx, dy, dz).unwrap();
+
+        for i in 0..m {
+            for j in 0..n {
+                for k in 0..p {
+                    assert!(close_re(cx[[i, j, k]], 0.0, 1e-9));
+                    assert!(close_re(cy[[i, j, k]], 0.0, 1e-9));
+                    assert!(close_re(cz[[i, j, k]], 2.0, 1e-9));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn divergence3_of_grad_is_laplacian() {
+        // For V = x² + y² + z²,  ∇²V = 6  everywhere.
+        let (m, n, p) = (4, 4, 4);
+        let (dx, dy, dz) = (0.2, 0.2, 0.2);
+        let (xs, ys, zs) = coords(m, n, p, dx, dy, dz);
+        let v = from_real_fn_3d(m, n, p, |i, j, k| {
+            xs[j].powi(2) + ys[i].powi(2) + zs[k].powi(2)
+        });
+
+        let (vx, vy, vz) = gradient_3d(&v, dx, dy, dz).unwrap();
+        let lap = divergence_3d(&vx, &vy, &vz, dx, dy, dz).unwrap();
+
+        for i in 0..m {
+            for j in 0..n {
+                for k in 0..p {
+                    assert!(close_re(lap[[i, j, k]], 6.0, 1e-9));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn shape_mismatch_errors_3d() {
+        let a = from_real_fn_3d(3, 3, 3, |_, _, _| 0.0);
+        let b = from_real_fn_3d(3, 3, 4, |_, _, _| 0.0);
+        assert!(divergence_3d(&a, &a, &b, 1.0, 1.0, 1.0).is_err());
+        assert!(curl_3d(&a, &b, &a, 1.0, 1.0, 1.0).is_err());
+    }
+
+    #[test]
+    fn too_small_dimension_errors_3d() {
+        // page axis length 2 is too small.
+        let f = from_real_fn_3d(3, 3, 2, |_, _, _| 0.0);
+        assert!(gradient_3d(&f, 1.0, 1.0, 1.0).is_err());
+    }
+
+    #[test]
+    fn nonpositive_step_errors_3d() {
+        let f = from_real_fn_3d(3, 3, 3, |_, _, _| 0.0);
+        assert!(gradient_3d(&f, 0.0, 1.0, 1.0).is_err());
+        assert!(gradient_3d(&f, 1.0, -1.0, 1.0).is_err());
+        assert!(gradient_3d(&f, 1.0, 1.0, 0.0).is_err());
+    }
+}

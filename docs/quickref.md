@@ -135,6 +135,9 @@ A `Tensor3` is a complex `(m, n, p)` array — `m` rows, `n` columns, `p` pages.
 | `ndims(A)` | `3` for Tensor3, `2` otherwise (MATLAB convention) |
 | `A(:, :, k)` | Page slice — drops trailing singleton, returns Matrix(m, n) |
 | `save("T.npy", A)` / `load(...)` | NPY preserves rank-3 shape natively |
+| `[Fx,Fy,Fz] = gradient3(F[, dx, dy, dz])` | 3-D gradient (axis 0 = y, axis 1 = x, axis 2 = z); same stencils as `gradient` |
+| `divergence3(Fx, Fy, Fz[, dx, dy, dz])` | 3-D divergence ∂Fx/∂x + ∂Fy/∂y + ∂Fz/∂z |
+| `[Cx,Cy,Cz] = curl3(Fx, Fy, Fz[, dx, dy, dz])` | 3-D curl ∇×F (returns 3 Tensor3 components) |
 
 **Page slice + write:**
 ```r

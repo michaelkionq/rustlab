@@ -535,7 +535,7 @@ rustlab run examples/lowpass.r   # must exit 0 with a plot
 - `src/fir/design.rs` — `FirFilter` struct + `fir_lowpass`, `fir_highpass`, `fir_bandpass` (windowed-sinc method). `FirFilter` implements `Filter`.
 - `src/iir/butterworth.rs` — `IirFilter { b: Vec<f64>, a: Vec<f64> }` + `butterworth_lowpass`, `butterworth_highpass` (bilinear transform, cascade of biquad sections). `IirFilter` implements `Filter`.
 - `src/convolution.rs` — `convolve(x, h)` (direct O(nm)), `overlap_add(x, h, block_size)` (FFT-based)
-- `src/vector_calc.rs` — `gradient_2d(F, dx, dy)`, `divergence_2d(Fx, Fy, dx, dy)`, `curl_2d(Fx, Fy, dx, dy)`. 2nd-order central interior + 2nd-order one-sided boundaries. Operates on `CMatrix` (complex throughout); rows index y, columns index x.
+- `src/vector_calc.rs` — 2-D: `gradient_2d(F, dx, dy)`, `divergence_2d(Fx, Fy, dx, dy)`, `curl_2d(Fx, Fy, dx, dy)`. 3-D: `gradient_3d(F, dx, dy, dz)`, `divergence_3d(Fx, Fy, Fz, dx, dy, dz)`, `curl_3d(Fx, Fy, Fz, dx, dy, dz)`. 2nd-order central interior + 2nd-order one-sided boundaries. 2-D operates on `CMatrix` (rows index y, cols index x); 3-D on `CTensor3` (axis 0 = y, axis 1 = x, axis 2 = z). Complex inputs throughout.
 - `src/error.rs` — `DspError` (wraps `CoreError`)
 
 ---
@@ -858,6 +858,9 @@ primary     = NUMBER | STRING | IDENT
 | `gradient` | `[Fx, Fy] = gradient(F)` / `gradient(F, dx, dy)` | 2-D gradient of a scalar field on a uniform grid; rows index y, columns index x. 2nd-order central interior, 2nd-order one-sided boundaries. Each axis must have length ≥ 3. Complex inputs supported. |
 | `divergence` | `divergence(Fx, Fy)` / `divergence(Fx, Fy, dx, dy)` | 2-D divergence ∂Fx/∂x + ∂Fy/∂y; Fx and Fy must share shape. Same stencils as `gradient`. |
 | `curl` | `curl(Fx, Fy)` / `curl(Fx, Fy, dx, dy)` | Z-component of ∇×F (2-D scalar curl ∂Fy/∂x − ∂Fx/∂y). Same stencils as `gradient`. |
+| `gradient3` | `[Fx, Fy, Fz] = gradient3(F)` / `gradient3(F, dx, dy, dz)` | 3-D gradient on a uniform grid. F is a Tensor3; axis 0 = y, axis 1 = x, axis 2 = z. Returns three Tensor3s. Same stencils and shape requirements as `gradient`. |
+| `divergence3` | `divergence3(Fx, Fy, Fz)` / `divergence3(Fx, Fy, Fz, dx, dy, dz)` | 3-D divergence ∂Fx/∂x + ∂Fy/∂y + ∂Fz/∂z; all three components must share shape. Returns a Tensor3. |
+| `curl3` | `[Cx, Cy, Cz] = curl3(Fx, Fy, Fz)` / `curl3(Fx, Fy, Fz, dx, dy, dz)` | 3-D curl ∇×F. Returns three Tensor3s: Cx = ∂Fz/∂y − ∂Fy/∂z, Cy = ∂Fx/∂z − ∂Fz/∂x, Cz = ∂Fy/∂x − ∂Fx/∂y. |
 
 Window names: `"hann"`, `"hamming"`, `"blackman"`, `"rectangular"`, `"kaiser"`
 

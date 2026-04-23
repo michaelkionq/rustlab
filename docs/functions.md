@@ -205,6 +205,38 @@ Cz = curl(Fx, Fy, 0.1, 0.1);
 ```
 - Same stencils, defaults, and shape requirements as `gradient`.
 
+### `gradient3(F)` / `gradient3(F, dx, dy, dz)`
+3-D gradient of a scalar field on a uniform grid. `F` is a Tensor3 of shape `(m, n, p)`. The grid convention extends the 2-D one: axis 0 = y (rows), axis 1 = x (columns), axis 2 = z (pages), so `F(i, j, k)` ↔ `(x = (j-1)*dx, y = (i-1)*dy, z = (k-1)*dz)`.
+
+Returns a tuple `[Fx, Fy, Fz]` of three Tensor3s with the same shape as `F`.
+```
+T = reshape(1:60, 3, 4, 5);
+[Fx, Fy, Fz] = gradient3(T, 0.1, 0.1, 0.1);
+```
+- Same stencils as `gradient` (2nd-order central interior + 2nd-order one-sided boundaries).
+- Each axis must have length ≥ 3.
+- `dx`, `dy`, `dz` default to 1.0 if omitted; all must be positive.
+- Complex inputs are supported.
+
+### `divergence3(Fx, Fy, Fz)` / `divergence3(Fx, Fy, Fz, dx, dy, dz)`
+3-D divergence `∂Fx/∂x + ∂Fy/∂y + ∂Fz/∂z`. All three components must share shape; output is a Tensor3 of the same shape.
+```
+D = divergence3(Fx, Fy, Fz, 0.1, 0.1, 0.1);
+```
+- Same stencils, defaults, and shape requirements as `gradient3`.
+
+### `curl3(Fx, Fy, Fz)` / `curl3(Fx, Fy, Fz, dx, dy, dz)`
+3-D curl `∇×F`. Returns a tuple `[Cx, Cy, Cz]` of three Tensor3s with the same shape as `Fx`:
+
+- `Cx = ∂Fz/∂y − ∂Fy/∂z`
+- `Cy = ∂Fx/∂z − ∂Fz/∂x`
+- `Cz = ∂Fy/∂x − ∂Fx/∂y`
+
+```
+[Cx, Cy, Cz] = curl3(Fx, Fy, Fz, 0.1, 0.1, 0.1);
+```
+- Same stencils, defaults, and shape requirements as `gradient3`.
+
 ---
 
 ## Statistics
