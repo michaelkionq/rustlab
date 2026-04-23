@@ -93,9 +93,11 @@ const HELP: &[HelpEntry] = &[
     HelpEntry { name: "length",   brief: "Alias for len",
         detail: "length(x)  — see len" },
     HelpEntry { name: "numel",    brief: "Total number of elements",
-        detail: "numel(x)  — total elements (rows*cols for matrices, 1 for scalars)" },
-    HelpEntry { name: "size",     brief: "Dimensions as a 2-element vector",
-        detail: "size(x)  — returns [rows, cols]; vectors return [1, n]" },
+        detail: "numel(x)  — total elements (rows*cols for matrices, m*n*p for tensor3, 1 for scalars)" },
+    HelpEntry { name: "size",     brief: "Dimensions as a 2- or 3-element vector",
+        detail: "size(x)        — [rows, cols] for matrices/vectors, [m, n, p] for tensor3\nsize(x, dim)   — size along dimension 1, 2, or 3 (3 requires tensor3)" },
+    HelpEntry { name: "ndims",    brief: "Number of dimensions (2 or 3)",
+        detail: "ndims(x)  — returns 3 for tensor3, 2 for everything else (MATLAB convention)" },
     // Matrix
     HelpEntry { name: "eye",       brief: "Identity matrix",
         detail: "eye(n)  — returns an n×n identity matrix" },
@@ -105,14 +107,29 @@ const HELP: &[HelpEntry] = &[
         detail: "diag(v)  — creates an n×n diagonal matrix from vector v\ndiag(M)  — extracts the main diagonal of matrix M as a vector" },
     HelpEntry { name: "trace",     brief: "Sum of the main diagonal",
         detail: "trace(M)  — returns the sum of diagonal elements" },
-    HelpEntry { name: "reshape",   brief: "Reshape a vector or matrix",
-        detail: "reshape(A, m, n)  — returns an m×n matrix filled column-major from A\n  Total elements must be preserved." },
+    HelpEntry { name: "reshape",   brief: "Reshape a vector, matrix, or tensor3",
+        detail: "reshape(A, m, n)     — returns an m×n matrix (or length-n vector when m=1 or n=1)\nreshape(A, m, n, p)  — returns an m×n×p tensor3\n  Total elements must be preserved. Walk order is column-major (MATLAB convention)." },
     HelpEntry { name: "repmat",    brief: "Tile a matrix",
         detail: "repmat(A, m, n)  — tiles matrix A m times vertically, n times horizontally" },
     HelpEntry { name: "horzcat",   brief: "Horizontal concatenation  (also: [A B])",
         detail: "horzcat(A, B, ...)  — concatenates matrices side by side (same row count required)" },
     HelpEntry { name: "vertcat",   brief: "Vertical concatenation  (also: [A; B])",
         detail: "vertcat(A, B, ...)  — stacks matrices vertically (same column count required)" },
+    HelpEntry { name: "cat",       brief: "Concatenate along a given dimension",
+        detail: "cat(dim, A, B, ...)  — dim=1 (rows, like vertcat), dim=2 (cols, like horzcat),\n  dim=3 (pages, stacks matrices/tensor3s into a tensor3).\n  Example: cat(3, M1, M2)  → 2-page tensor3 from two equal-size matrices." },
+    // Tensor3 (rank-3)
+    HelpEntry { name: "zeros3",    brief: "Rank-3 zero tensor",
+        detail: "zeros3(m, n, p)     — m×n×p complex zero tensor\nzeros3([m, n, p])   — same (accepts size() output)\n  Use A(:, :, k) to extract the k-th page as a matrix." },
+    HelpEntry { name: "ones3",     brief: "Rank-3 ones tensor",
+        detail: "ones3(m, n, p)     — m×n×p complex ones tensor\nones3([m, n, p])   — same (accepts size() output)" },
+    HelpEntry { name: "rand3",     brief: "Uniform random rank-3 tensor  [0, 1)",
+        detail: "rand3(m, n, p)  — m×n×p tensor of samples from U[0, 1)" },
+    HelpEntry { name: "randn3",    brief: "Normal random rank-3 tensor  (mean 0, std 1)",
+        detail: "randn3(m, n, p)  — m×n×p tensor of samples from N(0, 1)" },
+    HelpEntry { name: "permute",   brief: "Reorder the axes of a tensor3",
+        detail: "permute(A, [d1, d2, d3])  — reorders axes according to the permutation\n  permute(A, [2, 1, 3])  swaps rows and columns, leaves pages alone" },
+    HelpEntry { name: "squeeze",   brief: "Drop singleton dimensions",
+        detail: "squeeze(A)  — removes any dimensions of length 1 from a tensor3.\n  (m, n, 1) → matrix(m, n);  (m, 1, p) → matrix(m, p)\n  (m, 1, 1) → vector(m);     (1, 1, 1) → scalar\n  Non-tensor3 inputs pass through unchanged." },
     // Linear algebra
     HelpEntry { name: "dot",      brief: "Inner (dot) product of two vectors",
         detail: "dot(u, v)  — sum of element-wise products; conjugates u for complex vectors\n  Accepts dense, sparse, or mixed dense/sparse vector operands.\n  sparse·sparse uses O(nnz) merge; sparse·dense uses O(nnz) gather." },
@@ -470,6 +487,7 @@ fn whos_type(v: &rustlab_script::Value) -> &'static str {
         Value::Complex(_) => "complex",
         Value::Vector(_) => "vector",
         Value::Matrix(_) => "matrix",
+        Value::Tensor3(_) => "tensor3",
         Value::Bool(_) => "bool",
         Value::Str(_) => "string",
         Value::QFmt(_) => "qfmt",
@@ -496,6 +514,10 @@ fn whos_size(v: &rustlab_script::Value) -> String {
     match v {
         Value::Vector(v) => format!("1×{}", v.len()),
         Value::Matrix(m) => format!("{}×{}", m.nrows(), m.ncols()),
+        Value::Tensor3(t) => {
+            let s = t.shape();
+            format!("{}×{}×{}", s[0], s[1], s[2])
+        }
         Value::Str(s) => format!("1×{}", s.len()),
         Value::Struct(f) => format!("1×1 ({} fields)", f.len()),
         Value::Tuple(v) => format!("1×{}", v.len()),
@@ -564,6 +586,10 @@ fn whos_preview(v: &rustlab_script::Value) -> String {
             format!("[{}{}]", preview.join(", "), suffix)
         }
         Value::Matrix(m) => format!("[{}×{} matrix]", m.nrows(), m.ncols()),
+        Value::Tensor3(t) => {
+            let s = t.shape();
+            format!("[{}×{}×{} tensor3]", s[0], s[1], s[2])
+        }
         Value::Struct(f) => {
             let mut names: Vec<&str> = f.keys().map(|s| s.as_str()).collect();
             names.sort();
@@ -773,7 +799,8 @@ fn print_help_list() {
             &[
                 "zeros", "ones", "linspace", "logspace", "rand", "randn", "randi", "min", "max",
                 "sum", "prod", "cumsum", "argmin", "argmax", "sort", "trapz", "mean", "median",
-                "std", "hist", "len", "length", "numel", "size", "meshgrid", "all", "any",
+                "std", "hist", "len", "length", "numel", "size", "ndims", "meshgrid", "all",
+                "any",
             ],
         ),
         (
@@ -787,8 +814,13 @@ fn print_help_list() {
                 "repmat",
                 "horzcat",
                 "vertcat",
+                "cat",
                 "rank",
             ],
+        ),
+        (
+            "Tensor3 (rank-3)",
+            &["zeros3", "ones3", "rand3", "randn3", "permute", "squeeze"],
         ),
         (
             "Linear Algebra",

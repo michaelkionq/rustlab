@@ -1,6 +1,6 @@
 use crate::error::ScriptError;
 use crate::eval::value::{insert_commas, Value};
-use ndarray::{Array1, Array2};
+use ndarray::{Array1, Array2, Array3};
 use num_complex::Complex;
 use rand::Rng;
 use rand_distr::{Distribution, Normal, Uniform};
@@ -103,6 +103,11 @@ impl BuiltinRegistry {
         r.register("rand", builtin_rand);
         r.register("randn", builtin_randn);
         r.register("randi", builtin_randi);
+        // Tensor3 (rank-3) constructors
+        r.register("zeros3", builtin_zeros3);
+        r.register("ones3", builtin_ones3);
+        r.register("rand3", builtin_rand3);
+        r.register("randn3", builtin_randn3);
         r.register("histogram", builtin_histogram);
         r.register("hist", builtin_histogram);
         r.register("mean", builtin_mean);
@@ -121,6 +126,7 @@ impl BuiltinRegistry {
         r.register("length", builtin_len); // alias for len
         r.register("numel", builtin_numel);
         r.register("size", builtin_size);
+        r.register("ndims", builtin_ndims);
         // I/O
         r.register("print", builtin_print);
         r.register("plot", builtin_plot);
@@ -156,6 +162,9 @@ impl BuiltinRegistry {
         r.register("repmat", builtin_repmat);
         r.register("horzcat", builtin_horzcat);
         r.register("vertcat", builtin_vertcat);
+        r.register("cat", builtin_cat);
+        r.register("permute", builtin_permute);
+        r.register("squeeze", builtin_squeeze);
         // Linear algebra
         r.register("dot", builtin_dot);
         r.register("cross", builtin_cross);
@@ -886,6 +895,73 @@ fn builtin_randn(args: Vec<Value>) -> Result<Value, ScriptError> {
     }
 }
 
+/// Unpack (m, n, p) from either 3 scalar args or one 3-element vector.
+fn unpack_tensor3_shape(args: &[Value], name: &str) -> Result<(usize, usize, usize), ScriptError> {
+    match args.len() {
+        3 => {
+            let m = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
+            let n = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
+            let p = args[2].to_usize().map_err(|e| ScriptError::type_err(e))?;
+            Ok((m, n, p))
+        }
+        1 => {
+            if let Value::Vector(v) = &args[0] {
+                if v.len() == 3 {
+                    return Ok((
+                        v[0].re.round() as usize,
+                        v[1].re.round() as usize,
+                        v[2].re.round() as usize,
+                    ));
+                }
+            }
+            Err(ScriptError::type_err(format!(
+                "{name}: expected (m, n, p) or a 3-element vector"
+            )))
+        }
+        n => Err(ScriptError::type_err(format!(
+            "{name}: expected 1 or 3 arguments, got {n}"
+        ))),
+    }
+}
+
+fn builtin_zeros3(args: Vec<Value>) -> Result<Value, ScriptError> {
+    let (m, n, p) = unpack_tensor3_shape(&args, "zeros3")?;
+    Ok(Value::Tensor3(Array3::<C64>::zeros((m, n, p))))
+}
+
+fn builtin_ones3(args: Vec<Value>) -> Result<Value, ScriptError> {
+    let (m, n, p) = unpack_tensor3_shape(&args, "ones3")?;
+    Ok(Value::Tensor3(Array3::<C64>::from_elem(
+        (m, n, p),
+        Complex::new(1.0, 0.0),
+    )))
+}
+
+fn builtin_rand3(args: Vec<Value>) -> Result<Value, ScriptError> {
+    let (m, n, p) = unpack_tensor3_shape(&args, "rand3")?;
+    let mut rng = rand::thread_rng();
+    let dist = Uniform::new(0.0_f64, 1.0);
+    let data: Vec<C64> = (0..m * n * p)
+        .map(|_| Complex::new(dist.sample(&mut rng), 0.0))
+        .collect();
+    Ok(Value::Tensor3(
+        Array3::from_shape_vec((m, n, p), data).unwrap(),
+    ))
+}
+
+fn builtin_randn3(args: Vec<Value>) -> Result<Value, ScriptError> {
+    let (m, n, p) = unpack_tensor3_shape(&args, "randn3")?;
+    let mut rng = rand::thread_rng();
+    let dist =
+        Normal::new(0.0_f64, 1.0).map_err(|e| ScriptError::type_err(format!("randn3: {e}")))?;
+    let data: Vec<C64> = (0..m * n * p)
+        .map(|_| Complex::new(dist.sample(&mut rng), 0.0))
+        .collect();
+    Ok(Value::Tensor3(
+        Array3::from_shape_vec((m, n, p), data).unwrap(),
+    ))
+}
+
 fn builtin_randi(args: Vec<Value>) -> Result<Value, ScriptError> {
     if args.is_empty() || args.len() > 2 {
         return Err(ScriptError::type_err(
@@ -1311,6 +1387,7 @@ fn builtin_numel(args: Vec<Value>) -> Result<Value, ScriptError> {
     let n = match &args[0] {
         Value::Vector(v) => v.len(),
         Value::Matrix(m) => m.nrows() * m.ncols(),
+        Value::Tensor3(t) => t.shape().iter().product::<usize>(),
         Value::Scalar(_) | Value::Complex(_) => 1,
         Value::StringArray(v) => v.len(),
         other => {
@@ -1325,6 +1402,28 @@ fn builtin_numel(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 fn builtin_size(args: Vec<Value>) -> Result<Value, ScriptError> {
     check_args_range("size", &args, 1, 2)?;
+    // Tensor3 carries 3 dimensions; everything else is treated as (rows, cols).
+    if let Value::Tensor3(t) = &args[0] {
+        let s = t.shape();
+        let (m, n, p) = (s[0], s[1], s[2]);
+        if args.len() == 2 {
+            let dim = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
+            return match dim {
+                1 => Ok(Value::Scalar(m as f64)),
+                2 => Ok(Value::Scalar(n as f64)),
+                3 => Ok(Value::Scalar(p as f64)),
+                _ => Err(ScriptError::type_err(format!(
+                    "size: dim must be 1, 2, or 3 for tensor3, got {}",
+                    dim
+                ))),
+            };
+        }
+        return Ok(Value::Vector(Array1::from_vec(vec![
+            Complex::new(m as f64, 0.0),
+            Complex::new(n as f64, 0.0),
+            Complex::new(p as f64, 0.0),
+        ])));
+    }
     let (nrows, ncols) = match &args[0] {
         Value::Vector(v) => (1usize, v.len()),
         Value::Matrix(m) => (m.nrows(), m.ncols()),
@@ -1355,6 +1454,31 @@ fn builtin_size(args: Vec<Value>) -> Result<Value, ScriptError> {
             Complex::new(ncols as f64, 0.0),
         ])))
     }
+}
+
+/// ndims(A) — number of dimensions. Scalars/vectors/matrices report 2 (MATLAB
+/// convention: even a scalar has ndims=2, conceptually 1×1). Tensor3 reports 3.
+fn builtin_ndims(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("ndims", &args, 1)?;
+    let n = match &args[0] {
+        Value::Tensor3(_) => 3,
+        Value::Scalar(_)
+        | Value::Complex(_)
+        | Value::Vector(_)
+        | Value::Matrix(_)
+        | Value::SparseVector(_)
+        | Value::SparseMatrix(_)
+        | Value::StringArray(_)
+        | Value::Bool(_)
+        | Value::Str(_) => 2,
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "ndims: unsupported type {}",
+                other.type_name()
+            )))
+        }
+    };
+    Ok(Value::Scalar(n as f64))
 }
 
 // ─── FFT builtins ──────────────────────────────────────────────────────────
@@ -2420,6 +2544,11 @@ fn value_to_c64_array(val: &Value) -> Result<(Vec<Complex<f64>>, Vec<usize>), St
             let data: Vec<Complex<f64>> = m.iter().copied().collect();
             Ok((data, vec![m.nrows(), m.ncols()]))
         }
+        Value::Tensor3(t) => {
+            let s = t.shape();
+            let data: Vec<Complex<f64>> = t.iter().copied().collect();
+            Ok((data, vec![s[0], s[1], s[2]]))
+        }
         other => Err(format!("save: cannot serialise {} to NPY", other)),
     }
 }
@@ -2511,6 +2640,10 @@ fn array_to_value(values: Vec<Complex<f64>>, shape: &[usize]) -> Result<Value, S
             let mat =
                 Array2::from_shape_vec((*nrows, *ncols), values).map_err(|e| e.to_string())?;
             Ok(Value::Matrix(mat))
+        }
+        [m, n, p] => {
+            let t = Array3::from_shape_vec((*m, *n, *p), values).map_err(|e| e.to_string())?;
+            Ok(Value::Tensor3(t))
         }
         other => Err(format!("NPY: unsupported shape rank {}", other.len())),
     }
@@ -2919,16 +3052,32 @@ fn builtin_trace(args: Vec<Value>) -> Result<Value, ScriptError> {
 
 /// reshape(A, m, n) — reshape A (vector or matrix) into an m×n matrix (column-major order)
 fn builtin_reshape(args: Vec<Value>) -> Result<Value, ScriptError> {
-    check_args("reshape", &args, 3)?;
+    check_args_range("reshape", &args, 3, 4)?;
     let m = args[1].to_usize().map_err(|e| ScriptError::type_err(e))?;
     let n = args[2].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    let p = if args.len() == 4 {
+        Some(args[3].to_usize().map_err(|e| ScriptError::type_err(e))?)
+    } else {
+        None
+    };
+    // Flatten source in column-major order (MATLAB/Octave convention).
     let flat: Vec<C64> = match &args[0] {
         Value::Vector(v) => v.iter().copied().collect(),
-        Value::Matrix(mat) => {
-            // column-major order (standard for matrix languages): collect column by column
-            (0..mat.ncols())
-                .flat_map(|c| (0..mat.nrows()).map(move |r| mat[[r, c]]))
-                .collect()
+        Value::Matrix(mat) => (0..mat.ncols())
+            .flat_map(|c| (0..mat.nrows()).map(move |r| mat[[r, c]]))
+            .collect(),
+        Value::Tensor3(t) => {
+            // Column-major walk over (rows, cols, pages): k outer, j middle, i inner.
+            let (sm, sn, sp) = (t.shape()[0], t.shape()[1], t.shape()[2]);
+            let mut out = Vec::with_capacity(sm * sn * sp);
+            for k in 0..sp {
+                for j in 0..sn {
+                    for i in 0..sm {
+                        out.push(t[[i, j, k]]);
+                    }
+                }
+            }
+            out
         }
         Value::Scalar(s) => vec![Complex::new(*s, 0.0)],
         Value::Complex(c) => vec![*c],
@@ -2939,14 +3088,31 @@ fn builtin_reshape(args: Vec<Value>) -> Result<Value, ScriptError> {
             )))
         }
     };
-    if flat.len() != m * n {
+    let total = match p {
+        Some(pv) => m * n * pv,
+        None => m * n,
+    };
+    if flat.len() != total {
         return Err(ScriptError::type_err(format!(
-            "reshape: cannot reshape {} elements into {}×{} (= {} elements)",
+            "reshape: cannot reshape {} elements into {}{}{} (= {} elements)",
             flat.len(),
             m,
-            n,
-            m * n
+            p.map(|_| format!("×{n}")).unwrap_or(format!("×{n}")),
+            p.map(|pv| format!("×{pv}")).unwrap_or_default(),
+            total
         )));
+    }
+    if let Some(pv) = p {
+        // Fill Tensor3 column-major: index in `flat` is (k*m*n + j*m + i).
+        let mut t = Array3::<C64>::zeros((m, n, pv));
+        for k in 0..pv {
+            for j in 0..n {
+                for i in 0..m {
+                    t[[i, j, k]] = flat[k * m * n + j * m + i];
+                }
+            }
+        }
+        return Ok(Value::Tensor3(t));
     }
     if m == 1 || n == 1 {
         Ok(Value::Vector(Array1::from_vec(flat)))
@@ -3019,6 +3185,236 @@ fn builtin_vertcat(args: Vec<Value>) -> Result<Value, ScriptError> {
     }
     Value::from_matrix_rows(args.into_iter().map(|v| vec![v]).collect())
         .map_err(|e| ScriptError::type_err(e))
+}
+
+/// cat(dim, A, B, ...) — concatenate along dimension `dim`. `dim` is 1 (rows),
+/// 2 (cols), or 3 (pages). For dim=3, matrices become pages of a tensor3.
+fn builtin_cat(args: Vec<Value>) -> Result<Value, ScriptError> {
+    if args.is_empty() {
+        return Err(ScriptError::type_err(
+            "cat: expected cat(dim, A, B, ...), got no arguments".to_string(),
+        ));
+    }
+    let dim = args[0].to_usize().map_err(|e| ScriptError::type_err(e))?;
+    let rest: Vec<Value> = args.into_iter().skip(1).collect();
+    if rest.is_empty() {
+        return Err(ScriptError::type_err(
+            "cat: expected at least one value to concatenate after dim".to_string(),
+        ));
+    }
+    match dim {
+        1 => builtin_vertcat(rest),
+        2 => builtin_horzcat(rest),
+        3 => {
+            // All inputs must have matching (rows, cols); stack along page axis.
+            // Accept Matrix or Tensor3 inputs (with matching (rows, cols)).
+            let mut m = 0usize;
+            let mut n = 0usize;
+            let mut total_pages = 0usize;
+            for (idx, v) in rest.iter().enumerate() {
+                let (vm, vn, vp) = match v {
+                    Value::Matrix(mat) => (mat.nrows(), mat.ncols(), 1),
+                    Value::Tensor3(t) => (t.shape()[0], t.shape()[1], t.shape()[2]),
+                    Value::Vector(vec) => (1, vec.len(), 1),
+                    Value::Scalar(_) | Value::Complex(_) => (1, 1, 1),
+                    other => {
+                        return Err(ScriptError::type_err(format!(
+                            "cat(3, ...): argument {} has type {}",
+                            idx + 2,
+                            other.type_name()
+                        )))
+                    }
+                };
+                if idx == 0 {
+                    m = vm;
+                    n = vn;
+                } else if vm != m || vn != n {
+                    return Err(ScriptError::type_err(format!(
+                        "cat(3, ...): argument {} is {}×{}, expected {}×{}",
+                        idx + 2,
+                        vm,
+                        vn,
+                        m,
+                        n
+                    )));
+                }
+                total_pages += vp;
+            }
+            let mut out = Array3::<C64>::zeros((m, n, total_pages));
+            let mut k0 = 0usize;
+            for v in rest.into_iter() {
+                match v {
+                    Value::Matrix(mat) => {
+                        for i in 0..m {
+                            for j in 0..n {
+                                out[[i, j, k0]] = mat[[i, j]];
+                            }
+                        }
+                        k0 += 1;
+                    }
+                    Value::Tensor3(t) => {
+                        let vp = t.shape()[2];
+                        for k in 0..vp {
+                            for i in 0..m {
+                                for j in 0..n {
+                                    out[[i, j, k0 + k]] = t[[i, j, k]];
+                                }
+                            }
+                        }
+                        k0 += vp;
+                    }
+                    Value::Vector(vec) => {
+                        for j in 0..n {
+                            out[[0, j, k0]] = vec[j];
+                        }
+                        k0 += 1;
+                    }
+                    Value::Scalar(s) => {
+                        out[[0, 0, k0]] = Complex::new(s, 0.0);
+                        k0 += 1;
+                    }
+                    Value::Complex(c) => {
+                        out[[0, 0, k0]] = c;
+                        k0 += 1;
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            Ok(Value::Tensor3(out))
+        }
+        _ => Err(ScriptError::type_err(format!(
+            "cat: dim must be 1, 2, or 3, got {dim}"
+        ))),
+    }
+}
+
+/// permute(A, order) — reorder the axes of a Tensor3. `order` is a 3-element
+/// permutation of [1, 2, 3] (1-based axis labels).
+fn builtin_permute(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("permute", &args, 2)?;
+    let t = match &args[0] {
+        Value::Tensor3(t) => t.clone(),
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "permute: expected tensor3, got {}",
+                other.type_name()
+            )))
+        }
+    };
+    let order: Vec<usize> = match &args[1] {
+        Value::Vector(v) if v.len() == 3 => {
+            v.iter().map(|c| c.re.round() as usize).collect()
+        }
+        other => {
+            return Err(ScriptError::type_err(format!(
+                "permute: order must be a 3-element vector, got {}",
+                other.type_name()
+            )))
+        }
+    };
+    // Validate it's a permutation of [1, 2, 3]
+    let mut sorted = order.clone();
+    sorted.sort();
+    if sorted != [1, 2, 3] {
+        return Err(ScriptError::type_err(format!(
+            "permute: order must be a permutation of [1, 2, 3], got {:?}",
+            order
+        )));
+    }
+    let s = t.shape();
+    let src = [s[0], s[1], s[2]];
+    let dst = [src[order[0] - 1], src[order[1] - 1], src[order[2] - 1]];
+    let mut out = Array3::<C64>::zeros((dst[0], dst[1], dst[2]));
+    for i in 0..src[0] {
+        for j in 0..src[1] {
+            for k in 0..src[2] {
+                let idx_src = [i, j, k];
+                let di = idx_src[order[0] - 1];
+                let dj = idx_src[order[1] - 1];
+                let dk = idx_src[order[2] - 1];
+                out[[di, dj, dk]] = t[[i, j, k]];
+            }
+        }
+    }
+    Ok(Value::Tensor3(out))
+}
+
+/// squeeze(A) — drop singleton dimensions from a Tensor3.
+///  - (m, n, 1) → Matrix(m, n)
+///  - (m, 1, p) → Matrix(m, p)
+///  - (1, n, p) → Matrix(n, p)
+///  - (m, 1, 1) → Vector(m); (1, n, 1) → Vector(n); (1, 1, p) → Vector(p)
+///  - (1, 1, 1) → Scalar
+/// Non-tensor3 inputs pass through unchanged.
+fn builtin_squeeze(args: Vec<Value>) -> Result<Value, ScriptError> {
+    check_args("squeeze", &args, 1)?;
+    let t = match args.into_iter().next().unwrap() {
+        Value::Tensor3(t) => t,
+        other => return Ok(other), // pass-through
+    };
+    let s = t.shape();
+    let (m, n, p) = (s[0], s[1], s[2]);
+    let dims = [m, n, p];
+    let singletons = dims.iter().filter(|&&d| d == 1).count();
+
+    // Collect data in (i, j, k) row-major (C-order) walk — matches ndarray's
+    // default and yields the right Matrix/Vector when the singletons are removed.
+    match singletons {
+        0 => Ok(Value::Tensor3(t)), // nothing to squeeze
+        1 => {
+            // Exactly one singleton → Matrix over the two non-singleton axes.
+            let (rows, cols, drop_dim) = if m == 1 {
+                (n, p, 0usize)
+            } else if n == 1 {
+                (m, p, 1usize)
+            } else {
+                (m, n, 2usize)
+            };
+            let mut out = Array2::<C64>::zeros((rows, cols));
+            for i in 0..m {
+                for j in 0..n {
+                    for k in 0..p {
+                        let (r, c) = match drop_dim {
+                            0 => (j, k),
+                            1 => (i, k),
+                            2 => (i, j),
+                            _ => unreachable!(),
+                        };
+                        out[[r, c]] = t[[i, j, k]];
+                    }
+                }
+            }
+            Ok(Value::Matrix(out))
+        }
+        2 => {
+            // Two singletons → Vector along the single non-singleton axis.
+            let len = if m > 1 {
+                m
+            } else if n > 1 {
+                n
+            } else {
+                p
+            };
+            let mut out = Vec::with_capacity(len);
+            for i in 0..m {
+                for j in 0..n {
+                    for k in 0..p {
+                        out.push(t[[i, j, k]]);
+                    }
+                }
+            }
+            Ok(Value::Vector(Array1::from_vec(out)))
+        }
+        _ => {
+            // All singletons → Scalar / Complex
+            let c = t[[0, 0, 0]];
+            if c.im.abs() < 1e-12 {
+                Ok(Value::Scalar(c.re))
+            } else {
+                Ok(Value::Complex(c))
+            }
+        }
+    }
 }
 
 // ─── Linear algebra ────────────────────────────────────────────────────────

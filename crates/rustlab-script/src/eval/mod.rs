@@ -519,21 +519,43 @@ impl Evaluator {
             } => {
                 let val = self.eval_expr(expr)?;
 
-                // Evaluate indices with `end` bound to current container length (if any)
-                let container_len = match self.env.get(name.as_str()) {
-                    Some(Value::Vector(v)) => v.len(),
-                    Some(Value::Matrix(m)) if indices.len() == 1 => m.nrows() * m.ncols(),
-                    Some(Value::SparseVector(sv)) => sv.len,
-                    Some(Value::SparseMatrix(sm)) if indices.len() == 1 => sm.rows * sm.cols,
-                    _ => 0,
+                // Evaluate indices with `end` bound to current container length (if any).
+                // Tensor3 with 3 indices gets per-dim `end` binding.
+                let idx_vals: Vec<Value> = if indices.len() == 3
+                    && matches!(self.env.get(name.as_str()), Some(Value::Tensor3(_)))
+                {
+                    let (m, n, p) = match self.env.get(name.as_str()) {
+                        Some(Value::Tensor3(t)) => {
+                            let s = t.shape();
+                            (s[0], s[1], s[2])
+                        }
+                        _ => unreachable!(),
+                    };
+                    self.env.insert("end".to_string(), Value::Scalar(m as f64));
+                    let iv = self.eval_expr(&indices[0])?;
+                    self.env.insert("end".to_string(), Value::Scalar(n as f64));
+                    let jv = self.eval_expr(&indices[1])?;
+                    self.env.insert("end".to_string(), Value::Scalar(p as f64));
+                    let kv = self.eval_expr(&indices[2])?;
+                    self.env.remove("end");
+                    vec![iv, jv, kv]
+                } else {
+                    let container_len = match self.env.get(name.as_str()) {
+                        Some(Value::Vector(v)) => v.len(),
+                        Some(Value::Matrix(m)) if indices.len() == 1 => m.nrows() * m.ncols(),
+                        Some(Value::SparseVector(sv)) => sv.len,
+                        Some(Value::SparseMatrix(sm)) if indices.len() == 1 => sm.rows * sm.cols,
+                        _ => 0,
+                    };
+                    self.env
+                        .insert("end".to_string(), Value::Scalar(container_len as f64));
+                    let vals: Vec<Value> = indices
+                        .iter()
+                        .map(|a| self.eval_expr(a))
+                        .collect::<Result<_, _>>()?;
+                    self.env.remove("end");
+                    vals
                 };
-                self.env
-                    .insert("end".to_string(), Value::Scalar(container_len as f64));
-                let idx_vals: Vec<Value> = indices
-                    .iter()
-                    .map(|a| self.eval_expr(a))
-                    .collect::<Result<_, _>>()?;
-                self.env.remove("end");
 
                 if idx_vals.len() == 1 {
                     let idx = idx_vals[0]
@@ -736,9 +758,12 @@ impl Evaluator {
                             )))
                         }
                     }
+                } else if idx_vals.len() == 3 {
+                    // Three-index: tensor3 assignment.
+                    self.tensor3_index_assign(name, &idx_vals, &val, *suppress)?;
                 } else {
                     return Err(ScriptError::runtime(
-                        "index assignment: only 1 or 2 indices are supported".to_string(),
+                        "index assignment: only 1, 2, or 3 indices are supported".to_string(),
                     ));
                 }
             }
@@ -786,6 +811,153 @@ impl Evaluator {
                     output::script_println(&val.format_display(self.number_format));
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Assign into a Tensor3 via 3-index indexing.
+    ///
+    /// Supports: scalar target `A(i, j, k) = s`, full-tensor region
+    /// `A(rows, cols, pages) = Tensor3`, and reduced-rank RHS where the index
+    /// set implies a Matrix (one singleton index) or Vector (two singletons).
+    fn tensor3_index_assign(
+        &mut self,
+        name: &str,
+        idx_vals: &[Value],
+        val: &Value,
+        suppress: bool,
+    ) -> Result<(), ScriptError> {
+        let (m, n, p) = match self.env.get(name) {
+            Some(Value::Tensor3(t)) => {
+                let s = t.shape();
+                (s[0], s[1], s[2])
+            }
+            _ => {
+                return Err(ScriptError::runtime(format!(
+                    "index assignment: '{}' is not a tensor3",
+                    name
+                )))
+            }
+        };
+        let rows = Value::resolve_index_dim_public(&idx_vals[0], m)
+            .map_err(|e| ScriptError::runtime(e))?;
+        let cols = Value::resolve_index_dim_public(&idx_vals[1], n)
+            .map_err(|e| ScriptError::runtime(e))?;
+        let pages = Value::resolve_index_dim_public(&idx_vals[2], p)
+            .map_err(|e| ScriptError::runtime(e))?;
+        let (nr, nc, np) = (rows.len(), cols.len(), pages.len());
+        let total = nr * nc * np;
+
+        // Gather RHS into a flat buffer of length `total`, in (r,c,k)-major order.
+        let flat: Vec<Complex<f64>> = match val {
+            Value::Scalar(s) => vec![Complex::new(*s, 0.0); total],
+            Value::Complex(c) => vec![*c; total],
+            Value::Matrix(rhs) => {
+                // Determine which dim the matrix maps to based on singleton pattern.
+                let singletons = [nr == 1, nc == 1, np == 1];
+                let (exp_rows, exp_cols) = if singletons[0] {
+                    (nc, np) // A(i, :, :) = M  → M is (nc × np)
+                } else if singletons[1] {
+                    (nr, np) // A(:, j, :) = M  → M is (nr × np)
+                } else if singletons[2] {
+                    (nr, nc) // A(:, :, k) = M  → M is (nr × nc)
+                } else {
+                    return Err(ScriptError::runtime(format!(
+                        "index assignment: cannot assign {}×{} matrix into {}×{}×{} region",
+                        rhs.nrows(), rhs.ncols(), nr, nc, np
+                    )));
+                };
+                if rhs.nrows() != exp_rows || rhs.ncols() != exp_cols {
+                    return Err(ScriptError::runtime(format!(
+                        "index assignment: RHS matrix is {}×{} but expected {}×{}",
+                        rhs.nrows(), rhs.ncols(), exp_rows, exp_cols
+                    )));
+                }
+                // Walk (r, c, k) in the same outer→inner order as index_3d and
+                // place each element from the matrix using the right (row, col) pair.
+                let mut out = Vec::with_capacity(total);
+                for ir in 0..nr {
+                    for ic in 0..nc {
+                        for ik in 0..np {
+                            let (mr, mc) = if singletons[0] {
+                                (ic, ik)
+                            } else if singletons[1] {
+                                (ir, ik)
+                            } else {
+                                (ir, ic)
+                            };
+                            out.push(rhs[[mr, mc]]);
+                        }
+                    }
+                }
+                out
+            }
+            Value::Vector(rhs) => {
+                // Only legal when exactly one dimension is non-singleton.
+                let non_singleton = [nr, nc, np].iter().filter(|&&x| x > 1).count();
+                if non_singleton != 1 {
+                    return Err(ScriptError::runtime(format!(
+                        "index assignment: vector RHS requires exactly one non-singleton index, got region {}×{}×{}",
+                        nr, nc, np
+                    )));
+                }
+                if rhs.len() != total {
+                    return Err(ScriptError::runtime(format!(
+                        "index assignment: vector RHS length {} does not match region size {}",
+                        rhs.len(), total
+                    )));
+                }
+                rhs.iter().copied().collect()
+            }
+            Value::Tensor3(rhs) => {
+                if rhs.shape() != [nr, nc, np] {
+                    return Err(ScriptError::runtime(format!(
+                        "index assignment: RHS tensor3 shape {:?} does not match region {}×{}×{}",
+                        rhs.shape(), nr, nc, np
+                    )));
+                }
+                let mut out = Vec::with_capacity(total);
+                for ir in 0..nr {
+                    for ic in 0..nc {
+                        for ik in 0..np {
+                            out.push(rhs[[ir, ic, ik]]);
+                        }
+                    }
+                }
+                out
+            }
+            other => {
+                return Err(ScriptError::runtime(format!(
+                    "index assignment: right-hand side must be scalar, complex, matrix, vector, or tensor3, got {}",
+                    other.type_name()
+                )))
+            }
+        };
+
+        // Write back into the stored Tensor3.
+        if let Some(Value::Tensor3(t)) = self.env.get_mut(name) {
+            let mut idx = 0usize;
+            for &r in &rows {
+                for &c in &cols {
+                    for &k in &pages {
+                        t[[r, c, k]] = flat[idx];
+                        idx += 1;
+                    }
+                }
+            }
+        } else {
+            unreachable!();
+        }
+
+        if !suppress && self.echo_enabled() {
+            output::script_println(&format!(
+                "{}({}×{}×{} region) = <{}>",
+                name,
+                nr,
+                nc,
+                np,
+                val.type_name()
+            ));
         }
         Ok(())
     }
@@ -888,6 +1060,7 @@ impl Evaluator {
                     self.env.get(name.as_str()),
                     Some(Value::Vector(_))
                         | Some(Value::Matrix(_))
+                        | Some(Value::Tensor3(_))
                         | Some(Value::SparseVector(_))
                         | Some(Value::SparseMatrix(_))
                         | Some(Value::Tuple(_))
@@ -896,8 +1069,29 @@ impl Evaluator {
                 ) {
                     let container = self.env[name.as_str()].clone();
 
+                    // For 3-argument tensor3 indexing, bind `end` per-dimension.
+                    let idx_vals: Vec<Value> = if args.len() == 3 {
+                        if let Value::Tensor3(t) = &container {
+                            let s = t.shape();
+                            let (m, n, p) = (s[0], s[1], s[2]);
+                            self.env.insert("end".to_string(), Value::Scalar(m as f64));
+                            let iv = self.eval_expr(&args[0])?;
+                            self.env.insert("end".to_string(), Value::Scalar(n as f64));
+                            let jv = self.eval_expr(&args[1])?;
+                            self.env.insert("end".to_string(), Value::Scalar(p as f64));
+                            let kv = self.eval_expr(&args[2])?;
+                            self.env.remove("end");
+                            vec![iv, jv, kv]
+                        } else {
+                            let vals: Vec<Value> = args
+                                .iter()
+                                .map(|a| self.eval_expr(a))
+                                .collect::<Result<_, _>>()?;
+                            vals
+                        }
+                    }
                     // For 2-argument matrix indexing, bind `end` context-sensitively per dimension.
-                    let idx_vals: Vec<Value> = if args.len() == 2 {
+                    else if args.len() == 2 {
                         let (nrows, ncols) = match &container {
                             Value::Matrix(m) => (m.nrows(), m.ncols()),
                             Value::SparseMatrix(sm) => (sm.rows, sm.cols),

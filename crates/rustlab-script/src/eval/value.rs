@@ -1,7 +1,7 @@
 use crate::ast::{BinOp, Expr};
 use ndarray::{Array1, Array2};
 use num_complex::Complex;
-use rustlab_core::{CMatrix, CVector, SparseMat, SparseVec, C64};
+use rustlab_core::{CMatrix, CTensor3, CVector, SparseMat, SparseVec, C64};
 use rustlab_dsp::fixed::QFmtSpec;
 use std::collections::HashMap;
 use std::fmt;
@@ -38,6 +38,9 @@ pub enum Value {
     Complex(C64),
     Vector(CVector),
     Matrix(CMatrix),
+    /// Rank-3 complex tensor, shape `(m, n, p)` — rows × cols × pages.
+    /// 1-based indexing via `A(i, j, k)`; `A(:, :, k)` returns a `Matrix` (drops trailing singleton).
+    Tensor3(CTensor3),
     Bool(bool),
     Str(String),
     QFmt(QFmtSpec),
@@ -105,6 +108,7 @@ impl Value {
             Value::Complex(c) => Ok(Value::Complex(-c)),
             Value::Vector(v) => Ok(Value::Vector(-v)),
             Value::Matrix(m) => Ok(Value::Matrix(-m)),
+            Value::Tensor3(t) => Ok(Value::Tensor3(-t)),
             Value::TransferFn { num, den } => Ok(Value::TransferFn {
                 num: num.iter().map(|&x| -x).collect(),
                 den,
@@ -136,6 +140,7 @@ impl Value {
             Value::Complex(_) => "complex",
             Value::Vector(_) => "vector",
             Value::Matrix(_) => "matrix",
+            Value::Tensor3(_) => "tensor3",
             Value::Bool(_) => "bool",
             Value::Str(_) => "string",
             Value::QFmt(_) => "qfmt",
@@ -258,6 +263,12 @@ impl Value {
     }
 
     /// Resolve an index value to a list of 0-based indices for a dimension of `dim_len`.
+    /// Public re-export for use by assignment paths in the evaluator.
+    pub fn resolve_index_dim_public(idx: &Value, dim_len: usize) -> Result<Vec<usize>, String> {
+        Self::resolve_index_dim(idx, dim_len)
+    }
+
+    /// Resolve an index value to a list of 0-based indices for a dimension of `dim_len`.
     fn resolve_index_dim(idx: &Value, dim_len: usize) -> Result<Vec<usize>, String> {
         match idx {
             Value::All => Ok((0..dim_len).collect()),
@@ -286,8 +297,9 @@ impl Value {
         }
     }
 
-    /// 1-based indexing into a Vector or Matrix.
-    /// Single index: 1D selection. Two indices: 2D selection with `:` (All) support.
+    /// 1-based indexing into a Vector, Matrix, or Tensor3.
+    /// Single index: 1D selection. Two indices: 2D selection. Three indices: 3D selection.
+    /// `:` (All) is supported in any dimension.
     pub fn index(self, indices: Vec<Value>) -> Result<Value, String> {
         match indices.len() {
             1 => self.index_1d(indices.into_iter().next().unwrap()),
@@ -297,7 +309,14 @@ impl Value {
                 let col_idx = it.next().unwrap();
                 self.index_2d(row_idx, col_idx)
             }
-            n => Err(format!("indexing requires 1 or 2 arguments, got {}", n)),
+            3 => {
+                let mut it = indices.into_iter();
+                let i_idx = it.next().unwrap();
+                let j_idx = it.next().unwrap();
+                let k_idx = it.next().unwrap();
+                self.index_3d(i_idx, j_idx, k_idx)
+            }
+            n => Err(format!("indexing requires 1, 2, or 3 arguments, got {}", n)),
         }
     }
 
@@ -590,6 +609,99 @@ impl Value {
                 "2D indexing requires a matrix, got {}",
                 other.type_name()
             )),
+        }
+    }
+
+    /// 1-based indexing into a Tensor3: `A(i, j, k)`.
+    /// Trailing singleton dimensions are dropped so e.g. `A(:, :, k)` returns a `Matrix`.
+    /// A single-element extract returns `Scalar`/`Complex`.
+    fn index_3d(self, i_idx: Value, j_idx: Value, k_idx: Value) -> Result<Value, String> {
+        let t = match self {
+            Value::Tensor3(t) => t,
+            other => {
+                return Err(format!(
+                    "3D indexing requires a tensor3, got {}",
+                    other.type_name()
+                ))
+            }
+        };
+        let (m, n, p) = (t.shape()[0], t.shape()[1], t.shape()[2]);
+        let is_all = |v: &Value| matches!(v, Value::All);
+        let rows = Self::resolve_index_dim(&i_idx, m)?;
+        let cols = Self::resolve_index_dim(&j_idx, n)?;
+        let pages = Self::resolve_index_dim(&k_idx, p)?;
+        let (nr, nc, np) = (rows.len(), cols.len(), pages.len());
+
+        // Single-element extract
+        if nr == 1 && nc == 1 && np == 1 {
+            let c = t[[rows[0], cols[0], pages[0]]];
+            return if c.im.abs() < 1e-12 {
+                Ok(Value::Scalar(c.re))
+            } else {
+                Ok(Value::Complex(c))
+            };
+        }
+
+        // All-range extract: clone the whole tensor (or the sub-tensor)
+        if is_all(&i_idx) && is_all(&j_idx) && is_all(&k_idx) {
+            return Ok(Value::Tensor3(t));
+        }
+
+        // Determine result shape by dropping *trailing* singleton dimensions
+        // (MATLAB-style: A(:, :, k) → Matrix, A(:, j, :) → Matrix, A(i, :, :) → Matrix,
+        //  A(1, 1, :) → Vector (row×col collapse), A(:, :, :) → Tensor3 already handled).
+        // General rule: build a (nr × nc × np) buffer, then squeeze trailing singletons
+        // OR inner singletons to return the lowest-rank type that fits.
+        let mut data: Vec<C64> = Vec::with_capacity(nr * nc * np);
+        for &r in &rows {
+            for &c in &cols {
+                for &k in &pages {
+                    data.push(t[[r, c, k]]);
+                }
+            }
+        }
+
+        // Decide return shape.
+        // - 2 singleton dims → Vector along the non-singleton axis.
+        // - 1 singleton dim  → Matrix with the two non-singleton axes.
+        // - 0 singleton dims → Tensor3.
+        let singletons = [nr == 1, nc == 1, np == 1];
+        let singleton_count = singletons.iter().filter(|b| **b).count();
+        match singleton_count {
+            2 => {
+                // Single non-singleton axis → Vector
+                Ok(Value::Vector(Array1::from_vec(data)))
+            }
+            1 => {
+                // Two non-singleton axes → Matrix in their natural (earlier-first) order
+                if singletons[0] {
+                    // Drop i: Matrix (nc × np)
+                    Ok(Value::Matrix(
+                        Array2::from_shape_vec((nc, np), data).map_err(|e| e.to_string())?,
+                    ))
+                } else if singletons[1] {
+                    // Drop j: Matrix (nr × np)
+                    Ok(Value::Matrix(
+                        Array2::from_shape_vec((nr, np), data).map_err(|e| e.to_string())?,
+                    ))
+                } else {
+                    // Drop k: Matrix (nr × nc), but the walk order above is
+                    // (r major, c middle, k inner) — so for np=1 we already
+                    // collected in row-major (nr, nc) order.
+                    Ok(Value::Matrix(
+                        Array2::from_shape_vec((nr, nc), data).map_err(|e| e.to_string())?,
+                    ))
+                }
+            }
+            _ => {
+                // No singletons → Tensor3.
+                // The walk was (r outer, c middle, k inner), which is row-major (C order)
+                // for shape (nr, nc, np) — what Array3::from_shape_vec expects by default.
+                Ok(Value::Tensor3(
+                    ndarray::Array3::from_shape_vec((nr, nc, np), data)
+                        .map_err(|e| e.to_string())?,
+                ))
+            }
         }
     }
 
@@ -1030,6 +1142,130 @@ impl Value {
                 ))
             }
 
+            // ── Tensor3 element-wise arithmetic ───────────────────────────────
+
+            // Scalar/Complex broadcast onto Tensor3
+            (Value::Scalar(_), Value::Tensor3(_)) | (Value::Complex(_), Value::Tensor3(_)) => {
+                let scalar = Self::promote_to_complex(lhs)?;
+                let t = match rhs {
+                    Value::Tensor3(t) => t,
+                    _ => unreachable!(),
+                };
+                match op {
+                    Mul | ElemMul | Div | ElemDiv | Add | Sub | Pow | ElemPow => {
+                        let mapped = t.mapv(|x| match op {
+                            Add => scalar + x,
+                            Sub => scalar - x,
+                            Mul | ElemMul => scalar * x,
+                            Div | ElemDiv => scalar / x,
+                            Pow | ElemPow => {
+                                let ln_s = Complex::new(scalar.norm().ln(), scalar.arg());
+                                (x * ln_s).exp()
+                            }
+                            _ => unreachable!(),
+                        });
+                        Ok(Value::Tensor3(mapped))
+                    }
+                    _ => Err(format!(
+                        "operator {:?} not defined between scalar and tensor3",
+                        op
+                    )),
+                }
+            }
+
+            // Tensor3 broadcast with Scalar/Complex
+            (Value::Tensor3(_), Value::Scalar(_)) | (Value::Tensor3(_), Value::Complex(_)) => {
+                let t = match lhs {
+                    Value::Tensor3(t) => t,
+                    _ => unreachable!(),
+                };
+                let scalar = Self::promote_to_complex(rhs)?;
+                match op {
+                    Mul | ElemMul | Div | ElemDiv | Add | Sub | Pow | ElemPow => {
+                        let mapped = t.mapv(|x| match op {
+                            Add => x + scalar,
+                            Sub => x - scalar,
+                            Mul | ElemMul => x * scalar,
+                            Div | ElemDiv => x / scalar,
+                            Pow | ElemPow => {
+                                let ln_x = Complex::new(x.norm().ln(), x.arg());
+                                (scalar * ln_x).exp()
+                            }
+                            _ => unreachable!(),
+                        });
+                        Ok(Value::Tensor3(mapped))
+                    }
+                    _ => Err(format!(
+                        "operator {:?} not defined between tensor3 and scalar",
+                        op
+                    )),
+                }
+            }
+
+            // Tensor3 op Tensor3: element-wise for +, -, .*, ./, .^; error for * / ^
+            (Value::Tensor3(a), Value::Tensor3(b)) => {
+                if a.shape() != b.shape() {
+                    return Err(format!(
+                        "tensor3 shape mismatch: {:?} vs {:?}",
+                        a.shape(),
+                        b.shape()
+                    ));
+                }
+                match op {
+                    Add => Ok(Value::Tensor3(a + b)),
+                    Sub => Ok(Value::Tensor3(a - b)),
+                    ElemMul => Ok(Value::Tensor3(a * b)),
+                    ElemDiv => Ok(Value::Tensor3(a / b)),
+                    ElemPow => {
+                        let data = a
+                            .iter()
+                            .zip(b.iter())
+                            .map(|(&x, &y)| {
+                                let ln_x = Complex::new(x.norm().ln(), x.arg());
+                                (y * ln_x).exp()
+                            })
+                            .collect::<Vec<_>>();
+                        Ok(Value::Tensor3(
+                            ndarray::Array3::from_shape_vec(
+                                (a.shape()[0], a.shape()[1], a.shape()[2]),
+                                data,
+                            )
+                            .map_err(|e| e.to_string())?,
+                        ))
+                    }
+                    Mul => Err(
+                        "operator * not defined between two tensor3 values; use .* for element-wise (matmul on rank-3 requires a future pagemtimes)"
+                            .to_string(),
+                    ),
+                    Div => Err(
+                        "operator / not defined between two tensor3 values; use ./ for element-wise"
+                            .to_string(),
+                    ),
+                    Pow => Err(
+                        "operator ^ not defined between two tensor3 values; use .^ for element-wise"
+                            .to_string(),
+                    ),
+                    _ => Err(format!(
+                        "operator {:?} not defined between two tensor3 values",
+                        op
+                    )),
+                }
+            }
+
+            // Matrix ± Tensor3 / Vector ± Tensor3: broadcast NOT supported — clear error
+            (Value::Matrix(_), Value::Tensor3(_)) | (Value::Tensor3(_), Value::Matrix(_)) => {
+                Err(format!(
+                    "operator {:?} not defined between matrix and tensor3 (broadcasting is not supported; use explicit iteration or cat/repmat)",
+                    op
+                ))
+            }
+            (Value::Vector(_), Value::Tensor3(_)) | (Value::Tensor3(_), Value::Vector(_)) => {
+                Err(format!(
+                    "operator {:?} not defined between vector and tensor3",
+                    op
+                ))
+            }
+
             // ── TransferFn arithmetic ─────────────────────────────────────────
             (Value::TransferFn { num: n1, den: d1 }, Value::TransferFn { num: n2, den: d2 }) => {
                 match op {
@@ -1435,6 +1671,47 @@ impl fmt::Display for Value {
                 }
                 if nrows > MAX_ELEMS {
                     write!(f, "\n  ... ({} rows total)", nrows)?;
+                }
+                Ok(())
+            }
+            Value::Tensor3(t) => {
+                let (m, n, p) = (t.shape()[0], t.shape()[1], t.shape()[2]);
+                write!(f, "tensor3 [{}×{}×{}]", m, n, p)?;
+                if m == 0 || n == 0 || p == 0 {
+                    return Ok(());
+                }
+                // Show up to 2 pages (first and last) with matrix-style formatting.
+                let show_pages: Vec<usize> = if p <= 2 { (0..p).collect() } else { vec![0, p - 1] };
+                for (idx, &k) in show_pages.iter().enumerate() {
+                    if idx > 0 && p > 2 {
+                        write!(f, "\n  ... ({} pages omitted)", p - 2)?;
+                    }
+                    write!(f, "\n  (:, :, {}) =", k + 1)?;
+                    let show_rows = m.min(MAX_ELEMS);
+                    for r in 0..show_rows {
+                        write!(f, "\n    [")?;
+                        let show_cols = n.min(MAX_ELEMS);
+                        for c_idx in 0..show_cols {
+                            if c_idx > 0 {
+                                write!(f, ", ")?;
+                            }
+                            let c = t[[r, c_idx, k]];
+                            if c.im.abs() < 1e-12 {
+                                write!(f, "{:.6}", c.re)?;
+                            } else if c.im >= 0.0 {
+                                write!(f, "{:.6}+{:.6}j", c.re, c.im)?;
+                            } else {
+                                write!(f, "{:.6}{:.6}j", c.re, c.im)?;
+                            }
+                        }
+                        if n > MAX_ELEMS {
+                            write!(f, ", ...")?;
+                        }
+                        write!(f, "]")?;
+                    }
+                    if m > MAX_ELEMS {
+                        write!(f, "\n    ... ({} rows total)", m)?;
+                    }
                 }
                 Ok(())
             }

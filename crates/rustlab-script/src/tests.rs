@@ -7669,3 +7669,983 @@ mod audit_builtin_tests {
         assert!((y[1] - 0.125).abs() < 1e-9, "qmul[1] = {}", y[1]);
     }
 }
+
+#[cfg(test)]
+mod tensor3_tests {
+    use crate::eval::value::Value;
+    use ndarray::Array3;
+    use num_complex::Complex;
+    use rustlab_core::{CTensor3, C64};
+
+    fn c(x: f64) -> C64 {
+        Complex::new(x, 0.0)
+    }
+
+    fn build(m: usize, n: usize, p: usize) -> CTensor3 {
+        let mut t = Array3::<C64>::zeros((m, n, p));
+        // Fill with 1-based row-major-ish walk for easy sanity: t[i, j, k] = i*100 + j*10 + k + 1
+        for i in 0..m {
+            for j in 0..n {
+                for k in 0..p {
+                    t[[i, j, k]] = c((i * 100 + j * 10 + k + 1) as f64);
+                }
+            }
+        }
+        t
+    }
+
+    #[test]
+    fn type_name_is_tensor3() {
+        let v = Value::Tensor3(Array3::<C64>::zeros((2, 3, 4)));
+        assert_eq!(v.type_name(), "tensor3");
+    }
+
+    #[test]
+    fn negate_flips_every_element() {
+        let v = Value::Tensor3(build(2, 2, 2));
+        let neg = v.negate().unwrap();
+        if let Value::Tensor3(t) = neg {
+            assert_eq!(t.shape(), &[2, 2, 2]);
+            assert_eq!(t[[0, 0, 0]], c(-1.0));
+            assert_eq!(t[[1, 1, 1]], c(-(100 + 10 + 1 + 1) as f64));
+        } else {
+            panic!("negate on Tensor3 should return Tensor3");
+        }
+    }
+
+    #[test]
+    fn display_shows_shape_and_first_page() {
+        let v = Value::Tensor3(build(2, 3, 4));
+        let s = format!("{}", v);
+        assert!(s.starts_with("tensor3 [2×3×4]"), "got: {}", s);
+        assert!(s.contains("(:, :, 1) ="), "got: {}", s);
+        assert!(s.contains("(:, :, 4) ="), "got: {}", s);
+        assert!(s.contains("2 pages omitted"), "got: {}", s);
+    }
+
+    #[test]
+    fn display_small_shows_all_pages() {
+        let v = Value::Tensor3(build(2, 2, 2));
+        let s = format!("{}", v);
+        assert!(s.contains("(:, :, 1) ="), "got: {}", s);
+        assert!(s.contains("(:, :, 2) ="), "got: {}", s);
+        assert!(!s.contains("omitted"), "got: {}", s);
+    }
+
+    #[test]
+    fn display_empty_tensor_shows_header_only() {
+        let v = Value::Tensor3(Array3::<C64>::zeros((0, 0, 0)));
+        let s = format!("{}", v);
+        assert_eq!(s, "tensor3 [0×0×0]");
+    }
+
+    #[test]
+    fn transpose_rejects_tensor3() {
+        let v = Value::Tensor3(Array3::<C64>::zeros((2, 2, 2)));
+        assert!(v.transpose().is_err());
+    }
+
+    #[test]
+    fn to_scalar_rejects_tensor3() {
+        let v = Value::Tensor3(Array3::<C64>::zeros((1, 1, 1)));
+        assert!(v.to_scalar().is_err());
+    }
+}
+
+#[cfg(test)]
+mod tensor3_constructor_tests {
+    use crate::eval::value::Value;
+    use crate::{lexer, parser, Evaluator};
+
+    fn run(src: &str) -> Evaluator {
+        let src = format!("{src}\n");
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts {
+            ev.exec_stmt(stmt).unwrap();
+        }
+        ev
+    }
+
+    fn shape(ev: &Evaluator, name: &str) -> (usize, usize, usize) {
+        match ev.get(name).unwrap() {
+            Value::Tensor3(t) => {
+                let s = t.shape();
+                (s[0], s[1], s[2])
+            }
+            other => panic!("Expected Tensor3 for '{name}', got {other:?}"),
+        }
+    }
+
+    fn scalar(ev: &Evaluator, name: &str) -> f64 {
+        match ev.get(name).unwrap() {
+            Value::Scalar(n) => *n,
+            other => panic!("Expected Scalar for '{name}', got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn zeros3_shape() {
+        let ev = run("A = zeros3(2, 3, 4)");
+        assert_eq!(shape(&ev, "A"), (2, 3, 4));
+    }
+
+    #[test]
+    fn zeros3_all_zero() {
+        let ev = run("A = zeros3(2, 2, 2)");
+        if let Value::Tensor3(t) = ev.get("A").unwrap() {
+            for &c in t.iter() {
+                assert_eq!(c.re, 0.0);
+                assert_eq!(c.im, 0.0);
+            }
+        } else {
+            panic!();
+        }
+    }
+
+    #[test]
+    fn ones3_all_one() {
+        let ev = run("A = ones3(2, 2, 2)");
+        if let Value::Tensor3(t) = ev.get("A").unwrap() {
+            for &c in t.iter() {
+                assert_eq!(c.re, 1.0);
+                assert_eq!(c.im, 0.0);
+            }
+        } else {
+            panic!();
+        }
+    }
+
+    #[test]
+    fn rand3_shape_and_range() {
+        let ev = run("A = rand3(3, 2, 5)");
+        if let Value::Tensor3(t) = ev.get("A").unwrap() {
+            assert_eq!(t.shape(), &[3, 2, 5]);
+            for &c in t.iter() {
+                assert!(c.re >= 0.0 && c.re < 1.0, "rand3 value out of range: {c}");
+            }
+        } else {
+            panic!();
+        }
+    }
+
+    #[test]
+    fn randn3_shape() {
+        let ev = run("A = randn3(2, 3, 4)");
+        assert_eq!(shape(&ev, "A"), (2, 3, 4));
+    }
+
+    #[test]
+    fn size_tensor3_returns_three_elements() {
+        let ev = run("A = zeros3(2, 3, 4); s = size(A)");
+        if let Value::Vector(v) = ev.get("s").unwrap() {
+            assert_eq!(v.len(), 3);
+            assert_eq!(v[0].re, 2.0);
+            assert_eq!(v[1].re, 3.0);
+            assert_eq!(v[2].re, 4.0);
+        } else {
+            panic!("size(Tensor3) should return a Vector");
+        }
+    }
+
+    #[test]
+    fn size_tensor3_with_dim() {
+        let ev = run("A = zeros3(2, 3, 4); d1 = size(A, 1); d2 = size(A, 2); d3 = size(A, 3)");
+        assert_eq!(scalar(&ev, "d1"), 2.0);
+        assert_eq!(scalar(&ev, "d2"), 3.0);
+        assert_eq!(scalar(&ev, "d3"), 4.0);
+    }
+
+    #[test]
+    fn numel_tensor3() {
+        let ev = run("A = zeros3(2, 3, 4); n = numel(A)");
+        assert_eq!(scalar(&ev, "n"), 24.0);
+    }
+
+    #[test]
+    fn ndims_tensor3_is_three() {
+        let ev = run("A = zeros3(2, 3, 4); n = ndims(A)");
+        assert_eq!(scalar(&ev, "n"), 3.0);
+    }
+
+    #[test]
+    fn ndims_matrix_is_two() {
+        let ev = run("A = zeros(2, 3); n = ndims(A)");
+        assert_eq!(scalar(&ev, "n"), 2.0);
+    }
+
+    #[test]
+    fn ndims_vector_is_two() {
+        let ev = run("v = [1, 2, 3]; n = ndims(v)");
+        assert_eq!(scalar(&ev, "n"), 2.0);
+    }
+
+    #[test]
+    fn ndims_scalar_is_two() {
+        let ev = run("x = 5; n = ndims(x)");
+        assert_eq!(scalar(&ev, "n"), 2.0);
+    }
+
+    #[test]
+    fn zeros3_from_size_vector() {
+        // zeros3([2, 3, 4]) — alternate single-arg form
+        let ev = run("A = zeros3([2, 3, 4])");
+        assert_eq!(shape(&ev, "A"), (2, 3, 4));
+    }
+}
+
+#[cfg(test)]
+mod tensor3_index_tests {
+    use crate::eval::value::Value;
+    use crate::{lexer, parser, Evaluator};
+
+    fn run(src: &str) -> Evaluator {
+        let src = format!("{src}\n");
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts {
+            ev.exec_stmt(stmt).unwrap();
+        }
+        ev
+    }
+
+    fn scalar(ev: &Evaluator, name: &str) -> f64 {
+        match ev.get(name).unwrap() {
+            Value::Scalar(n) => *n,
+            other => panic!("Expected Scalar for '{name}', got {other:?}"),
+        }
+    }
+
+    fn matrix_shape(ev: &Evaluator, name: &str) -> (usize, usize) {
+        match ev.get(name).unwrap() {
+            Value::Matrix(m) => (m.nrows(), m.ncols()),
+            other => panic!("Expected Matrix for '{name}', got {other:?}"),
+        }
+    }
+
+    fn tensor3_shape(ev: &Evaluator, name: &str) -> (usize, usize, usize) {
+        match ev.get(name).unwrap() {
+            Value::Tensor3(t) => {
+                let s = t.shape();
+                (s[0], s[1], s[2])
+            }
+            other => panic!("Expected Tensor3 for '{name}', got {other:?}"),
+        }
+    }
+
+    // Helper: build a tensor with A(i,j,k) = 100*i + 10*j + k (1-based) for easy checks.
+    // Uses scripted assignment, so also exercises the assignment path lightly.
+    fn build_encoded(src_name: &str, m: usize, n: usize, p: usize) -> String {
+        let mut s = format!("{src_name} = zeros3({m}, {n}, {p})\n");
+        for i in 1..=m {
+            for j in 1..=n {
+                for k in 1..=p {
+                    s.push_str(&format!(
+                        "{src_name}({i}, {j}, {k}) = {};\n",
+                        100 * i + 10 * j + k
+                    ));
+                }
+            }
+        }
+        s
+    }
+
+    // ── READ: single-element extract ────────────────────────────────────────
+
+    #[test]
+    fn read_single_element() {
+        let src = build_encoded("A", 2, 3, 4);
+        let ev = run(&format!("{src}\nv = A(2, 3, 4)"));
+        assert_eq!(scalar(&ev, "v"), (100 * 2 + 10 * 3 + 4) as f64);
+    }
+
+    #[test]
+    fn read_first_element() {
+        let src = build_encoded("A", 2, 3, 4);
+        let ev = run(&format!("{src}\nv = A(1, 1, 1)"));
+        assert_eq!(scalar(&ev, "v"), 111.0);
+    }
+
+    // ── READ: page slice A(:, :, k) → Matrix ────────────────────────────────
+
+    #[test]
+    fn read_page_slice_returns_matrix() {
+        let src = build_encoded("A", 2, 3, 4);
+        let ev = run(&format!("{src}\nM = A(:, :, 2)"));
+        assert_eq!(matrix_shape(&ev, "M"), (2, 3));
+        if let Value::Matrix(m) = ev.get("M").unwrap() {
+            // A(i, j, 2) = 100*i + 10*j + 2
+            assert_eq!(m[[0, 0]].re, 112.0);
+            assert_eq!(m[[0, 2]].re, 132.0);
+            assert_eq!(m[[1, 2]].re, 232.0);
+        }
+    }
+
+    #[test]
+    fn read_page_slice_last() {
+        let src = build_encoded("A", 2, 3, 4);
+        let ev = run(&format!("{src}\nM = A(:, :, 4)"));
+        if let Value::Matrix(m) = ev.get("M").unwrap() {
+            assert_eq!(m[[1, 2]].re, 234.0);
+        }
+    }
+
+    // ── READ: non-canonical slices A(i, :, :) and A(:, j, :) → Matrix ───────
+
+    #[test]
+    fn read_row_slab_returns_matrix() {
+        let src = build_encoded("A", 2, 3, 4);
+        let ev = run(&format!("{src}\nM = A(1, :, :)"));
+        // Fixing i=1, M[j,k] = 100 + 10*j + k where j,k 1-based; stored 0-based
+        assert_eq!(matrix_shape(&ev, "M"), (3, 4));
+        if let Value::Matrix(m) = ev.get("M").unwrap() {
+            assert_eq!(m[[0, 0]].re, 111.0);
+            assert_eq!(m[[2, 3]].re, 134.0);
+        }
+    }
+
+    #[test]
+    fn read_col_slab_returns_matrix() {
+        let src = build_encoded("A", 2, 3, 4);
+        let ev = run(&format!("{src}\nM = A(:, 2, :)"));
+        // Fixing j=2, M[i,k] = 100*i + 20 + k
+        assert_eq!(matrix_shape(&ev, "M"), (2, 4));
+        if let Value::Matrix(m) = ev.get("M").unwrap() {
+            assert_eq!(m[[0, 0]].re, 121.0);
+            assert_eq!(m[[1, 3]].re, 224.0);
+        }
+    }
+
+    // ── READ: full slice returns Tensor3 ────────────────────────────────────
+
+    #[test]
+    fn read_full_slice_returns_tensor3() {
+        let src = build_encoded("A", 2, 3, 4);
+        let ev = run(&format!("{src}\nB = A(:, :, :)"));
+        assert_eq!(tensor3_shape(&ev, "B"), (2, 3, 4));
+    }
+
+    // ── READ: range slicing → Tensor3 of reduced shape ──────────────────────
+
+    #[test]
+    fn read_range_page_returns_tensor3() {
+        let src = build_encoded("A", 2, 3, 4);
+        let ev = run(&format!("{src}\nB = A(:, :, 1:2)"));
+        assert_eq!(tensor3_shape(&ev, "B"), (2, 3, 2));
+        if let Value::Tensor3(t) = ev.get("B").unwrap() {
+            assert_eq!(t[[0, 0, 0]].re, 111.0);
+            assert_eq!(t[[1, 2, 1]].re, 232.0);
+        }
+    }
+
+    #[test]
+    fn read_range_rows_returns_tensor3() {
+        let src = build_encoded("A", 4, 3, 2);
+        let ev = run(&format!("{src}\nB = A(2:3, :, :)"));
+        assert_eq!(tensor3_shape(&ev, "B"), (2, 3, 2));
+    }
+
+    // ── READ: vector result when two dimensions are singleton ───────────────
+
+    #[test]
+    fn read_two_singletons_returns_vector() {
+        let src = build_encoded("A", 2, 3, 4);
+        let ev = run(&format!("{src}\nv = A(1, 1, :)"));
+        if let Value::Vector(v) = ev.get("v").unwrap() {
+            assert_eq!(v.len(), 4);
+            assert_eq!(v[0].re, 111.0);
+            assert_eq!(v[3].re, 114.0);
+        } else {
+            panic!("A(1, 1, :) should return Vector");
+        }
+    }
+
+    // ── READ: end keyword per-dim ───────────────────────────────────────────
+
+    #[test]
+    fn read_end_per_dim() {
+        let src = build_encoded("A", 2, 3, 4);
+        let ev = run(&format!("{src}\nv = A(end, end, end)"));
+        assert_eq!(scalar(&ev, "v"), 234.0);
+    }
+
+    // ── READ: out-of-bounds errors ──────────────────────────────────────────
+
+    #[test]
+    fn read_out_of_bounds_errors() {
+        let src_ok = "A = zeros3(2, 2, 2)\n";
+        let src_bad = format!("{src_ok}v = A(3, 1, 1)\n");
+        let tokens = crate::lexer::tokenize(&src_bad).unwrap();
+        let stmts = crate::parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        let mut err = None;
+        for stmt in &stmts {
+            if let Err(e) = ev.exec_stmt(stmt) {
+                err = Some(e);
+                break;
+            }
+        }
+        assert!(err.is_some(), "expected out-of-bounds error");
+    }
+
+    // ── ASSIGNMENT: scalar ──────────────────────────────────────────────────
+
+    #[test]
+    fn assign_scalar() {
+        let ev = run("A = zeros3(2, 2, 2); A(1, 2, 2) = 7; v = A(1, 2, 2)");
+        assert_eq!(scalar(&ev, "v"), 7.0);
+    }
+
+    // ── ASSIGNMENT: page write A(:, :, k) = M ───────────────────────────────
+
+    #[test]
+    fn assign_page_matrix() {
+        let ev = run(
+            "A = zeros3(2, 2, 3); M = [1, 2; 3, 4]; A(:, :, 2) = M; v11 = A(1, 1, 2); v22 = A(2, 2, 2); v_off = A(1, 1, 1)"
+        );
+        assert_eq!(scalar(&ev, "v11"), 1.0);
+        assert_eq!(scalar(&ev, "v22"), 4.0);
+        assert_eq!(scalar(&ev, "v_off"), 0.0);
+    }
+
+    // ── ASSIGNMENT: tensor3 region ──────────────────────────────────────────
+
+    #[test]
+    fn assign_tensor3_region() {
+        let ev = run(
+            "A = zeros3(4, 3, 2); B = ones3(2, 3, 2); A(2:3, :, :) = B; \
+             v_in = A(2, 1, 1); v_out = A(1, 1, 1)",
+        );
+        assert_eq!(scalar(&ev, "v_in"), 1.0);
+        assert_eq!(scalar(&ev, "v_out"), 0.0);
+    }
+
+    // ── ASSIGNMENT: mismatched RHS shape errors ─────────────────────────────
+
+    #[test]
+    fn assign_page_wrong_shape_errors() {
+        let src = "A = zeros3(2, 2, 3); M = [1, 2, 3; 4, 5, 6]; A(:, :, 1) = M\n";
+        let tokens = crate::lexer::tokenize(src).unwrap();
+        let stmts = crate::parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        let mut err = None;
+        for stmt in &stmts {
+            if let Err(e) = ev.exec_stmt(stmt) {
+                err = Some(e);
+                break;
+            }
+        }
+        assert!(err.is_some(), "expected shape-mismatch error");
+    }
+}
+
+#[cfg(test)]
+mod tensor3_arith_tests {
+    use crate::eval::value::Value;
+    use crate::{lexer, parser, Evaluator};
+
+    fn run(src: &str) -> Evaluator {
+        let src = format!("{src}\n");
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts {
+            ev.exec_stmt(stmt).unwrap();
+        }
+        ev
+    }
+
+    fn run_expect_err(src: &str) -> String {
+        let src = format!("{src}\n");
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts {
+            if let Err(e) = ev.exec_stmt(stmt) {
+                return format!("{e:?}");
+            }
+        }
+        panic!("expected error; none raised");
+    }
+
+    fn scalar(ev: &Evaluator, name: &str) -> f64 {
+        match ev.get(name).unwrap() {
+            Value::Scalar(n) => *n,
+            other => panic!("Expected Scalar for '{name}', got {other:?}"),
+        }
+    }
+
+    fn tensor3(ev: &Evaluator, name: &str) -> ndarray::Array3<num_complex::Complex<f64>> {
+        match ev.get(name).unwrap() {
+            Value::Tensor3(t) => t.clone(),
+            other => panic!("Expected Tensor3 for '{name}', got {other:?}"),
+        }
+    }
+
+    // ── Scalar broadcast ────────────────────────────────────────────────────
+
+    #[test]
+    fn scalar_plus_tensor3() {
+        let ev = run("A = ones3(2, 2, 2); B = A + 5; v = B(1, 1, 1)");
+        assert_eq!(scalar(&ev, "v"), 6.0);
+    }
+
+    #[test]
+    fn tensor3_plus_scalar() {
+        let ev = run("A = ones3(2, 2, 2); B = 5 + A; v = B(1, 1, 1)");
+        assert_eq!(scalar(&ev, "v"), 6.0);
+    }
+
+    #[test]
+    fn scalar_times_tensor3() {
+        let ev = run("A = ones3(2, 2, 2); B = 3 * A; v = B(2, 2, 2)");
+        assert_eq!(scalar(&ev, "v"), 3.0);
+    }
+
+    #[test]
+    fn tensor3_divided_by_scalar() {
+        let ev = run("A = ones3(2, 2, 2); B = A / 2; v = B(1, 1, 1)");
+        assert_eq!(scalar(&ev, "v"), 0.5);
+    }
+
+    #[test]
+    fn tensor3_pow_scalar_elementwise() {
+        let ev = run("A = ones3(2, 2, 2) + 2; B = A .^ 2; v = B(1, 1, 1)");
+        assert!((scalar(&ev, "v") - 9.0).abs() < 1e-10);
+    }
+
+    // ── Tensor3 op Tensor3 ──────────────────────────────────────────────────
+
+    #[test]
+    fn tensor3_plus_tensor3() {
+        let ev = run("A = ones3(2, 2, 2); B = ones3(2, 2, 2) * 3; C = A + B; v = C(1, 2, 2)");
+        assert_eq!(scalar(&ev, "v"), 4.0);
+    }
+
+    #[test]
+    fn tensor3_minus_tensor3() {
+        let ev = run("A = ones3(2, 2, 2) * 5; B = ones3(2, 2, 2) * 2; C = A - B; v = C(1, 2, 2)");
+        assert_eq!(scalar(&ev, "v"), 3.0);
+    }
+
+    #[test]
+    fn tensor3_elemmul_tensor3() {
+        let ev = run("A = ones3(2, 2, 2) * 3; B = ones3(2, 2, 2) * 4; C = A .* B; v = C(1, 1, 1)");
+        assert_eq!(scalar(&ev, "v"), 12.0);
+    }
+
+    #[test]
+    fn tensor3_elemdiv_tensor3() {
+        let ev = run("A = ones3(2, 2, 2) * 10; B = ones3(2, 2, 2) * 4; C = A ./ B; v = C(1, 1, 1)");
+        assert_eq!(scalar(&ev, "v"), 2.5);
+    }
+
+    #[test]
+    fn tensor3_preserves_shape_through_arith() {
+        let ev = run("A = ones3(3, 4, 5); B = A + A; C = B .* A");
+        let c = tensor3(&ev, "C");
+        assert_eq!(c.shape(), &[3, 4, 5]);
+        for &val in c.iter() {
+            assert_eq!(val.re, 2.0);
+        }
+    }
+
+    // ── Error paths ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn tensor3_times_tensor3_errors() {
+        let err = run_expect_err("A = ones3(2, 2, 2); B = ones3(2, 2, 2); C = A * B");
+        assert!(
+            err.to_lowercase().contains("tensor3") && err.contains("*"),
+            "expected tensor3 * tensor3 error mentioning `*`, got: {err}"
+        );
+    }
+
+    #[test]
+    fn matrix_plus_tensor3_errors() {
+        let err = run_expect_err(
+            "A = ones3(2, 2, 2); M = ones(2, 2); C = M + A",
+        );
+        assert!(
+            err.to_lowercase().contains("matrix")
+                && err.to_lowercase().contains("tensor3"),
+            "expected matrix + tensor3 error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn tensor3_shape_mismatch_errors() {
+        let err = run_expect_err("A = ones3(2, 2, 2); B = ones3(3, 3, 3); C = A + B");
+        assert!(
+            err.to_lowercase().contains("shape"),
+            "expected shape mismatch error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn tensor3_divides_tensor3_with_slash_errors() {
+        // `/` is matmul-style; reject between two tensor3s
+        let err = run_expect_err("A = ones3(2, 2, 2); B = ones3(2, 2, 2); C = A / B");
+        assert!(
+            err.contains("/") || err.to_lowercase().contains("not defined"),
+            "expected / error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn vector_plus_tensor3_errors() {
+        let err = run_expect_err("A = ones3(2, 2, 2); v = [1, 2]; C = v + A");
+        assert!(
+            err.to_lowercase().contains("vector") && err.to_lowercase().contains("tensor3"),
+            "expected vector + tensor3 error, got: {err}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tensor3_ergonomic_tests {
+    use crate::eval::value::Value;
+    use crate::{lexer, parser, Evaluator};
+
+    fn run(src: &str) -> Evaluator {
+        let src = format!("{src}\n");
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts {
+            ev.exec_stmt(stmt).unwrap();
+        }
+        ev
+    }
+
+    fn run_expect_err(src: &str) -> String {
+        let src = format!("{src}\n");
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts {
+            if let Err(e) = ev.exec_stmt(stmt) {
+                return format!("{e:?}");
+            }
+        }
+        panic!("expected error; none raised");
+    }
+
+    fn scalar(ev: &Evaluator, name: &str) -> f64 {
+        match ev.get(name).unwrap() {
+            Value::Scalar(n) => *n,
+            other => panic!("Expected Scalar for '{name}', got {other:?}"),
+        }
+    }
+
+    // ── reshape variadic ────────────────────────────────────────────────────
+
+    #[test]
+    fn reshape_to_tensor3_column_major() {
+        // reshape(1:24, 2, 3, 4) — column-major walk: A(1,1,1)=1, A(2,1,1)=2,
+        // A(1,2,1)=3, A(2,3,4)=24.
+        let ev = run("A = reshape(1:24, 2, 3, 4); v1=A(1,1,1); v2=A(2,1,1); v3=A(1,2,1); v_last=A(2,3,4)");
+        assert_eq!(scalar(&ev, "v1"), 1.0);
+        assert_eq!(scalar(&ev, "v2"), 2.0);
+        assert_eq!(scalar(&ev, "v3"), 3.0);
+        assert_eq!(scalar(&ev, "v_last"), 24.0);
+    }
+
+    #[test]
+    fn reshape_tensor3_source() {
+        // Round-trip a tensor3 through reshape back to the same shape.
+        let ev = run("A = reshape(1:24, 2, 3, 4); B = reshape(A, 4, 3, 2); v_last = B(4, 3, 2)");
+        assert_eq!(scalar(&ev, "v_last"), 24.0);
+    }
+
+    #[test]
+    fn reshape_tensor3_to_matrix() {
+        let ev = run("A = reshape(1:12, 2, 3, 2); M = reshape(A, 4, 3); v_last = M(4, 3)");
+        // With column-major, the last element is A(last) = 12
+        assert_eq!(scalar(&ev, "v_last"), 12.0);
+    }
+
+    #[test]
+    fn reshape_wrong_element_count_errors() {
+        let err = run_expect_err("A = reshape(1:10, 2, 3, 4)");
+        assert!(err.to_lowercase().contains("reshape"));
+    }
+
+    // ── cat ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn cat_dim3_two_matrices() {
+        let ev = run(
+            "M1 = [1, 2; 3, 4]; M2 = [5, 6; 7, 8]; T = cat(3, M1, M2); \
+             s1 = size(T, 1); s2 = size(T, 2); s3 = size(T, 3); \
+             v1 = T(1, 1, 1); v2 = T(2, 2, 2)",
+        );
+        assert_eq!(scalar(&ev, "s1"), 2.0);
+        assert_eq!(scalar(&ev, "s2"), 2.0);
+        assert_eq!(scalar(&ev, "s3"), 2.0);
+        assert_eq!(scalar(&ev, "v1"), 1.0);
+        assert_eq!(scalar(&ev, "v2"), 8.0);
+    }
+
+    #[test]
+    fn cat_dim3_tensor3_plus_matrix() {
+        let ev = run(
+            "T = zeros3(2, 2, 3); M = [1, 2; 3, 4]; \
+             U = cat(3, T, M); s3 = size(U, 3); v = U(1, 2, 4)",
+        );
+        assert_eq!(scalar(&ev, "s3"), 4.0);
+        assert_eq!(scalar(&ev, "v"), 2.0);
+    }
+
+    #[test]
+    fn cat_dim3_shape_mismatch_errors() {
+        let err = run_expect_err("M1 = [1, 2; 3, 4]; M2 = [1, 2, 3]; T = cat(3, M1, M2)");
+        assert!(
+            err.to_lowercase().contains("cat"),
+            "expected cat shape error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn cat_dim1_defers_to_vertcat() {
+        // Smoke test: cat(1, M1, M2) should equal vertcat(M1, M2).
+        let ev = run(
+            "M1 = [1, 2; 3, 4]; M2 = [5, 6; 7, 8]; V = cat(1, M1, M2); s1 = size(V, 1)",
+        );
+        assert_eq!(scalar(&ev, "s1"), 4.0);
+    }
+
+    #[test]
+    fn cat_bad_dim_errors() {
+        let err = run_expect_err("M = [1, 2; 3, 4]; T = cat(4, M, M)");
+        assert!(
+            err.to_lowercase().contains("dim"),
+            "expected dim error, got: {err}"
+        );
+    }
+
+    // ── permute ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn permute_identity() {
+        let ev = run("A = reshape(1:24, 2, 3, 4); B = permute(A, [1, 2, 3]); v = B(2, 3, 4)");
+        assert_eq!(scalar(&ev, "v"), 24.0);
+    }
+
+    #[test]
+    fn permute_swap_axes_1_and_2() {
+        // A is (2, 3, 4). Swap first two axes → B is (3, 2, 4).
+        // A(i, j, k) goes to B(j, i, k).
+        let ev = run(
+            "A = reshape(1:24, 2, 3, 4); B = permute(A, [2, 1, 3]); \
+             s1 = size(B, 1); s2 = size(B, 2); s3 = size(B, 3); \
+             v_src = A(2, 3, 4); v_dst = B(3, 2, 4)",
+        );
+        assert_eq!(scalar(&ev, "s1"), 3.0);
+        assert_eq!(scalar(&ev, "s2"), 2.0);
+        assert_eq!(scalar(&ev, "s3"), 4.0);
+        assert_eq!(scalar(&ev, "v_src"), scalar(&ev, "v_dst"));
+    }
+
+    #[test]
+    fn permute_invalid_order_errors() {
+        let err = run_expect_err("A = zeros3(2, 2, 2); B = permute(A, [1, 1, 2])");
+        assert!(
+            err.to_lowercase().contains("permutation"),
+            "expected permutation error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn permute_on_non_tensor3_errors() {
+        let err = run_expect_err("M = [1, 2; 3, 4]; B = permute(M, [1, 2, 3])");
+        assert!(err.to_lowercase().contains("tensor3"));
+    }
+
+    // ── squeeze ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn squeeze_drops_trailing_singleton() {
+        // (2, 3, 1) → Matrix(2, 3)
+        let ev = run("T = reshape(1:6, 2, 3, 1); M = squeeze(T); s1 = size(M, 1); s2 = size(M, 2)");
+        assert_eq!(scalar(&ev, "s1"), 2.0);
+        assert_eq!(scalar(&ev, "s2"), 3.0);
+    }
+
+    #[test]
+    fn squeeze_drops_middle_singleton() {
+        // (2, 1, 3) → Matrix(2, 3)
+        let ev = run("T = reshape(1:6, 2, 1, 3); M = squeeze(T); s1 = size(M, 1); s2 = size(M, 2)");
+        assert_eq!(scalar(&ev, "s1"), 2.0);
+        assert_eq!(scalar(&ev, "s2"), 3.0);
+    }
+
+    #[test]
+    fn squeeze_two_singletons_returns_vector() {
+        // (1, 1, 5) → Vector(5)
+        let ev = run("T = reshape(1:5, 1, 1, 5); v = squeeze(T); n = numel(v)");
+        assert_eq!(scalar(&ev, "n"), 5.0);
+    }
+
+    #[test]
+    fn squeeze_all_singletons_returns_scalar() {
+        let ev = run("T = reshape(7, 1, 1, 1); s = squeeze(T)");
+        assert_eq!(scalar(&ev, "s"), 7.0);
+    }
+
+    #[test]
+    fn squeeze_no_singletons_passes_through() {
+        let ev = run("T = zeros3(2, 3, 4); U = squeeze(T); d = ndims(U)");
+        assert_eq!(scalar(&ev, "d"), 3.0);
+    }
+
+    #[test]
+    fn squeeze_on_matrix_passes_through() {
+        // Non-tensor3 should pass through unchanged (not error).
+        let ev = run("M = [1, 2; 3, 4]; N = squeeze(M); s1 = size(N, 1); s2 = size(N, 2)");
+        assert_eq!(scalar(&ev, "s1"), 2.0);
+        assert_eq!(scalar(&ev, "s2"), 2.0);
+    }
+}
+
+#[cfg(test)]
+mod tensor3_io_tests {
+    use crate::eval::value::Value;
+    use crate::{lexer, parser, Evaluator};
+    use ndarray::Array3;
+    use num_complex::Complex;
+    use rustlab_core::C64;
+
+    fn run(src: &str) -> Evaluator {
+        let src = format!("{src}\n");
+        let tokens = lexer::tokenize(&src).unwrap();
+        let stmts = parser::parse(tokens).unwrap();
+        let mut ev = Evaluator::new();
+        for stmt in &stmts {
+            ev.exec_stmt(stmt).unwrap();
+        }
+        ev
+    }
+
+    fn temp_path(name: &str) -> String {
+        let dir = std::env::temp_dir();
+        dir.join(format!("rustlab_tensor3_test_{}_{}", std::process::id(), name))
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    // ── TOML round-trip ─────────────────────────────────────────────────────
+
+    #[test]
+    fn toml_roundtrip_tensor3() {
+        let path = temp_path("roundtrip.toml");
+        let src = format!(
+            "A = reshape(1:24, 2, 3, 4); s = struct(\"A\", A); save(\"{path}\", s); \
+             t = load(\"{path}\"); B = t.A; v_first = B(1, 1, 1); v_last = B(2, 3, 4); \
+             s1 = size(B, 1); s2 = size(B, 2); s3 = size(B, 3)"
+        );
+        let ev = run(&src);
+        match ev.get("v_first").unwrap() {
+            Value::Scalar(n) => assert_eq!(*n, 1.0),
+            other => panic!("expected Scalar, got {other:?}"),
+        }
+        match ev.get("v_last").unwrap() {
+            Value::Scalar(n) => assert_eq!(*n, 24.0),
+            other => panic!("expected Scalar, got {other:?}"),
+        }
+        match ev.get("s1").unwrap() {
+            Value::Scalar(n) => assert_eq!(*n, 2.0),
+            _ => panic!(),
+        }
+        match ev.get("s2").unwrap() {
+            Value::Scalar(n) => assert_eq!(*n, 3.0),
+            _ => panic!(),
+        }
+        match ev.get("s3").unwrap() {
+            Value::Scalar(n) => assert_eq!(*n, 4.0),
+            _ => panic!(),
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // ── NPY round-trip ──────────────────────────────────────────────────────
+
+    #[test]
+    fn npy_roundtrip_tensor3() {
+        let path = temp_path("roundtrip.npy");
+        let src = format!(
+            "A = reshape(1:12, 2, 2, 3); save(\"{path}\", A); \
+             B = load(\"{path}\"); d = ndims(B); s1 = size(B, 1); s2 = size(B, 2); s3 = size(B, 3)"
+        );
+        let ev = run(&src);
+        match ev.get("d").unwrap() {
+            Value::Scalar(n) => assert_eq!(*n, 3.0),
+            _ => panic!(),
+        }
+        match ev.get("s1").unwrap() {
+            Value::Scalar(n) => assert_eq!(*n, 2.0),
+            _ => panic!(),
+        }
+        match ev.get("s2").unwrap() {
+            Value::Scalar(n) => assert_eq!(*n, 2.0),
+            _ => panic!(),
+        }
+        match ev.get("s3").unwrap() {
+            Value::Scalar(n) => assert_eq!(*n, 3.0),
+            _ => panic!(),
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // ── NPZ round-trip ──────────────────────────────────────────────────────
+
+    #[test]
+    fn npz_roundtrip_tensor3() {
+        let path = temp_path("roundtrip.npz");
+        let src = format!(
+            "A = reshape(1:24, 3, 2, 4); save(\"{path}\", \"A\", A); \
+             B = load(\"{path}\", \"A\"); \
+             v_first = B(1, 1, 1); v_last = B(3, 2, 4)"
+        );
+        let ev = run(&src);
+        match ev.get("v_first").unwrap() {
+            Value::Scalar(n) => assert_eq!(*n, 1.0),
+            _ => panic!(),
+        }
+        match ev.get("v_last").unwrap() {
+            Value::Scalar(n) => assert_eq!(*n, 24.0),
+            _ => panic!(),
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // ── Display truncation on a large tensor ────────────────────────────────
+
+    #[test]
+    fn display_large_tensor_is_bounded() {
+        // 10×10×100 is 10k cells — naive formatting would be dozens of KB.
+        // The truncated Display must stay well under that.
+        let mut t = Array3::<C64>::zeros((10, 10, 100));
+        for i in 0..10 {
+            for j in 0..10 {
+                for k in 0..100 {
+                    t[[i, j, k]] = Complex::new((i * 100 + j * 10 + k) as f64, 0.0);
+                }
+            }
+        }
+        let v = Value::Tensor3(t);
+        let s = format!("{}", v);
+        // Header plus first page plus last page plus "pages omitted" footer.
+        // A full dump (10*10*100 floats, each ~10 chars) would be > 100KB;
+        // the truncated output should be well under 5KB.
+        assert!(
+            s.len() < 5000,
+            "truncated display too long ({} bytes); should be bounded",
+            s.len()
+        );
+        assert!(s.starts_with("tensor3 [10×10×100]"));
+        assert!(s.contains("pages omitted"));
+    }
+}

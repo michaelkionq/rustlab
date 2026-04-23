@@ -1,8 +1,13 @@
 use super::value::Value;
-use ndarray::Array1;
+use ndarray::{Array1, Array3};
 use num_complex::Complex;
 use std::collections::HashMap;
 use toml::Value as Toml;
+
+/// Reserved field names used to encode a Tensor3 inside a TOML table.
+/// Prefixed with double underscores to avoid collision with user field names.
+const TENSOR3_SHAPE_KEY: &str = "__tensor3_shape";
+const TENSOR3_DATA_KEY: &str = "__tensor3_data";
 
 // ─── Save ────────────────────────────────────────────────────────────────────
 
@@ -71,6 +76,38 @@ fn value_to_toml(v: &Value) -> Result<Toml, String> {
             }
             Ok(Toml::Array(arr))
         }
+        Value::Tensor3(t) => {
+            // Encode as a TOML table with flat column-major data plus shape metadata.
+            // On load, the table is recognised by its two reserved keys and
+            // reconstructed as a Tensor3.
+            let s = t.shape();
+            let (m, n, p) = (s[0], s[1], s[2]);
+            let mut flat = Vec::with_capacity(m * n * p);
+            for k in 0..p {
+                for j in 0..n {
+                    for i in 0..m {
+                        let v = t[[i, j, k]];
+                        if v.im.abs() > 1e-15 {
+                            return Err(
+                                "save: cannot serialize complex tensor3 values to TOML".into(),
+                            );
+                        }
+                        flat.push(scalar_to_toml(v.re));
+                    }
+                }
+            }
+            let mut table = toml::map::Map::new();
+            table.insert(
+                TENSOR3_SHAPE_KEY.to_string(),
+                Toml::Array(vec![
+                    Toml::Integer(m as i64),
+                    Toml::Integer(n as i64),
+                    Toml::Integer(p as i64),
+                ]),
+            );
+            table.insert(TENSOR3_DATA_KEY.to_string(), Toml::Array(flat));
+            Ok(Toml::Table(table))
+        }
         Value::Struct(fields) => {
             let mut table = toml::map::Map::new();
             // Sort keys for deterministic output
@@ -108,7 +145,13 @@ fn scalar_to_toml(f: f64) -> Toml {
 
 fn toml_to_value(tv: Toml) -> Value {
     match tv {
-        Toml::Table(map) => {
+        Toml::Table(mut map) => {
+            // Tensor3 encoding: if the table has our reserved keys, rebuild the tensor.
+            if map.contains_key(TENSOR3_SHAPE_KEY) && map.contains_key(TENSOR3_DATA_KEY) {
+                if let Some(t) = tensor3_from_table(&mut map) {
+                    return t;
+                }
+            }
             let fields: HashMap<String, Value> = map
                 .into_iter()
                 .map(|(k, v)| (k, toml_to_value(v)))
@@ -121,6 +164,52 @@ fn toml_to_value(tv: Toml) -> Value {
         Toml::Boolean(b) => Value::Bool(b),
         Toml::Datetime(dt) => Value::Str(dt.to_string()),
         Toml::Array(arr) => array_to_value(arr),
+    }
+}
+
+/// Attempt to reconstruct a Tensor3 from a table that carries our reserved keys.
+/// Returns `Some` on success; returns `None` if the payload is malformed so the
+/// caller falls back to treating it as a plain struct.
+fn tensor3_from_table(map: &mut toml::map::Map<String, Toml>) -> Option<Value> {
+    let shape = match map.remove(TENSOR3_SHAPE_KEY)? {
+        Toml::Array(arr) if arr.len() == 3 => arr,
+        _ => return None,
+    };
+    let data = match map.remove(TENSOR3_DATA_KEY)? {
+        Toml::Array(arr) => arr,
+        _ => return None,
+    };
+    let m = toml_num_as_usize(&shape[0])?;
+    let n = toml_num_as_usize(&shape[1])?;
+    let p = toml_num_as_usize(&shape[2])?;
+    if data.len() != m * n * p {
+        return None;
+    }
+    let flat: Vec<Complex<f64>> = data
+        .iter()
+        .map(|v| match v {
+            Toml::Integer(i) => Some(Complex::new(*i as f64, 0.0)),
+            Toml::Float(f) => Some(Complex::new(*f, 0.0)),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    // Fill column-major (matches the save walk)
+    let mut t = Array3::<Complex<f64>>::zeros((m, n, p));
+    for k in 0..p {
+        for j in 0..n {
+            for i in 0..m {
+                t[[i, j, k]] = flat[k * m * n + j * m + i];
+            }
+        }
+    }
+    Some(Value::Tensor3(t))
+}
+
+fn toml_num_as_usize(v: &Toml) -> Option<usize> {
+    match v {
+        Toml::Integer(i) if *i >= 0 => Some(*i as usize),
+        Toml::Float(f) if *f >= 0.0 && f.fract() == 0.0 => Some(*f as usize),
+        _ => None,
     }
 }
 

@@ -760,6 +760,7 @@ primary     = NUMBER | STRING | IDENT
 | Element-wise | `.*` `./` `.^` | Always element-wise on vectors/matrices |
 | Matrix literal | `[1,2; 3,4]` | `;` separates rows |
 | Sparse types | `SparseVector`, `SparseMatrix` | COO format; 0-based internal, 1-based in script; auto-promote to dense in binops |
+| Rank-3 tensor | `Value::Tensor3` — shape `(m, n, p)` | Built via `zeros3`/`ones3`/`rand3`/`randn3`/`reshape(A, m, n, p)`/`cat(3, ...)`. 1-based indexing `A(i,j,k)`; `A(:,:,k)` returns a Matrix (trailing singleton dropped). No broadcasting between Matrix and Tensor3; no `*`/`/` between two Tensor3s (use `.*`/`./`). Column-major reshape walk. See `dev/plans/tensor3.md` for the full design. |
 | String array | `{"a", "b", "c"}` | `Value::StringArray`; all elements must be strings; 1-based indexing |
 | Underscore literals | `1_000_000`, `3.141_592` | Digit separators stripped at lex time; like Rust/Python/C++ |
 | Format mode | `format commas` / `format default` | Bare command; toggles thousands separators in auto-print output |
@@ -782,8 +783,16 @@ primary     = NUMBER | STRING | IDENT
 | `linspace` | `linspace(start, stop, n)` | Real vector of n points |
 | `len` | `len(v)` | Number of elements |
 | `length` | `length(v)` | Alias for `len` |
-| `numel` | `numel(x)` | Total elements (rows×cols for matrices) |
-| `size` | `size(x)` | `[rows, cols]` as a Vector |
+| `numel` | `numel(x)` | Total elements (rows×cols for matrices, m·n·p for tensor3) |
+| `size` | `size(x)` / `size(x, dim)` | `[rows, cols]` or `[m, n, p]` (tensor3) as a Vector; `size(x, 3)` valid only for tensor3 |
+| `ndims` | `ndims(x)` | 3 for tensor3, 2 otherwise (MATLAB convention) |
+| `zeros3` | `zeros3(m, n, p)` / `zeros3([m, n, p])` | Rank-3 complex zero tensor |
+| `ones3` | `ones3(m, n, p)` | Rank-3 complex ones tensor |
+| `rand3` | `rand3(m, n, p)` | Rank-3 tensor, U[0, 1) samples |
+| `randn3` | `randn3(m, n, p)` | Rank-3 tensor, N(0, 1) samples |
+| `cat` | `cat(dim, A, B, ...)` | Concatenate along dim 1 (rows) / 2 (cols) / 3 (pages → tensor3) |
+| `permute` | `permute(A, [d1, d2, d3])` | Reorder tensor3 axes; `order` is a permutation of `[1, 2, 3]` |
+| `squeeze` | `squeeze(A)` | Drop singleton dimensions from a tensor3 (→ Matrix / Vector / Scalar) |
 | `print` | `print(x)` | Print to stdout |
 | `plot` | `plot(x)` | Terminal line chart (blocks until keypress) |
 | `stem` | `stem(x)` | Terminal stem chart (blocks until keypress) |

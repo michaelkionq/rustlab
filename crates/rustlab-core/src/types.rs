@@ -1,4 +1,4 @@
-use ndarray::{Array1, Array2};
+use ndarray::{Array1, Array2, Array3};
 use num_complex::Complex;
 
 /// Complex 64-bit float (the native scalar type throughout rustlab)
@@ -7,6 +7,8 @@ pub type C64 = Complex<f64>;
 pub type CVector = Array1<C64>;
 /// Complex matrix
 pub type CMatrix = Array2<C64>;
+/// Complex rank-3 tensor, shape `(m, n, p)` — rows × cols × pages
+pub type CTensor3 = Array3<C64>;
 /// Real vector
 pub type RVector = Array1<f64>;
 /// Real matrix
